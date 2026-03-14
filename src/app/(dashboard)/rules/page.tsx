@@ -6,9 +6,8 @@ import { getDictionary } from '@/i18n';
 export const dynamic = 'force-dynamic';
 
 export default async function RulesPage() {
-  const ruleSets = await getRuleSets();
   const locale = await getLocale();
-  const dict = await getDictionary(locale);
+  const [ruleSets, dict] = await Promise.all([getRuleSets(), getDictionary(locale)]);
 
   return <RulesClient initialRuleSets={ruleSets} dict={dict} />;
 }

@@ -6,9 +6,8 @@ import { getDictionary } from '@/i18n';
 export const dynamic = 'force-dynamic';
 
 export default async function ProjectsPage() {
-  const projects = await getProjects();
   const locale = await getLocale();
-  const dict = await getDictionary(locale);
+  const [projects, dict] = await Promise.all([getProjects(), getDictionary(locale)]);
 
   return <ProjectsClient initialProjects={projects} dict={dict} />;
 }

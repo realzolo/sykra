@@ -8,11 +8,12 @@ export const dynamic = 'force-dynamic';
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const project = await getProjectById(id);
-  const branches = await getRepoBranches(project.repo, id).catch(() => [project.default_branch]);
-
   const locale = await getLocale();
-  const dict = await getDictionary(locale);
+  const project = await getProjectById(id);
+  const [branches, dict] = await Promise.all([
+    getRepoBranches(project.repo, id).catch(() => [project.default_branch]),
+    getDictionary(locale),
+  ]);
 
   return <EnhancedProjectDetail project={project} branches={branches} dict={dict} />;
 }

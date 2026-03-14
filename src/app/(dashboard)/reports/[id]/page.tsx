@@ -7,8 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function ReportDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const report = await getReportById(id);
   const locale = await getLocale();
-  const dict = await getDictionary(locale);
+  const [report, dict] = await Promise.all([getReportById(id), getDictionary(locale)]);
   return <EnhancedReportDetailClient initialReport={report} dict={dict} />;
 }

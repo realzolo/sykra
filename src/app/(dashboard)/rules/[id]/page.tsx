@@ -8,9 +8,11 @@ export const dynamic = 'force-dynamic';
 
 export default async function RuleSetDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const ruleSet = await getRuleSetById(id).catch(() => null);
-  if (!ruleSet) notFound();
   const locale = await getLocale();
-  const dict = await getDictionary(locale);
+  const [ruleSet, dict] = await Promise.all([
+    getRuleSetById(id).catch(() => null),
+    getDictionary(locale),
+  ]);
+  if (!ruleSet) notFound();
   return <RuleSetDetailClient initialRuleSet={ruleSet} dict={dict} />;
 }

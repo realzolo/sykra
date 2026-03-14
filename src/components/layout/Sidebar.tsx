@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Code2, FolderOpen, FileText, Shield, Settings, LogOut } from 'lucide-react';
@@ -60,18 +61,22 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
           const count = item.countKey ? counts[item.countKey] : null;
           const Icon = item.icon;
           return (
-            <Button
+            <Link
               key={item.href}
-              variant={active ? 'secondary' : 'ghost'}
-              onPress={() => router.push(item.href)}
-              className="w-full justify-start gap-3 h-9 text-sm"
+              href={item.href}
+              className={[
+                'flex items-center gap-3 h-9 px-3 rounded-medium text-sm w-full transition-colors',
+                active
+                  ? 'bg-secondary text-secondary-foreground font-medium'
+                  : 'text-foreground hover:bg-muted/60',
+              ].join(' ')}
             >
               <Icon className="size-4 shrink-0" />
               <span className="flex-1 text-left">{item.label}</span>
               {count != null && count > 0 && (
                 <Chip size="sm" variant={active ? 'primary' : 'secondary'}>{count}</Chip>
               )}
-            </Button>
+            </Link>
           );
         })}
       </nav>
