@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Settings, Save, Loader2 } from 'lucide-react';
 import { Input, TextArea, Switch, Button } from '@heroui/react';
 import { toast } from 'sonner';
+import type { Dictionary } from '@/i18n';
 
 type ProjectConfig = {
   ignore_patterns: string[];
@@ -12,7 +13,7 @@ type ProjectConfig = {
   webhook_url: string | null;
 };
 
-export default function ProjectConfigPanel({ projectId }: { projectId: string }) {
+export default function ProjectConfigPanel({ projectId, dict }: { projectId: string; dict: Dictionary }) {
   const [config, setConfig] = useState<ProjectConfig>({
     ignore_patterns: [],
     quality_threshold: null,
@@ -32,7 +33,7 @@ export default function ProjectConfigPanel({ projectId }: { projectId: string })
         setLoading(false);
       })
       .catch(() => {
-        toast.error('加载配置失败');
+        toast.error(dict.projects.loadConfigFailed);
         setLoading(false);
       });
   }, [projectId]);
@@ -60,11 +61,11 @@ export default function ProjectConfigPanel({ projectId }: { projectId: string })
 
     if (!res.ok) {
       const data = await res.json();
-      toast.error(data.error ?? '保存失败');
+      toast.error(data.error ?? dict.projects.saveFailed);
       return;
     }
 
-    toast.success('配置已保存');
+    toast.success(dict.projects.configSaved);
   }
 
   if (loading) {
@@ -79,28 +80,28 @@ export default function ProjectConfigPanel({ projectId }: { projectId: string })
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <Settings className="size-5" />
-        <h3 className="text-lg font-semibold">项目配置</h3>
+        <h3 className="text-lg font-semibold">{dict.projects.projectConfig}</h3>
       </div>
 
       {/* Ignore Patterns */}
       <div className="space-y-2">
-        <label htmlFor="ignore-patterns" className="text-sm font-medium">忽略文件模式</label>
+        <label htmlFor="ignore-patterns" className="text-sm font-medium">{dict.projects.ignorePatterns}</label>
         <TextArea
           id="ignore-patterns"
           value={ignoreText}
           onChange={e => setIgnoreText(e.target.value)}
-          placeholder={"每行一个模式，例如：\nnode_modules/**\n*.test.ts\ndist/**"}
+          placeholder={dict.projects.ignorePatternsPlaceholder}
           rows={8}
           className="font-mono text-sm"
         />
         <p className="text-xs text-muted-foreground">
-          使用 .gitignore 风格的模式，每行一个。以 # 开头的行为注释。
+          {dict.projects.ignorePatternsHelp}
         </p>
       </div>
 
       {/* Quality Threshold */}
       <div className="space-y-2">
-        <label htmlFor="quality-threshold" className="text-sm font-medium">质量阈值</label>
+        <label htmlFor="quality-threshold" className="text-sm font-medium">{dict.projects.qualityThreshold}</label>
         <Input
           id="quality-threshold"
           type="number"
@@ -113,19 +114,19 @@ export default function ProjectConfigPanel({ projectId }: { projectId: string })
               quality_threshold: e.target.value ? parseInt(e.target.value) : null,
             }))
           }
-          placeholder="例如: 80"
+          placeholder={dict.projects.qualityThresholdPlaceholder}
         />
         <p className="text-xs text-muted-foreground">
-          低于此分数时将发出警告。留空表示不设置阈值。
+          {dict.projects.qualityThresholdHelp}
         </p>
       </div>
 
       {/* Auto Analyze */}
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
-          <label className="text-sm font-medium">自动分析</label>
+          <label className="text-sm font-medium">{dict.projects.autoAnalyze}</label>
           <p className="text-xs text-muted-foreground">
-            当检测到新提交时自动触发代码审查
+            {dict.projects.autoAnalyzeHelp}
           </p>
         </div>
         <Switch
@@ -147,7 +148,7 @@ export default function ProjectConfigPanel({ projectId }: { projectId: string })
           placeholder="https://your-webhook-url.com/notify"
         />
         <p className="text-xs text-muted-foreground">
-          分析完成后将向此 URL 发送 POST 请求通知。
+          {dict.projects.webhookHelp}
         </p>
       </div>
 
@@ -155,7 +156,7 @@ export default function ProjectConfigPanel({ projectId }: { projectId: string })
       <div className="flex justify-end pt-4">
         <Button onPress={handleSave} isDisabled={saving} className="gap-2">
           {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          {saving ? '保存中…' : '保存配置'}
+          {saving ? dict.common.loading : dict.projects.saveConfig}
         </Button>
       </div>
     </div>

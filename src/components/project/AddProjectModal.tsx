@@ -5,6 +5,8 @@ import { Search, Github, Lock, Loader2 } from 'lucide-react';
 import { Modal, Input, Select, ListBox, useOverlayState } from '@heroui/react';
 import { Button } from '@heroui/react';
 import { toast } from 'sonner';
+import type { Dictionary } from '@/i18n';
+import { t } from '@/lib/i18n-utils';
 
 type GHRepo = {
   full_name: string; name: string; description: string | null;
@@ -12,8 +14,8 @@ type GHRepo = {
 };
 type RuleSet = { id: string; name: string };
 
-export default function AddProjectModal({ open, onClose, onCreated }: {
-  open: boolean; onClose: () => void; onCreated: () => void;
+export default function AddProjectModal({ open, onClose, onCreated, dict }: {
+  open: boolean; onClose: () => void; onCreated: () => void; dict: Dictionary;
 }) {
   const state = useOverlayState({ isOpen: open, onOpenChange: (v) => { if (!v) onClose(); } });
   const [step, setStep] = useState<'pick' | 'confirm'>('pick');
@@ -41,7 +43,7 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
         setRepos(Array.isArray(repoData) ? (repoData as GHRepo[]) : []);
       }
       setRuleSets(Array.isArray(ruleData) ? ruleData : []);
-    }).catch(() => setReposError('加载仓库失败')).finally(() => setReposLoading(false));
+    }).catch(() => setReposError(dict.projects.failedToLoadRepos)).finally(() => setReposLoading(false));
   }, [open]);
 
   const filtered = useMemo(() =>
@@ -67,21 +69,21 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
     });
     const data = await res.json();
     setSubmitting(false);
-    if (!res.ok) { toast.error(data.error ?? '添加失败'); return; }
-    toast.success('项目已添加');
+    if (!res.ok) { toast.error(data.error ?? dict.projects.addFailed); return; }
+    toast.success(dict.projects.projectAdded);
     onCreated();
   }
 
   function formatDate(d: string | null) {
     if (!d) return '';
     const days = Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
-    if (days === 0) return '今天';
-    if (days < 30) return `${days}天前`;
-    if (days < 365) return `${Math.floor(days / 30)}个月前`;
-    return `${Math.floor(days / 365)}年前`;
+    if (days === 0) return dict.projects.today;
+    if (days < 30) return t(dict.projects.daysAgo, { days: days.toString() });
+    if (days < 365) return t(dict.projects.monthsAgo, { months: Math.floor(days / 30).toString() });
+    return t(dict.projects.yearsAgo, { years: Math.floor(days / 365).toString() });
   }
 
-  const rulesetItems = [{ id: 'none', name: '无' }, ...ruleSets.map(rs => ({ id: rs.id, name: rs.name }))];
+  const rulesetItems = [{ id: 'none', name: dict.common.none }, ...ruleSets.map(rs => ({ id: rs.id, name: rs.name }))];
 
   return (
     <Modal state={state}>
@@ -89,14 +91,14 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
         <Modal.Container size="lg">
           <Modal.Dialog>
             <Modal.Header>
-              <Modal.Heading>{step === 'pick' ? '选择仓库' : '确认项目信息'}</Modal.Heading>
+              <Modal.Heading>{step === 'pick' ? dict.projects.selectRepository : dict.projects.confirmDetails}</Modal.Heading>
             </Modal.Header>
             <Modal.Body>
               {step === 'pick' && (
                 <div className="flex flex-col gap-4 flex-1">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-default-400" />
-                    <Input placeholder="搜索仓库..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" autoFocus />
+                    <Input placeholder={dict.projects.searchProjects} value={search} onChange={e => setSearch(e.target.value)} className="pl-10" autoFocus />
                   </div>
                   <div className="flex-1 overflow-y-auto border rounded-md max-h-[300px]">
                     {reposLoading ? (
@@ -106,7 +108,7 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
                     ) : reposError ? (
                       <div className="p-8 text-center text-danger text-sm">{reposError}</div>
                     ) : filtered.length === 0 ? (
-                      <div className="p-8 text-center text-default-400 text-sm">未找到仓库</div>
+                      <div className="p-8 text-center text-default-400 text-sm">{dict.projects.noRepositories}</div>
                     ) : (
                       <div className="divide-y">
                         {filtered.map((repo) => (
@@ -121,7 +123,7 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-0.5">
                                 <span className="font-medium text-sm truncate">{repo.full_name}</span>
-                                {repo.private && <span className="text-xs px-2 py-0.5 rounded-full bg-default-200 shrink-0">私有</span>}
+                                {repo.private && <span className="text-xs px-2 py-0.5 rounded-full bg-default-200 shrink-0">{dict.projects.privateRepo}</span>}
                               </div>
                               {repo.description && <p className="text-xs text-default-400 truncate">{repo.description}</p>}
                             </div>
@@ -134,7 +136,7 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
                       </div>
                     )}
                   </div>
-                  {repos.length > 0 && <p className="text-xs text-default-400 text-center">已加载 {repos.length} 个仓库</p>}
+                  {repos.length > 0 && <p className="text-xs text-default-400 text-center">{t(dict.projects.repositoriesLoaded, { count: repos.length.toString() })}</p>}
                 </div>
               )}
 
@@ -146,18 +148,18 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{selected.full_name}</p>
-                      <p className="text-xs text-default-400">分支: {selected.default_branch}</p>
+                      <p className="text-xs text-default-400">{dict.projects.branch}: {selected.default_branch}</p>
                     </div>
-                    <Button type="button" variant="ghost" size="sm" onPress={() => setStep('pick')}>更改</Button>
+                    <Button type="button" variant="ghost" size="sm" onPress={() => setStep('pick')}>{dict.common.edit}</Button>
                   </div>
 
                   <div className="space-y-2">
-                    <label htmlFor="project-name" className="text-sm font-semibold">项目名称</label>
+                    <label htmlFor="project-name" className="text-sm font-semibold">{dict.projects.projectName}</label>
                     <Input id="project-name" value={projectName} onChange={e => setProjectName(e.target.value)} required />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold">规则集 <span className="text-default-400 font-normal">（可选）</span></label>
+                    <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-default-400 font-normal">({dict.common.none})</span></label>
                     <Select selectedKey={rulesetId} onSelectionChange={(key) => setRulesetId(key as string)}>
                       <Select.Trigger>
                         <Select.Value />
@@ -176,8 +178,8 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
             <Modal.Footer>
               {step === 'confirm' && selected && (
                 <>
-                  <Button type="button" variant="outline" onPress={onClose}>取消</Button>
-                  <Button type="submit" variant="primary" isDisabled={submitting || !projectName.trim()} onPress={handleSubmit as unknown as () => void}>{submitting ? '添加中…' : '添加项目'}</Button>
+                  <Button type="button" variant="outline" onPress={onClose}>{dict.common.cancel}</Button>
+                  <Button type="submit" variant="primary" isDisabled={submitting || !projectName.trim()} onPress={handleSubmit as unknown as () => void}>{submitting ? dict.common.loading : dict.projects.addProject}</Button>
                 </>
               )}
             </Modal.Footer>

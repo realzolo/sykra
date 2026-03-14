@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import { Plus, Shield, ChevronRight } from 'lucide-react';
 import { Button, Input, Modal, useOverlayState, Chip } from '@heroui/react';
 import { toast } from 'sonner';
+import type { Dictionary } from '@/i18n';
 
 type RuleSet = { id: string; name: string; description?: string; is_global: boolean; rules?: unknown[] };
 
-export default function RulesClient({ initialRuleSets }: { initialRuleSets: RuleSet[] }) {
+export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets: RuleSet[]; dict: Dictionary }) {
   const router = useRouter();
   const [ruleSets, setRuleSets] = useState<RuleSet[]>(initialRuleSets);
   const [showCreate, setShowCreate] = useState(false);
@@ -28,7 +29,7 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
     const data = await res.json();
     setCreating(false);
     if (!res.ok) { toast.error(data.error); return; }
-    toast.success('规则集已创建');
+    toast.success(dict.rules.ruleSetCreated);
     setShowCreate(false);
     setName(''); setDescription('');
     const updated = await fetch('/api/rules/sets').then(r => r.json());
@@ -41,12 +42,12 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
       <div className="border-b border-border bg-card shrink-0">
         <div className="px-6 py-4 max-w-[1200px] mx-auto w-full flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold">规则集</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">配置 AI 代码审查规则</p>
+            <h1 className="text-xl font-semibold">{dict.rules.title}</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">{dict.rules.description}</p>
           </div>
           <Button onPress={() => setShowCreate(true)} size="sm" className="gap-1.5">
             <Plus className="size-4" />
-            新建规则集
+            {dict.rules.newRuleSet}
           </Button>
         </div>
       </div>
@@ -59,11 +60,11 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
               <Shield className="h-5 w-5 text-muted-foreground" />
             </div>
             <div>
-              <h3 className="text-sm font-medium">还没有规则集</h3>
-              <p className="text-sm text-muted-foreground mt-0.5">创建规则集来定义 AI 应检查的内容</p>
+              <h3 className="text-sm font-medium">{dict.rules.noRules}</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">{dict.rules.noRulesDescription}</p>
             </div>
             <Button onPress={() => setShowCreate(true)} size="sm" className="gap-1.5 mt-1">
-              <Plus className="size-4" />新建规则集
+              <Plus className="size-4" />{dict.rules.newRuleSet}
             </Button>
           </div>
         ) : (
@@ -72,8 +73,8 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
               {/* Table header */}
               <div className="flex items-center px-4 py-2 border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground gap-4">
                 <div className="w-8 shrink-0" />
-                <div className="flex-1">名称</div>
-                <div className="w-24 text-right">规则数</div>
+                <div className="flex-1">{dict.common.name}</div>
+                <div className="w-24 text-right">{dict.rules.rulesCount.replace('{{count}}', '')}</div>
                 <div className="w-6 shrink-0" />
               </div>
               {ruleSets.map(rs => {
@@ -91,7 +92,7 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium">{rs.name}</span>
-                        {rs.is_global && <Chip size="sm" variant="soft" color="accent">全局</Chip>}
+                        {rs.is_global && <Chip size="sm" variant="soft" color="accent">{dict.rules.global}</Chip>}
                       </div>
                       {rs.description && (
                         <div className="text-xs text-muted-foreground mt-0.5 truncate">{rs.description}</div>
@@ -100,7 +101,7 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
                     <div className="w-24 text-right shrink-0">
                       <span className="text-sm font-medium text-success">{enabled}</span>
                       <span className="text-sm text-muted-foreground">/{total}</span>
-                      <div className="text-[10px] text-muted-foreground">已启用</div>
+                      <div className="text-[10px] text-muted-foreground">{dict.rules.enabled}</div>
                     </div>
                     <ChevronRight className="size-4 text-muted-foreground shrink-0" />
                   </div>
@@ -116,22 +117,22 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
           <Modal.Container size="sm">
             <Modal.Dialog>
               <Modal.Header>
-                <Modal.Heading>新建规则集</Modal.Heading>
+                <Modal.Heading>{dict.rules.newRuleSet}</Modal.Heading>
               </Modal.Header>
               <form onSubmit={handleCreate}>
                 <Modal.Body className="flex flex-col gap-4">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium">名称</label>
-                    <Input value={name} onChange={e => setName(e.target.value)} placeholder="例如：Nuxt SaaS 规则" required />
+                    <label className="text-sm font-medium">{dict.common.name}</label>
+                    <Input value={name} onChange={e => setName(e.target.value)} placeholder={dict.rules.ruleSetNamePlaceholder} required />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium">描述 <span className="text-muted-foreground font-normal">（可选）</span></label>
-                    <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="这个规则集用于什么？" />
+                    <label className="text-sm font-medium">{dict.rules.descriptionOptional}</label>
+                    <Input value={description} onChange={e => setDescription(e.target.value)} placeholder={dict.rules.descriptionPlaceholder} />
                   </div>
                 </Modal.Body>
                 <Modal.Footer>
-                  <Button type="button" variant="outline" onPress={() => setShowCreate(false)}>取消</Button>
-                  <Button type="submit" isDisabled={creating}>{creating ? '创建中…' : '创建'}</Button>
+                  <Button type="button" variant="outline" onPress={() => setShowCreate(false)}>{dict.common.cancel}</Button>
+                  <Button type="submit" isDisabled={creating}>{creating ? dict.rules.creating : dict.rules.create}</Button>
                 </Modal.Footer>
               </form>
             </Modal.Dialog>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Trash2, Pencil, Shield } from 'lucide-react';
 import { Button, Input, TextArea, Select, ListBox, Switch, Modal, useOverlayState, Tooltip, Chip } from '@heroui/react';
 import { toast } from 'sonner';
+import type { Dictionary } from '@/i18n';
 
 type Rule = {
   id: string; ruleset_id: string; category: string; name: string;
@@ -14,18 +15,14 @@ type Rule = {
 type RuleSet = { id: string; name: string; description?: string; is_global: boolean; rules: Rule[] };
 
 const CATEGORIES = ['style', 'security', 'architecture', 'performance', 'maintainability'];
-const CAT_LABEL: Record<string, string> = { style: '风格', security: '安全', architecture: '架构', performance: '性能', maintainability: '可维护性' };
-const SEV_LABEL: Record<string, string> = { error: '错误', warning: '警告', info: '提示' };
 const SEV_COLOR: Record<string, 'danger' | 'warning' | 'success'> = { error: 'danger', warning: 'warning', info: 'success' };
 const CAT_COLOR: Record<string, 'accent' | 'danger' | 'success' | 'warning' | 'default'> = {
   style: 'accent', security: 'danger', architecture: 'success', performance: 'warning', maintainability: 'default',
 };
 
 const EMPTY_RULE = { category: 'style', name: '', prompt: '', weight: 20, severity: 'warning' as const, is_enabled: true };
-const CAT_ITEMS = CATEGORIES.map(c => ({ id: c, label: CAT_LABEL[c] ?? c }));
-const SEV_ITEMS = [{ id: 'error', label: '错误' }, { id: 'warning', label: '警告' }, { id: 'info', label: '提示' }];
 
-export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet: RuleSet }) {
+export default function RuleSetDetailClient({ initialRuleSet, dict }: { initialRuleSet: RuleSet; dict: Dictionary }) {
   const router = useRouter();
   const [rules, setRules] = useState<Rule[]>(initialRuleSet.rules ?? []);
   const [showAdd, setShowAdd] = useState(false);
@@ -38,6 +35,13 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
   const [fName, setFName] = useState('');
   const [fPrompt, setFPrompt] = useState('');
   const [fWeight, setFWeight] = useState(20);
+
+  const CAT_ITEMS = CATEGORIES.map(c => ({ id: c, label: dict.rules.category[c as keyof typeof dict.rules.category] ?? c }));
+  const SEV_ITEMS = [
+    { id: 'error', label: dict.rules.severity.error },
+    { id: 'warning', label: dict.rules.severity.warning },
+    { id: 'info', label: dict.rules.severity.info },
+  ];
 
   const modalState = useOverlayState({
     isOpen: showAdd,
@@ -68,8 +72,8 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
     });
     const data = await res.json();
     setSaving(false);
-    if (!res.ok) { toast.error(data.error ?? '保存失败'); return; }
-    toast.success(editRule ? '规则已更新' : '规则已创建');
+    if (!res.ok) { toast.error(data.error ?? dict.rules.saving); return; }
+    toast.success(editRule ? dict.rules.ruleUpdated : dict.rules.ruleCreated);
     setShowAdd(false); setEditRule(null);
     const fresh = await fetch(`/api/rules/${initialRuleSet.id}`).then(r => r.json());
     setRules(fresh.rules ?? []);
@@ -82,7 +86,7 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
       body: JSON.stringify({ id: rule.id, is_enabled: !rule.is_enabled }),
     });
     setTogglingId(null);
-    if (!res.ok) { toast.error('更新失败'); return; }
+    if (!res.ok) { toast.error(dict.projects.updateFailed); return; }
     setRules(prev => prev.map(r => r.id === rule.id ? { ...r, is_enabled: !r.is_enabled } : r));
   }
 
@@ -90,8 +94,8 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
     const res = await fetch(`/api/rules/${initialRuleSet.id}/rules`, {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: ruleId }),
     });
-    if (!res.ok) { toast.error('删除失败'); return; }
-    toast.success('规则已删除');
+    if (!res.ok) { toast.error(dict.reports.deleteFailed); return; }
+    toast.success(dict.rules.ruleDeleted);
     setRules(prev => prev.filter(r => r.id !== ruleId));
   }
 
@@ -114,16 +118,16 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-base font-semibold">{initialRuleSet.name}</span>
-              {initialRuleSet.is_global && <Chip size="sm" variant="soft" color="accent">全局</Chip>}
+              {initialRuleSet.is_global && <Chip size="sm" variant="soft" color="accent">{dict.rules.global}</Chip>}
             </div>
             {initialRuleSet.description && <div className="text-xs text-muted-foreground mt-0.5">{initialRuleSet.description}</div>}
           </div>
           <span className="text-sm text-muted-foreground">
-            <span className="text-success font-semibold">{enabledCount}</span>/{rules.length} 已启用
+            <span className="text-success font-semibold">{enabledCount}</span>/{rules.length} {dict.rules.enabled}
           </span>
           <Button size="sm" onPress={openAdd} className="gap-1.5">
             <Plus className="size-4" />
-            添加规则
+            {dict.rules.addRule}
           </Button>
         </div>
       </div>
@@ -136,11 +140,11 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
               <Shield className="size-5 text-muted-foreground" />
             </div>
             <div>
-              <h3 className="text-sm font-medium">还没有规则</h3>
-              <p className="text-sm text-muted-foreground mt-0.5">添加规则以定义 Claude 应检查的内容</p>
+              <h3 className="text-sm font-medium">{dict.rules.noRulesInSet}</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">{dict.rules.noRulesInSetDescription}</p>
             </div>
             <Button size="sm" onPress={openAdd} className="gap-1.5 mt-1">
-              <Plus className="size-4" />添加规则
+              <Plus className="size-4" />{dict.rules.addRule}
             </Button>
           </div>
         ) : (
@@ -148,12 +152,13 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
             {CATEGORIES.map(cat => {
               const catRules = grouped[cat];
               if (catRules.length === 0) return null;
+              const catLabel = dict.rules.category[cat as keyof typeof dict.rules.category] ?? cat;
               return (
                 <div key={cat} className="border border-border rounded-lg overflow-hidden bg-card">
                   {/* Category header */}
                   <div className="flex items-center gap-2 px-6 py-2 border-b border-border bg-muted/40">
-                    <Chip size="sm" color={CAT_COLOR[cat]} variant="soft">{CAT_LABEL[cat] ?? cat}</Chip>
-                    <span className="text-xs text-muted-foreground">{catRules.length} 条规则</span>
+                    <Chip size="sm" color={CAT_COLOR[cat]} variant="soft">{catLabel}</Chip>
+                    <span className="text-xs text-muted-foreground">{dict.rules.rulesCount.replace('{{count}}', String(catRules.length))}</span>
                   </div>
                   {catRules.map(rule => (
                     <div key={rule.id} className={['flex items-start gap-3 px-6 py-3.5 border-b border-border last:border-0 hover:bg-muted/20 transition-colors', !rule.is_enabled ? 'opacity-50' : ''].join(' ')}>
@@ -166,8 +171,8 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                           <span className="text-sm font-medium">{rule.name}</span>
-                          <Chip size="sm" color={SEV_COLOR[rule.severity]} variant="soft">{SEV_LABEL[rule.severity]}</Chip>
-                          <span className="text-xs text-muted-foreground">权重 {rule.weight}</span>
+                          <Chip size="sm" color={SEV_COLOR[rule.severity]} variant="soft">{dict.rules.severity[rule.severity]}</Chip>
+                          <span className="text-xs text-muted-foreground">{dict.rules.weight} {rule.weight}</span>
                         </div>
                         <div className="text-xs text-muted-foreground leading-relaxed bg-muted rounded px-3 py-2 font-mono whitespace-pre-wrap">
                           {rule.prompt}
@@ -180,7 +185,7 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
                               <Pencil className="size-3.5" />
                             </Button>
                           </Tooltip.Trigger>
-                          <Tooltip.Content>编辑</Tooltip.Content>
+                          <Tooltip.Content>{dict.common.edit}</Tooltip.Content>
                         </Tooltip>
                         <Tooltip>
                           <Tooltip.Trigger>
@@ -188,7 +193,7 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
                               <Trash2 className="size-3.5" />
                             </Button>
                           </Tooltip.Trigger>
-                          <Tooltip.Content>删除</Tooltip.Content>
+                          <Tooltip.Content>{dict.common.delete}</Tooltip.Content>
                         </Tooltip>
                       </div>
                     </div>
@@ -206,13 +211,13 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
           <Modal.Container size="md">
             <Modal.Dialog>
               <Modal.Header>
-                <Modal.Heading>{editRule ? '编辑规则' : '添加规则'}</Modal.Heading>
+                <Modal.Heading>{editRule ? dict.rules.editRule : dict.rules.addRule}</Modal.Heading>
               </Modal.Header>
               <form onSubmit={handleSaveRule}>
                 <Modal.Body className="flex flex-col gap-4">
                   <div className="flex gap-3">
                     <div className="flex flex-col gap-1.5 flex-1">
-                      <label className="text-sm font-medium">分类</label>
+                      <label className="text-sm font-medium">{dict.rules.categoryLabel}</label>
                       <Select selectedKey={fCategory} onSelectionChange={(key) => setFCategory(key as string)}>
                         <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
                         <Select.Popover>
@@ -223,7 +228,7 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
                       </Select>
                     </div>
                     <div className="flex flex-col gap-1.5 w-[130px]">
-                      <label className="text-sm font-medium">严重级别</label>
+                      <label className="text-sm font-medium">{dict.rules.severityLabel}</label>
                       <Select selectedKey={fSeverity} onSelectionChange={(key) => setFSeverity(key as 'error' | 'warning' | 'info')}>
                         <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
                         <Select.Popover>
@@ -235,23 +240,23 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
                     </div>
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium">规则名称</label>
-                    <Input value={fName} onChange={e => setFName(e.target.value)} placeholder="例如：禁止硬编码密钥" required />
+                    <label className="text-sm font-medium">{dict.rules.ruleNameLabel}</label>
+                    <Input value={fName} onChange={e => setFName(e.target.value)} placeholder={dict.rules.ruleNamePlaceholder} required />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium">提示词（Claude 的检查指令）</label>
+                    <label className="text-sm font-medium">{dict.rules.promptLabel}</label>
                     <TextArea value={fPrompt} onChange={e => setFPrompt(e.target.value)}
-                      placeholder="描述 Claude 应检查的内容…" required rows={4} className="font-mono text-sm" />
+                      placeholder={dict.rules.promptPlaceholder} required rows={4} className="font-mono text-sm" />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium">权重（0–100）</label>
+                    <label className="text-sm font-medium">{dict.rules.weightLabel}</label>
                     <Input type="number" min={0} max={100} step={5} value={String(fWeight)}
                       onChange={e => setFWeight(Number(e.target.value))} className="w-[120px]" />
                   </div>
                 </Modal.Body>
                 <Modal.Footer>
-                  <Button type="button" variant="outline" onPress={() => { setShowAdd(false); setEditRule(null); }}>取消</Button>
-                  <Button type="submit" isDisabled={saving}>{saving ? '保存中…' : editRule ? '保存更改' : '添加规则'}</Button>
+                  <Button type="button" variant="outline" onPress={() => { setShowAdd(false); setEditRule(null); }}>{dict.common.cancel}</Button>
+                  <Button type="submit" isDisabled={saving}>{saving ? dict.rules.saving : editRule ? dict.rules.saveChanges : dict.rules.addRule}</Button>
                 </Modal.Footer>
               </form>
             </Modal.Dialog>

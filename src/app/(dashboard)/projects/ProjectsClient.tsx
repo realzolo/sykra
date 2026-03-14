@@ -2,19 +2,20 @@
 
 import { useState, useMemo } from 'react';
 import { Plus, Search } from 'lucide-react';
-import { Button, Input, InputGroup } from '@heroui/react';
+import { Button, InputGroup } from '@heroui/react';
 import { toast } from 'sonner';
 import { FolderOpen } from 'lucide-react';
 import ProjectCard from '@/components/project/ProjectCard';
 import AddProjectModal from '@/components/project/AddProjectModal';
 import DashboardStats from '@/components/dashboard/DashboardStats';
+import type { Dictionary } from '@/i18n';
 
 type Project = {
   id: string; name: string; repo: string;
   description?: string; default_branch: string; ruleset_id?: string;
 };
 
-export default function ProjectsClient({ initialProjects }: { initialProjects: Project[] }) {
+export default function ProjectsClient({ initialProjects, dict }: { initialProjects: Project[]; dict: Dictionary }) {
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
@@ -32,7 +33,7 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
 
   async function handleDelete(id: string) {
     await fetch(`/api/projects/${id}`, { method: 'DELETE' });
-    toast.success('项目已删除');
+    toast.success(dict.projects.projectDeleted);
     setProjects(prev => prev.filter(p => p.id !== id));
   }
 
@@ -46,12 +47,12 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
       <div className="border-b border-border bg-card shrink-0">
         <div className="px-6 py-4 max-w-[1200px] mx-auto w-full flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold">项目</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">管理 GitHub 仓库代码审查</p>
+            <h1 className="text-xl font-semibold">{dict.projects.title}</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">{dict.projects.description}</p>
           </div>
           <Button onPress={() => setShowAdd(true)} size="sm" className="gap-1.5">
             <Plus className="h-4 w-4" />
-            添加项目
+            {dict.projects.addProject}
           </Button>
         </div>
       </div>
@@ -60,7 +61,7 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
       {projects.length > 0 && (
         <div className="border-b border-border bg-card shrink-0">
           <div className="px-6 py-4 max-w-[1200px] mx-auto w-full">
-            <DashboardStats />
+            <DashboardStats dict={dict} />
           </div>
         </div>
       )}
@@ -74,7 +75,7 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
                 <Search className="size-3.5 text-muted-foreground" />
               </InputGroup.Prefix>
               <InputGroup.Input
-                placeholder="搜索项目..."
+                placeholder={dict.projects.searchProjects}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -92,17 +93,17 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
               <FolderOpen className="h-5 w-5 text-muted-foreground" />
             </div>
             <div>
-              <h3 className="text-sm font-medium">还没有项目</h3>
-              <p className="text-sm text-muted-foreground mt-0.5">添加 GitHub 仓库开始使用代码审查功能</p>
+              <h3 className="text-sm font-medium">{dict.projects.noProjectsEmpty}</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">{dict.projects.noProjectsEmptyDescription}</p>
             </div>
             <Button onPress={() => setShowAdd(true)} size="sm" className="gap-1.5 mt-1">
               <Plus className="h-4 w-4" />
-              添加项目
+              {dict.projects.addProject}
             </Button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="max-w-[1200px] mx-auto w-full px-6 py-20">
-            <p className="text-sm text-muted-foreground">没有匹配 &quot;{search}&quot; 的项目</p>
+            <p className="text-sm text-muted-foreground">{dict.projects.noMatchingProjects.replace('{{search}}', search)}</p>
           </div>
         ) : (
           <div className="max-w-[1200px] mx-auto w-full px-6 pb-6">
@@ -110,12 +111,12 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
               {/* Table header */}
               <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-muted/40">
                 <div className="w-8 shrink-0" />
-                <div className="flex-1 text-xs font-medium text-muted-foreground">项目名称</div>
-                <div className="hidden md:block text-xs font-medium text-muted-foreground w-[200px]">描述</div>
+                <div className="flex-1 text-xs font-medium text-muted-foreground">{dict.projects.projectName}</div>
+                <div className="hidden md:block text-xs font-medium text-muted-foreground w-[200px]">{dict.common.description}</div>
                 <div className="w-[140px] shrink-0" />
               </div>
               {filtered.map(p => (
-                <ProjectCard key={p.id} project={p} onDelete={handleDelete} onUpdate={handleUpdate} />
+                <ProjectCard key={p.id} project={p} onDelete={handleDelete} onUpdate={handleUpdate} dict={dict} />
               ))}
             </div>
           </div>
@@ -126,6 +127,7 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
         open={showAdd}
         onClose={() => setShowAdd(false)}
         onCreated={() => { setShowAdd(false); refresh(); }}
+        dict={dict}
       />
     </div>
   );

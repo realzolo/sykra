@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Modal, Input, Select, ListBox, useOverlayState } from '@heroui/react';
 import { Button } from '@heroui/react';
 import { toast } from 'sonner';
+import type { Dictionary } from '@/i18n';
 
 type Project = {
   id: string; name: string; repo: string;
@@ -11,11 +12,12 @@ type Project = {
 };
 type RuleSet = { id: string; name: string };
 
-export default function EditProjectModal({ project, open, onClose, onUpdated }: {
+export default function EditProjectModal({ project, open, onClose, onUpdated, dict }: {
   project: Project;
   open: boolean;
   onClose: () => void;
   onUpdated: (updated: Project) => void;
+  dict: Dictionary;
 }) {
   const state = useOverlayState({ isOpen: open, onOpenChange: (v) => { if (!v) onClose(); } });
   const [loading, setLoading] = useState(false);
@@ -43,12 +45,12 @@ export default function EditProjectModal({ project, open, onClose, onUpdated }: 
     });
     const data = await res.json();
     setLoading(false);
-    if (!res.ok) { toast.error(data.error ?? '更新失败'); return; }
-    toast.success('项目已更新');
+    if (!res.ok) { toast.error(data.error ?? dict.projects.updateFailed); return; }
+    toast.success(dict.projects.projectUpdated);
     onUpdated(data);
   }
 
-  const rulesetItems = [{ id: 'none', name: '无' }, ...ruleSets.map(rs => ({ id: rs.id, name: rs.name }))];
+  const rulesetItems = [{ id: 'none', name: dict.common.none }, ...ruleSets.map(rs => ({ id: rs.id, name: rs.name }))];
 
   return (
     <Modal state={state}>
@@ -56,20 +58,20 @@ export default function EditProjectModal({ project, open, onClose, onUpdated }: 
         <Modal.Container size="md">
           <Modal.Dialog>
             <Modal.Header>
-              <Modal.Heading>编辑项目</Modal.Heading>
+              <Modal.Heading>{dict.projects.editProject}</Modal.Heading>
             </Modal.Header>
             <Modal.Body>
               <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <div className="space-y-2">
-                  <label htmlFor="name" className="text-sm font-semibold">项目名称</label>
+                  <label htmlFor="name" className="text-sm font-semibold">{dict.projects.projectName}</label>
                   <Input id="name" value={name} onChange={e => setName(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
-                  <label htmlFor="description" className="text-sm font-semibold">描述 <span className="text-default-400 font-normal">（可选）</span></label>
-                  <Input id="description" value={description} onChange={e => setDescription(e.target.value)} placeholder="这个项目是做什么的？" />
+                  <label htmlFor="description" className="text-sm font-semibold">{dict.common.description} <span className="text-default-400 font-normal">({dict.projects.optional})</span></label>
+                  <Input id="description" value={description} onChange={e => setDescription(e.target.value)} placeholder={dict.projects.descriptionPlaceholder} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold">规则集 <span className="text-default-400 font-normal">（可选）</span></label>
+                  <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-default-400 font-normal">({dict.projects.optional})</span></label>
                   <Select selectedKey={rulesetId} onSelectionChange={(key) => setRulesetId(key as string)}>
                     <Select.Trigger>
                       <Select.Value />
@@ -85,8 +87,8 @@ export default function EditProjectModal({ project, open, onClose, onUpdated }: 
               </form>
             </Modal.Body>
             <Modal.Footer>
-              <Button type="button" variant="outline" onPress={onClose}>取消</Button>
-              <Button type="submit" variant="primary" isDisabled={loading} onPress={handleSubmit as unknown as () => void}>{loading ? '保存中…' : '保存'}</Button>
+              <Button type="button" variant="outline" onPress={onClose}>{dict.common.cancel}</Button>
+              <Button type="submit" variant="primary" isDisabled={loading} onPress={handleSubmit as unknown as () => void}>{loading ? dict.common.loading : dict.common.save}</Button>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

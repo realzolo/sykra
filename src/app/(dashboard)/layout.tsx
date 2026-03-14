@@ -1,10 +1,15 @@
 import Sidebar from '@/components/layout/Sidebar';
 import OnboardingCheck from '@/components/settings/OnboardingCheck';
+import { getLocale } from '@/lib/locale';
+import { getDictionary } from '@/i18n';
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const locale = await getLocale();
+  const dict = await getDictionary(locale);
+
   return (
     <div className="flex h-screen overflow-hidden bg-muted/40">
-      <Sidebar />
+      <Sidebar locale={locale} dict={dict} />
       <main className="flex-1 overflow-hidden flex flex-col bg-muted/40">
         {children}
       </main>

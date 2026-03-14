@@ -4,95 +4,79 @@
 
 - **Response language**: Always respond in English
 
+## Internationalization (i18n)
+
+5 languages, English default: `en` | `zh` | `ja` | `es` | `zh-TW`
+
+**Server component:**
+```tsx
+import { getLocale } from '@/lib/locale';
+import { getDictionary } from '@/i18n';
+const locale = await getLocale();
+const dict = await getDictionary(locale);
+```
+
+**Client component:** Pass `dict` as prop from server page, type as `Dictionary` from `@/i18n`.
+
+**Rules:**
+- All 5 dictionary files (`src/i18n/dictionaries/*.json`) must have **identical key structure** — TypeScript infers types from `en.json`
+- When adding keys, update ALL 5 files simultaneously or the build fails
+- Run `rm -rf .next` if TypeScript type cache is stale after dict changes
+- `LanguageSwitcher` in Sidebar footer persists locale in cookies
+
 ## Project Overview
 
-An AI code review platform built with Next.js 16 + React 19 + TypeScript, using HeroUI v3 (beta) + Tailwind CSS v4.
-Supports multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, and quality report scoring.
-The UI uses HeroUI v3 composite component APIs + lucide-react, is fully English, white theme, left-aligned Supabase Dashboard style.
-The backend supports a task queue and analysis workers (by commit SHA), with incremental report updates via SSE.
+AI code review platform: Next.js 16 + React 19 + TypeScript + HeroUI v3 (beta) + Tailwind CSS v4.
+Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring.
+Backend: task queue + analysis workers (by commit SHA), incremental report updates via SSE.
 
 ## Tech Stack
 
 | Tech | Version | Notes |
-|------|---------|------|
-| Next.js | 16.1.6 | App Router, Turbopack build |
+|------|---------|-------|
+| Next.js | 16.1.6 | App Router, Turbopack |
 | React | 19.2.3 | — |
-| HeroUI | 3.0.0-beta.8 | UI component library (`@heroui/react`) |
-| Tailwind CSS | v4.2.1 | `@tailwindcss/postcss`, import via `@import "@heroui/styles"` |
-| framer-motion | ^12 | HeroUI animation dependency |
-| tw-animate-css | ^1.4 | HeroUI styling dependency |
+| HeroUI | 3.0.0-beta.8 | `@heroui/react` |
+| Tailwind CSS | v4.2.1 | `@import "@heroui/styles"` in globals.css |
 | Supabase | `@supabase/ssr ^0.9` | Database + auth |
 | Octokit | `^5.0.5` | GitHub API |
-| Anthropic SDK | `^0.78` | Claude AI analysis, supports `ANTHROPIC_BASE_URL` custom endpoint |
+| Anthropic SDK | `^0.78` | Claude AI, supports `ANTHROPIC_BASE_URL` |
 | sonner | ^2 | Toast notifications |
 | zod | `^4.3.6` | Runtime validation |
-| lucide-react | ^0.577 | Icon library |
+| lucide-react | ^0.577 | Icons |
 
-## HeroUI v3 Key Configuration
+## HeroUI v3 Configuration
 
-### globals.css
+- **globals.css**: `@import "@heroui/styles";` — do NOT use `heroui()` tailwind plugin
+- **No** `HeroUIProvider` wrapper needed
+- **.npmrc**: `public-hoist-pattern[]=*@heroui/*` (required for correct hoisting)
+- **No Progress component** — use Tailwind: `<div className="h-1 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full bg-success" style={{ width: `${v}%` }} /></div>`
 
-```css
-@import "@heroui/styles";
-
-@layer base {
-  body {
-    font-family: Arial, Helvetica, sans-serif;
-  }
-}
-```
-
-**Do not** use the `heroui()` plugin in `tailwind.config.ts` (v3 does not use it).
-**Do not** wrap with `HeroUIProvider` (v3 does not require it).
-
-### .npmrc
-
-```
-public-hoist-pattern[]=*@heroui/*
-```
-
-Must be configured, otherwise HeroUI packages will not be hoisted correctly.
-
-### Progress Component
-
-HeroUI v3 beta **does not** include a Progress component. Use Tailwind:
-
-```tsx
-<div className="h-1 rounded-full bg-muted overflow-hidden">
-  <div className="h-full rounded-full bg-success" style={{ width: `${value}%` }} />
-</div>
-```
-
-## HeroUI v3 Component API (Verified)
-
-### Composite Component Structure
+## HeroUI v3 Component API
 
 ```tsx
 // Card
-<Card>
-  <Card.Header><Card.Title>Title</Card.Title></Card.Header>
-  <Card.Content className="p-4">Content</Card.Content>
-</Card>
+<Card><Card.Header><Card.Title /></Card.Header><Card.Content className="p-4" /></Card>
 
 // Modal
 <Modal state={modalState}>
   <Modal.Backdrop isDismissable>
-    <Modal.Container size="md">  {/* xs | sm | md | lg | full | cover */}
+    <Modal.Container size="md"> {/* xs|sm|md|lg|full|cover */}
       <Modal.Dialog>
         <Modal.Header><Modal.Heading>Title</Modal.Heading></Modal.Header>
-        <Modal.Body>Content</Modal.Body>
-        <Modal.Footer>Footer</Modal.Footer>
+        <Modal.Body /><Modal.Footer />
       </Modal.Dialog>
     </Modal.Container>
   </Modal.Backdrop>
 </Modal>
 
-// Tabs (do not use <Tabs.Indicator />, causes SharedElement runtime error)
+// Modal state
+const modalState = useOverlayState({ isOpen: show, onOpenChange: (v) => { if (!v) setShow(false); } });
+
+// Tabs — NEVER use <Tabs.Indicator /> (causes SharedElement runtime error)
 <Tabs defaultSelectedKey="tab1">
   <Tabs.ListContainer className="border-b border-border px-4">
-    <Tabs.List>
-      <Tabs.Tab id="tab1">Tab 1</Tabs.Tab>
-    </Tabs.List>
+    <Tabs.List><Tabs.Tab id="tab1">Tab</Tabs.Tab></Tabs.List>
   </Tabs.ListContainer>
   <Tabs.Panel id="tab1">Content</Tabs.Panel>
 </Tabs>
@@ -101,241 +85,95 @@ HeroUI v3 beta **does not** include a Progress component. Use Tailwind:
 <Select selectedKey={value} onSelectionChange={(key) => setValue(key as string)}>
   <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
   <Select.Popover>
-    <ListBox items={items}>
-      {(item) => <ListBox.Item id={item.id}>{item.label}</ListBox.Item>}
-    </ListBox>
+    <ListBox items={items}>{(item) => <ListBox.Item id={item.id}>{item.label}</ListBox.Item>}</ListBox>
   </Select.Popover>
 </Select>
 
-// Tooltip (composite component, no content prop)
-<Tooltip>
-  <Tooltip.Trigger><Button>Trigger</Button></Tooltip.Trigger>
-  <Tooltip.Content>Tooltip text</Tooltip.Content>
-</Tooltip>
+// Tooltip
+<Tooltip><Tooltip.Trigger><Button /></Tooltip.Trigger><Tooltip.Content>text</Tooltip.Content></Tooltip>
 
-// Input with prefix icon (Input has no startContent prop)
+// Input with icon (no startContent prop)
 <InputGroup>
   <InputGroup.Prefix><Search className="size-4" /></InputGroup.Prefix>
-  <InputGroup.Input placeholder="Search..." value={v} onChange={e => setV(e.target.value)} />
+  <InputGroup.Input placeholder="..." value={v} onChange={e => setV(e.target.value)} />
 </InputGroup>
-
-// EmptyState
-<EmptyState>
-  <EmptyState.Root>Content</EmptyState.Root>
-</EmptyState>
 ```
 
-### Known API Limitations
+### API Limitations
 
 | Component | Limitation |
 |-----------|------------|
-| `Modal.Container` | `size` only accepts `xs | sm | md | lg | full | cover`, no `xl` / `2xl` |
-| `Input` | No `startContent` prop, no `isDisabled`; use standard HTML `disabled` |
-| `Button` | No `isLoading` prop; use `isDisabled` + conditional text |
-| `Card` | Plain `div`, no `onPress`; use `onClick` |
-| `Select.Value` | No `placeholder` prop; use children: `<Select.Value>Placeholder</Select.Value>` |
-| `Switch` | `onChange` receives `boolean` (not event object) |
-| `Tabs.Indicator` | **Forbidden**; triggers SharedElement runtime error |
-| `Separator` | Divider component name (v2 uses `Divider`) |
+| `Modal.Container` | `size`: `xs\|sm\|md\|lg\|full\|cover` only |
+| `Input` | No `startContent`, no `isDisabled` — use HTML `disabled` |
+| `Button` | No `isLoading` — use `isDisabled` + conditional text |
+| `Card` | No `onPress` — use `onClick` |
+| `Select.Value` | No `placeholder` — use children |
+| `Switch` | `onChange` receives `boolean`, not event |
+| `Tabs.Indicator` | **Forbidden** — SharedElement runtime error |
+| `Separator` | Replaces v2 `Divider` |
 
-### Button Variant Values
-
-`primary | outline | ghost | secondary | tertiary | danger | danger-soft`
-
-### Chip Variant Values
-
-`primary | secondary | tertiary | soft`
-
-### Chip Color Values
-
-`default | primary | accent | success | warning | danger`
-
-### Modal State Management
-
-```tsx
-const modalState = useOverlayState({
-  isOpen: showModal,
-  onOpenChange: (v) => { if (!v) setShowModal(false); },
-});
-// Open: setShowModal(true) or modalState.open()
-// Close: setShowModal(false) or modalState.close()
-```
+**Button variants:** `primary | outline | ghost | secondary | tertiary | danger | danger-soft`
+**Chip variants:** `primary | secondary | tertiary | soft`
+**Chip colors:** `default | primary | accent | success | warning | danger`
 
 ## UI Design Guidelines
 
-### Style Reference
+Supabase Dashboard white theme: left-aligned, table rows + dividers, minimal headers.
 
-Reference the **Supabase Dashboard** white theme:
-- Content is **left-aligned**, no centered layout
-- List pages use **table rows + dividers** (not card grids)
-- Header is minimal: `px-6 py-4 border-b border-border bg-background`
-- Empty state is left-aligned (icon + title + description + action button in a vertical stack)
+**Color tokens:** `bg-background` | `bg-card` | `bg-muted` | `bg-muted/30` (hover) | `border-border` | `text-foreground` | `text-muted-foreground` | `text-primary` | `text-success` | `text-warning` | `text-danger` | `text-accent`
 
-### Semantic Tailwind Color Tokens
-
-| token | Usage |
-|-------|------|
-| `bg-background` | Page background |
-| `bg-card` | Card background |
-| `bg-muted` | Secondary background, code blocks |
-| `bg-muted/30` | Hover highlight |
-| `border-border` | Standard border |
-| `text-foreground` | Primary text |
-| `text-muted-foreground` | Secondary text, labels |
-| `text-primary` | Primary color |
-| `text-success` | Success/green |
-| `text-warning` | Warning/yellow |
-| `text-danger` | Error/red |
-| `text-accent` | Accent color |
-| `bg-primary/10` | Light primary background |
-| `bg-success/5` | Light success background |
-| `border-success/20` | Light success border |
-
-### Standard List Page Structure
-
+**List page structure:**
 ```tsx
 <div className="flex flex-col h-full">
-  {/* Header */}
-  <div className="px-6 py-4 border-b border-border bg-background shrink-0">
-    <div className="flex items-center justify-between">
-      <div>
-        <h1 className="text-xl font-semibold">Page Title</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Description</p>
-      </div>
-      <Button size="sm">Action</Button>
-    </div>
-  </div>
-
-  {/* Toolbar (optional) */}
-  <div className="px-6 py-3 border-b border-border bg-background shrink-0 flex items-center gap-3">
-    {/* Filters, etc. */}
-  </div>
-
-  {/* Content */}
+  <div className="px-6 py-4 border-b border-border bg-background shrink-0">...</div> {/* header */}
+  <div className="px-6 py-3 border-b border-border bg-background shrink-0">...</div> {/* toolbar */}
   <div className="flex-1 overflow-auto">
-    {/* Header row */}
-    <div className="flex items-center px-4 py-2 border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground gap-4">
-      Column titles
-    </div>
-    {/* Data rows: border-b border-border hover:bg-muted/30 */}
+    <div className="flex items-center px-4 py-2 border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground gap-4">...</div>
+    {/* rows: border-b border-border hover:bg-muted/30 */}
   </div>
 </div>
 ```
 
-### Standard Empty State Structure (Left-aligned)
-
-```tsx
-<div className="flex flex-col items-start gap-3 px-6 py-20">
-  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-    <Icon className="h-5 w-5 text-muted-foreground" />
-  </div>
-  <div>
-    <h3 className="text-sm font-medium">Title</h3>
-    <p className="text-sm text-muted-foreground mt-0.5">Description</p>
-  </div>
-  <Button size="sm" className="gap-1.5 mt-1">Action</Button>
-</div>
-```
+**Empty state:** `<div className="flex flex-col items-start gap-3 px-6 py-20">` with icon (bg-muted rounded-lg) + title + description + Button.
 
 ## Next.js 16 Special Configuration
 
-### Middleware (proxy)
-
-Next.js 16 renamed middleware to proxy:
-- Filename: `src/proxy.ts` (not `src/middleware.ts`)
-- Exported function name: `export async function proxy()` (not `middleware`)
-
-### Dynamic Pages
-
-All dashboard pages using Supabase must include:
-
-```ts
-export const dynamic = 'force-dynamic';
-```
-
-Otherwise the build will attempt static pre-rendering and fail.
-
-### Vercel Timeout
-
-The AI analysis API is configured for a 300s timeout in `vercel.json`:
-
-```json
-{ "functions": { "src/app/api/analyze/route": { "maxDuration": 300 } } }
-```
+- **Middleware**: file is `src/proxy.ts`, export is `proxy()` (not `middleware`)
+- **Dynamic pages**: all dashboard pages with Supabase must have `export const dynamic = 'force-dynamic'`
+- **Vercel timeout**: analyze route configured for 300s in `vercel.json`
 
 ## Directory Structure
 
 ```
 src/
   app/
-    (auth)/               # Login pages (no Sidebar)
+    (auth)/login/           # Login (no Sidebar)
+    (dashboard)/            # Protected pages + Sidebar
       layout.tsx
-      login/page.tsx
-    (dashboard)/          # Protected pages with Sidebar
-      layout.tsx          # Sidebar + main layout
-      projects/           # Project list (ProjectsClient)
-        [id]/             # Project details (CommitsClient + Tabs)
-      reports/            # Report list (ReportsClient)
-        [id]/             # Report details (ReportDetailClient / EnhancedReportDetailClient)
-      rules/              # Rule set list (RulesClient)
-        [id]/             # Rule set details (RuleSetDetailClient)
-      settings/           # Connection status page
+      projects/             # ProjectsClient
+        [id]/               # CommitsClient + EnhancedProjectDetail + Tabs
+      reports/              # ReportsClient
+        [id]/               # EnhancedReportDetailClient (primary), ReportDetailClient (legacy)
+      rules/                # RulesClient
+        [id]/               # RuleSetDetailClient
+      settings/integrations/
     api/
-      analyze/            # POST triggers AI analysis (fire-and-forget)
-      tasks/run/          # POST triggers task queue processing
-      commits/            # GET GitHub commits
-      projects/           # CRUD
-      reports/            # GET list + detail
-      rules/              # Rule set CRUD
-      stream/             # SSE updates
-      stats/              # Stats
-      github/             # GitHub status
-    layout.tsx            # Root layout, mounts Providers (includes Toaster)
-    globals.css           # @import "@heroui/styles"
-    providers.tsx         # Client Providers (Toaster)
+      analyze/              # POST → fire-and-forget AI analysis
+      tasks/run/            # POST → task queue
+      commits/ projects/ reports/ rules/ stats/ github/ stream/
+    layout.tsx providers.tsx globals.css
   components/
-    layout/Sidebar.tsx    # Sidebar navigation
-    project/
-      ProjectCard.tsx     # Project row (table-row style)
-      AddProjectModal.tsx # Add project modal
-      EditProjectModal.tsx# Edit project modal
-      ProjectConfigPanel.tsx # Project config panel
-    report/
-      EnhancedIssueCard.tsx
-      AIChat.tsx
-      TrendChart.tsx
-      ExportButton.tsx
-      BatchOperations.tsx
-      SavedFilters.tsx
-    dashboard/
-      DashboardStats.tsx  # KPI metrics (simple inline number style)
-    common/
-      VirtualScroll.tsx
-  lib/
-    utils.ts              # cn() utility
-    supabase/
-      client.ts           # Browser Supabase client
-      server.ts           # Server + admin client
-    offlineCache.ts
-  services/
-    db.ts                 # Supabase DB operations
-    github.ts             # Octokit wrapper
-    claude.ts             # Anthropic API (supports ANTHROPIC_BASE_URL)
-    logger.ts             # Structured logging
-    retry.ts              # Retry logic
-    validation.ts         # Zod validation
-    sse.ts                # Server-Sent Events
-    performance.ts        # Performance monitoring
-    audit.ts              # Audit logging
-    taskQueue.ts          # Task queue
-    analyzeTask.ts        # Analysis worker
-    taskHandlers.ts       # Task handlers
-    issues.ts             # report_issues sync
-    incremental.ts        # Incremental analysis
-    languages.ts          # Language detection
-  middleware/
-    rateLimit.ts          # Rate limiting
-  proxy.ts                # Auth proxy (Next.js 16 middleware equivalent)
+    layout/Sidebar.tsx
+    project/ProjectCard, AddProjectModal, EditProjectModal, ProjectConfigPanel
+    report/EnhancedIssueCard, AIChat, TrendChart, ExportButton
+    dashboard/DashboardStats.tsx
+    common/LanguageSwitcher.tsx
+  i18n/
+    index.ts                # getDictionary(), Dictionary type (inferred from en.json)
+    dictionaries/           # en.json zh.json ja.json es.json zh-TW.json
+  lib/locale.ts             # getLocale() — reads NEXT_LOCALE cookie
+  services/db.ts github.ts claude.ts taskQueue.ts analyzeTask.ts ...
+  proxy.ts                  # Auth middleware
 ```
 
 ## Environment Variables
@@ -344,112 +182,48 @@ src/
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-TASK_RUNNER_TOKEN=       # Optional, protects task execution endpoint
+TASK_RUNNER_TOKEN=          # Optional, protects /api/tasks/run
 ```
 
-**IMPORTANT**: VCS (GitHub/GitLab) and AI (Claude/GPT-4) integrations are **no longer configured via environment variables**. They must be configured through the web UI at **Settings > Integrations**.
-
-## User Integrations System
-
-### Configuration Location
-All VCS and AI integrations are managed at: **Settings > Integrations**
-
-### Supported Providers
-- **VCS**: GitHub, GitLab, Generic Git
-- **AI**: OpenAI-compatible APIs (Anthropic Claude, OpenAI GPT-4, DeepSeek, etc.)
-
-### First-Time Setup
-New users will see an onboarding modal requiring them to configure:
-1. At least one VCS integration (for repository access)
-2. At least one AI integration (for code analysis)
-
-### Integration Priority
-- Project-specific integration > User default integration
-- No fallback to environment variables
-
-### Data Storage
-- Non-sensitive config (baseUrl, model, etc.) stored in `user_integrations` table
-- Sensitive data (tokens, API keys) stored in Supabase Vault
+**VCS and AI integrations** are configured via web UI at **Settings > Integrations** — NOT via env vars.
+- VCS: GitHub, GitLab, Generic Git
+- AI: Any OpenAI-compatible API (Claude, GPT-4, DeepSeek, etc.)
+- Non-sensitive config → `user_integrations` table; secrets → Supabase Vault
+- Priority: project-specific > user default (no env var fallback)
 
 ## Common Commands
 
 ```bash
 pnpm dev     # Dev server (port 8109)
-pnpm build   # Production build (TypeScript check + page generation)
-pnpm start   # Start production server
-pnpm lint    # Run ESLint
+pnpm build   # Production build (TypeScript check)
+pnpm start   # Production server
+pnpm lint    # ESLint
 ```
-
-## Database Migration
-
-- `supabase/migrations/005_fix_snapshot_severity.sql` fixes historical quality snapshot severity stats
 
 ## AI Analysis Flow
 
-1. Frontend POST `/api/analyze` → returns `{ reportId }` immediately
-2. Backend enqueues a task (fetches diff precisely by commit SHA)
-3. Worker executes: fetch diff → Claude analysis → sync `report_issues` → update report status
-4. Frontend prefers SSE on `/api/stream`, falls back to refresh `/api/reports/[id]` on completion
+1. `POST /api/analyze` → returns `{ reportId }` immediately, enqueues task
+2. Worker: fetch diff by commit SHA → Claude analysis → sync `report_issues` → update status
+3. Frontend: SSE on `/api/reports/[id]/stream`, fallback to polling every 2.5s
 
-### Task Queue Execution
-
-- Trigger endpoint: `POST /api/tasks/run?limit=1`
-- Auth: prefer `x-task-token` (requires `TASK_RUNNER_TOKEN`), otherwise requires login
-- `limit` max 10
+**Task queue:** `POST /api/tasks/run?limit=1` — auth via `x-task-token` or login; max limit 10
 
 ## Toast Usage
 
 ```ts
 import { toast } from 'sonner';
-toast.success('Operation succeeded');
-toast.error('Operation failed');
-toast.warning('Warning message');
+toast.success('...'); toast.error('...'); toast.warning('...');
 ```
+`Toaster` mounted in `src/app/providers.tsx`.
 
-`Toaster` is mounted globally in `src/app/providers.tsx`.
+## Runtime Contracts
+
+- All API routes require login; task endpoints accept `x-task-token`
+- `report_issues.status`: `open | fixed | ignored | false_positive | planned`
+- `/api/projects/[id]/trends` returns array directly (no `data` wrapper)
 
 ## FAQ
 
-### Q: What if I get TypeScript errors during build?
-A: Run `pnpm build` and fix errors one by one. Common issues:
-- Use `disabled` instead of `isDisabled` for `Input`
-- Use `onClick` instead of `onPress` for `Card`
-- `Modal.Container size` only supports `xs|sm|md|lg|full|cover`
+**TypeScript build errors?** Run `pnpm build`. Common: use `disabled` not `isDisabled` on Input; `onClick` not `onPress` on Card; Modal size only `xs|sm|md|lg|full|cover`. If type errors persist after dict changes, run `rm -rf .next`.
 
-### Q: How do I add an input with a prefix icon?
-A: `Input` has no `startContent`. Use `InputGroup`:
-```tsx
-<InputGroup>
-  <InputGroup.Prefix><Search className="size-4" /></InputGroup.Prefix>
-  <InputGroup.Input placeholder="..." value={v} onChange={e => setV(e.target.value)} />
-</InputGroup>
-```
-
-### Q: How do I implement a progress bar?
-A: HeroUI v3 beta has no Progress component. Use Tailwind:
-```tsx
-<div className="h-1 rounded-full bg-muted overflow-hidden">
-  <div className="h-full rounded-full bg-success" style={{ width: `${value}%` }} />
-</div>
-```
-
-### Q: Why not use Google Fonts?
-A: Next.js 16 + Turbopack has known issues, so we use a system font stack.
-
-### Q: Is dark mode supported?
-A: The current theme is light. Add the `dark` class to the `html` tag to enable dark mode; HeroUI v3 CSS variables will adapt automatically.
-
-## Runtime Constraints and Contracts
-
-### API Auth
-
-- All API routes require login by default
-- Task queue endpoints can be called without login via `x-task-token`
-
-### Issue Status Enum
-
-`report_issues.status` is standardized as: `open | fixed | ignored | false_positive | planned`
-
-### Trend API Response
-
-`/api/projects/[id]/trends` returns an array (frontend compatible with old `data` wrapper)
+**Dark mode?** Add `dark` class to `html` tag — HeroUI v3 CSS variables adapt automatically.

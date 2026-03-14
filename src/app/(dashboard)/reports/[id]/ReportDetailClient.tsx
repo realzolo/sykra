@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, AlertCircle, RefreshCw, Github, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button, Select, ListBox, Chip, Spinner } from '@heroui/react';
 import { toast } from 'sonner';
+import type { Dictionary } from '@/i18n';
 
 type Issue = {
   file: string; line?: number; severity: 'error' | 'warning' | 'info';
@@ -23,12 +24,9 @@ type Report = {
 };
 
 const SEV_ORDER = { error: 0, warning: 1, info: 2 };
-const SEV_CHIP: Record<string, { color: 'danger' | 'warning' | 'success'; label: string }> = {
-  error:   { color: 'danger',  label: '错误' },
-  warning: { color: 'warning', label: '警告' },
-  info:    { color: 'success', label: '提示' },
+const SEV_COLOR: Record<string, 'danger' | 'warning' | 'success'> = {
+  error: 'danger', warning: 'warning', info: 'success',
 };
-const CAT_LABEL: Record<string, string> = { style: '风格', security: '安全', architecture: '架构', performance: '性能', maintainability: '可维护性' };
 
 function scoreColor(s: number) {
   if (s >= 85) return 'text-success';
@@ -36,30 +34,20 @@ function scoreColor(s: number) {
   return 'text-danger';
 }
 
-function scoreLabel(s: number) {
-  if (s >= 85) return '优秀';
-  if (s >= 70) return '良好';
-  return '需改进';
-}
-
-function formatDate(d: string) {
+function formatDate(d: string, dict: Dictionary) {
   const diff = Date.now() - new Date(d).getTime();
   const h = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
-  if (h < 1) return '刚刚';
-  if (h < 24) return `${h}小时前`;
-  if (days < 30) return `${days}天前`;
-  return new Date(d).toLocaleDateString('zh-CN');
+  if (h < 1) return dict.commits.justNow;
+  if (h < 24) return dict.commits.hoursAgo.replace('{{hours}}', String(h));
+  if (days < 30) return dict.commits.daysAgo.replace('{{days}}', String(days));
+  return new Date(d).toLocaleDateString();
 }
 
-const SEV_ITEMS = [
-  { id: 'all', label: '所有严重级别' }, { id: 'error', label: '错误' },
-  { id: 'warning', label: '警告' }, { id: 'info', label: '提示' },
-];
-
-function IssueRow({ issue }: { issue: Issue }) {
+function IssueRow({ issue, dict }: { issue: Issue; dict: Dictionary }) {
   const [expanded, setExpanded] = useState(false);
-  const chip = SEV_CHIP[issue.severity];
+  const sevLabel = dict.rules.severity[issue.severity as keyof typeof dict.rules.severity] ?? issue.severity;
+  const catLabel = dict.reports.categories[issue.category as keyof typeof dict.reports.categories] ?? issue.category;
   return (
     <div className="border-b border-border last:border-0">
       <div
@@ -67,13 +55,13 @@ function IssueRow({ issue }: { issue: Issue }) {
         className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors select-none"
         style={{ cursor: issue.suggestion ? 'pointer' : 'default' }}
       >
-        <Chip size="sm" color={chip.color} variant="soft" className="mt-0.5 shrink-0">{chip.label}</Chip>
+        <Chip size="sm" color={SEV_COLOR[issue.severity]} variant="soft" className="mt-0.5 shrink-0">{sevLabel}</Chip>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <code className="text-xs font-mono bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
               {issue.file}{issue.line ? `:${issue.line}` : ''}
             </code>
-            <Chip size="sm" variant="soft" color="accent">{CAT_LABEL[issue.category] ?? issue.category}</Chip>
+            <Chip size="sm" variant="soft" color="accent">{catLabel}</Chip>
             <span className="text-xs text-muted-foreground">{issue.rule}</span>
           </div>
           <div className="text-sm leading-relaxed">{issue.message}</div>
@@ -86,7 +74,7 @@ function IssueRow({ issue }: { issue: Issue }) {
       </div>
       {expanded && issue.suggestion && (
         <div className="px-4 pb-3 bg-muted/20">
-          <div className="text-xs font-medium text-muted-foreground mb-1.5">建议</div>
+          <div className="text-xs font-medium text-muted-foreground mb-1.5">{dict.reportDetail.suggestion}</div>
           <div className="text-xs leading-relaxed font-mono whitespace-pre-wrap bg-background border border-border rounded px-3 py-2.5">
             {issue.suggestion}
           </div>
@@ -96,7 +84,7 @@ function IssueRow({ issue }: { issue: Issue }) {
   );
 }
 
-export default function ReportDetailClient({ initialReport }: { initialReport: Report }) {
+export default function ReportDetailClient({ initialReport, dict }: { initialReport: Report; dict: Dictionary }) {
   const router = useRouter();
   const [report, setReport] = useState<Report>(initialReport);
   const [sevFilter, setSevFilter] = useState('all');
@@ -118,7 +106,7 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
 
   async function handleRetry() {
     const commitShas = report.commits.map(c => c.sha);
-    if (!commitShas.length) { toast.error('没有可重新分析的提交'); return; }
+    if (!commitShas.length) { toast.error(dict.reportDetail.noCommitsToRetry); return; }
     setRetrying(true);
     const res = await fetch('/api/analyze', {
       method: 'POST',
@@ -127,7 +115,7 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
     });
     const data = await res.json();
     setRetrying(false);
-    if (!res.ok) { toast.error(data.error ?? '重试失败'); return; }
+    if (!res.ok) { toast.error(data.error ?? dict.reportDetail.retryFailed); return; }
     router.push(`/reports/${data.reportId}`);
   }
 
@@ -141,14 +129,30 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
   const warningCount = allIssues.filter(i => i.severity === 'warning').length;
   const infoCount = allIssues.filter(i => i.severity === 'info').length;
 
-  const catItems = [{ id: 'all', label: '所有分类' }, ...categories.map(c => ({ id: c, label: CAT_LABEL[c] ?? c }))];
+  const SEV_ITEMS = [
+    { id: 'all', label: dict.reportDetail.allSeverities },
+    { id: 'error', label: dict.rules.severity.error },
+    { id: 'warning', label: dict.rules.severity.warning },
+    { id: 'info', label: dict.rules.severity.info },
+  ];
+
+  const catItems = [
+    { id: 'all', label: dict.reportDetail.allCategories },
+    ...categories.map(c => ({ id: c, label: dict.reports.categories[c as keyof typeof dict.reports.categories] ?? c })),
+  ];
 
   const statusChip = {
-    done:      { color: 'success' as const, label: '已完成' },
-    failed:    { color: 'danger' as const,  label: '失败' },
-    pending:   { color: 'default' as const, label: '待处理' },
-    analyzing: { color: 'accent' as const,  label: '分析中' },
+    done:      { color: 'success' as const, label: dict.reports.status.done },
+    failed:    { color: 'danger' as const,  label: dict.reports.status.failed },
+    pending:   { color: 'default' as const, label: dict.reports.status.pending },
+    analyzing: { color: 'accent' as const,  label: dict.reports.status.analyzing },
   }[report.status] ?? { color: 'default' as const, label: report.status };
+
+  const scoreLabel = (s: number) => {
+    if (s >= 85) return dict.reportDetail.excellent;
+    if (s >= 70) return dict.reportDetail.good;
+    return dict.reportDetail.needsImprovement;
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -159,14 +163,14 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
         </Link>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">{report.projects?.name ?? '报告'}</span>
+            <span className="text-sm font-medium">{report.projects?.name ?? dict.reportDetail.title}</span>
             <code className="text-xs font-mono text-muted-foreground">#{report.id.slice(0, 8)}</code>
           </div>
         </div>
         {(report.status === 'done' || report.status === 'failed') && (
           <Button variant="outline" size="sm" isDisabled={retrying} onPress={handleRetry} className="gap-1.5">
             <RefreshCw className={['size-3.5', retrying ? 'animate-spin' : ''].join(' ')} />
-            重新分析
+            {dict.reportDetail.reanalyze}
           </Button>
         )}
         <Chip color={statusChip.color} variant="soft" size="sm">{statusChip.label}</Chip>
@@ -176,8 +180,8 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
       {(report.status === 'pending' || report.status === 'analyzing') && (
         <div className="flex-1 flex flex-col items-start justify-center gap-3 px-6">
           <Spinner size="md" />
-          <div className="text-sm font-medium">AI 正在分析您的代码变更…</div>
-          <div className="text-xs text-muted-foreground">这可能需要一分钟，页面将自动更新。</div>
+          <div className="text-sm font-medium">{dict.reportDetail.analyzing}</div>
+          <div className="text-xs text-muted-foreground">{dict.reportDetail.analyzingSubtext}</div>
         </div>
       )}
 
@@ -186,12 +190,12 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
         <div className="flex-1 flex flex-col items-start justify-center gap-3 px-6">
           <AlertCircle className="size-8 text-danger" />
           <div>
-            <div className="text-sm font-medium">分析失败</div>
+            <div className="text-sm font-medium">{dict.reportDetail.analysisFailed}</div>
             <div className="text-sm text-muted-foreground mt-0.5">{report.error_message}</div>
           </div>
           <Button isDisabled={retrying} onPress={handleRetry} size="sm" className="gap-1.5">
             <RefreshCw className="size-3.5" />
-            重新分析
+            {dict.reportDetail.reanalyze}
           </Button>
         </div>
       )}
@@ -203,7 +207,7 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
           <div className="px-6 py-4 border-b border-border bg-background">
             <div className="flex items-start gap-8">
               <div>
-                <div className="text-xs text-muted-foreground mb-1">综合评分</div>
+                <div className="text-xs text-muted-foreground mb-1">{dict.reports.overallScore}</div>
                 <div className="flex items-baseline gap-1.5">
                   <span className={['text-4xl font-bold', scoreColor(report.score ?? 0)].join(' ')}>{report.score}</span>
                   <span className="text-sm text-muted-foreground">/ 100</span>
@@ -212,12 +216,12 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
               </div>
               {report.category_scores && (
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-muted-foreground mb-2">分类得分</div>
+                  <div className="text-xs text-muted-foreground mb-2">{dict.reports.categoryScores}</div>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-x-6 gap-y-2">
                     {Object.entries(report.category_scores).map(([k, v]) => (
                       <div key={k}>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-muted-foreground">{CAT_LABEL[k] ?? k}</span>
+                          <span className="text-xs text-muted-foreground">{dict.reports.categories[k as keyof typeof dict.reports.categories] ?? k}</span>
                           <span className={['text-xs font-semibold', scoreColor(v)].join(' ')}>{v}</span>
                         </div>
                         <div className="h-1 rounded-full bg-muted overflow-hidden">
@@ -238,17 +242,17 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
           <div className="border-b border-border">
             <div className="flex items-center gap-6 px-6 py-3">
               <div className="flex items-center gap-1.5 text-sm">
-                <span className="text-muted-foreground text-xs">文件</span>
+                <span className="text-muted-foreground text-xs">{dict.reportDetail.files}</span>
                 <span className="font-medium">{report.total_files ?? 0}</span>
               </div>
               <div className="text-sm font-medium text-success">+{report.total_additions ?? 0}</div>
               <div className="text-sm font-medium text-danger">-{report.total_deletions ?? 0}</div>
               <div className="flex items-center gap-1.5 text-sm">
-                <span className="text-muted-foreground text-xs">提交</span>
+                <span className="text-muted-foreground text-xs">{dict.reportDetail.commits}</span>
                 <span className="font-medium">{report.commits?.length ?? 0}</span>
               </div>
               <Button variant="ghost" size="sm" onPress={() => setCommitsExpanded(e => !e)} className="ml-auto gap-1 h-7 text-xs">
-                {commitsExpanded ? <><ChevronUp className="size-3.5" />收起</> : <><ChevronDown className="size-3.5" />展开提交</>}
+                {commitsExpanded ? <><ChevronUp className="size-3.5" />{dict.reportDetail.collapseCommits}</> : <><ChevronDown className="size-3.5" />{dict.reportDetail.expandCommits}</>}
               </Button>
             </div>
             {commitsExpanded && (
@@ -258,7 +262,7 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
                     <code className="text-xs font-mono shrink-0 px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{c.sha.slice(0, 7)}</code>
                     <span className="flex-1 text-sm truncate">{c.message}</span>
                     <span className="text-xs text-muted-foreground shrink-0">{c.author}</span>
-                    <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.date)}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.date, dict)}</span>
                     {report.projects?.repo && (
                       <a href={`https://github.com/${report.projects.repo}/commit/${c.sha}`} target="_blank" rel="noopener noreferrer"
                         className="text-muted-foreground flex shrink-0 hover:text-foreground" onClick={e => e.stopPropagation()}>
@@ -274,10 +278,10 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
           {/* Issues toolbar */}
           <div className="flex items-center gap-2.5 px-6 py-3 border-b border-border bg-background flex-wrap">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">问题</span>
-              <Chip size="sm" color="danger" variant="soft">{errorCount} 错误</Chip>
-              <Chip size="sm" color="warning" variant="soft">{warningCount} 警告</Chip>
-              <Chip size="sm" color="success" variant="soft">{infoCount} 提示</Chip>
+              <span className="text-sm font-medium">{dict.reportDetail.issues}</span>
+              <Chip size="sm" color="danger" variant="soft">{errorCount} {dict.rules.severity.error}</Chip>
+              <Chip size="sm" color="warning" variant="soft">{warningCount} {dict.rules.severity.warning}</Chip>
+              <Chip size="sm" color="success" variant="soft">{infoCount} {dict.rules.severity.info}</Chip>
             </div>
             <div className="ml-auto flex gap-2">
               <Select selectedKey={sevFilter} onSelectionChange={(key) => setSevFilter(key as string)} className="w-[140px]">
@@ -299,7 +303,7 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
                 </Select>
               )}
               {(sevFilter !== 'all' || catFilter !== 'all') && (
-                <Button variant="ghost" size="sm" onPress={() => { setSevFilter('all'); setCatFilter('all'); }}>清除</Button>
+                <Button variant="ghost" size="sm" onPress={() => { setSevFilter('all'); setCatFilter('all'); }}>{dict.reportDetail.clearFilters}</Button>
               )}
             </div>
           </div>
@@ -307,10 +311,10 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
           {/* Issue list */}
           <div className="border-b border-border">
             {filteredIssues.length === 0 ? (
-              <div className="px-6 py-10 text-sm text-muted-foreground">没有匹配当前筛选条件的问题</div>
+              <div className="px-6 py-10 text-sm text-muted-foreground">{dict.reportDetail.noMatchingIssues}</div>
             ) : (
               filteredIssues.map((issue, idx) => (
-                <IssueRow key={`${issue.file}-${issue.line}-${issue.rule}-${idx}`} issue={issue} />
+                <IssueRow key={`${issue.file}-${issue.line}-${issue.rule}-${idx}`} issue={issue} dict={dict} />
               ))
             )}
           </div>
@@ -318,7 +322,7 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
           {/* Summary */}
           {report.summary && (
             <div className="px-6 py-4">
-              <div className="text-xs font-medium text-muted-foreground mb-2">AI 总结</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2">{dict.reportDetail.aiSummary}</div>
               <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{report.summary}</div>
             </div>
           )}

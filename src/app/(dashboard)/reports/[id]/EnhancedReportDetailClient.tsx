@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import EnhancedIssueCard from '@/components/report/EnhancedIssueCard';
 import AIChat from '@/components/report/AIChat';
 import TrendChart from '@/components/report/TrendChart';
+import type { Dictionary } from '@/i18n';
 
 type Issue = {
   file: string; line?: number;
@@ -59,11 +60,6 @@ type Report = {
   };
 };
 
-const CAT_LABEL: Record<string, string> = {
-  style: '风格', security: '安全', architecture: '架构',
-  performance: '性能', maintainability: '可维护性',
-};
-
 function scoreColorClass(s: number) {
   if (s >= 85) return 'text-success';
   if (s >= 70) return 'text-warning';
@@ -75,23 +71,17 @@ function scoreBarClass(s: number) {
   return 'bg-danger';
 }
 
-function formatDate(d: string) {
+function formatDate(d: string, dict: Dictionary) {
   const diff = Date.now() - new Date(d).getTime();
   const h = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
-  if (h < 1) return '刚刚';
-  if (h < 24) return `${h}小时前`;
-  if (days < 30) return `${days}天前`;
-  return new Date(d).toLocaleDateString('zh-CN');
+  if (h < 1) return dict.commits.justNow;
+  if (h < 24) return dict.commits.hoursAgo.replace('{{hours}}', String(h));
+  if (days < 30) return dict.commits.daysAgo.replace('{{days}}', String(days));
+  return new Date(d).toLocaleDateString();
 }
 
-const SEV_ITEMS = [
-  { id: 'all', label: '所有严重级别' },
-  { id: 'critical', label: '严重' }, { id: 'high', label: '高' },
-  { id: 'medium', label: '中' }, { id: 'low', label: '低' }, { id: 'info', label: '提示' },
-];
-
-export default function EnhancedReportDetailClient({ initialReport }: { initialReport: Report }) {
+export default function EnhancedReportDetailClient({ initialReport, dict }: { initialReport: Report; dict: Dictionary }) {
   const router = useRouter();
   const [report, setReport] = useState<Report>(initialReport);
   const [sevFilter, setSevFilter] = useState('all');
@@ -158,7 +148,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
 
   async function handleRetry() {
     const commitShas = report.commits.map(c => c.sha);
-    if (!commitShas.length) { toast.error('没有可重新分析的提交'); return; }
+    if (!commitShas.length) { toast.error(dict.reportDetail.noCommitsToRetry); return; }
     setRetrying(true);
     const res = await fetch('/api/analyze', {
       method: 'POST',
@@ -167,7 +157,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
     });
     const data = await res.json();
     setRetrying(false);
-    if (!res.ok) { toast.error(data.error ?? '重试失败'); return; }
+    if (!res.ok) { toast.error(data.error ?? dict.reportDetail.retryFailed); return; }
     router.push(`/reports/${data.reportId}`);
   }
 
@@ -186,19 +176,37 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
   const lowCount = allIssues.filter(i => i.severity === 'low').length;
   const infoCount = allIssues.filter(i => i.severity === 'info').length;
 
-  const catItems = [{ id: 'all', label: '所有分类' }, ...categories.map(c => ({ id: c, label: CAT_LABEL[c] ?? c }))];
+  const SEV_ITEMS = [
+    { id: 'all', label: dict.reportDetail.allSeverities },
+    { id: 'critical', label: dict.reportDetail.severity.critical },
+    { id: 'high', label: dict.reportDetail.severity.high },
+    { id: 'medium', label: dict.reportDetail.severity.medium },
+    { id: 'low', label: dict.reportDetail.severity.low },
+    { id: 'info', label: dict.reportDetail.severity.info },
+  ];
+
+  const catItems = [
+    { id: 'all', label: dict.reportDetail.allCategories },
+    ...categories.map(c => ({ id: c, label: dict.reports.categories[c as keyof typeof dict.reports.categories] ?? c })),
+  ];
 
   const statusChip = {
-    done:      { color: 'success' as const, label: '已完成' },
-    failed:    { color: 'danger' as const,  label: '失败' },
-    pending:   { color: 'default' as const, label: '待处理' },
-    analyzing: { color: 'accent' as const,  label: '分析中' },
+    done:      { color: 'success' as const, label: dict.reports.status.done },
+    failed:    { color: 'danger' as const,  label: dict.reports.status.failed },
+    pending:   { color: 'default' as const, label: dict.reports.status.pending },
+    analyzing: { color: 'accent' as const,  label: dict.reports.status.analyzing },
   }[report.status] ?? { color: 'default' as const, label: report.status };
 
   function openChat(issueFile?: string) {
     setChatIssueId(issueFile);
     setChatOpen(true);
   }
+
+  const scoreLabel = (score: number) => {
+    if (score >= 85) return dict.reportDetail.excellent;
+    if (score >= 70) return dict.reportDetail.good;
+    return dict.reportDetail.needsImprovement;
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -212,7 +220,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
           </Link>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold">报告详情</h2>
+              <h2 className="text-base font-semibold">{dict.reportDetail.title}</h2>
               <code className="text-xs font-mono text-muted-foreground">#{report.id.slice(0, 8)}</code>
             </div>
             <div className="text-xs text-muted-foreground truncate">{report.projects?.name}</div>
@@ -221,17 +229,17 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
             {report.status === 'done' && (
               <>
                 <Button variant="outline" size="sm" onPress={() => setTrendsOpen(true)} className="gap-2">
-                  <BarChart3 className="size-4" />趋势分析
+                  <BarChart3 className="size-4" />{dict.reportDetail.trendAnalysis}
                 </Button>
                 <Button variant="outline" size="sm" onPress={() => openChat()} className="gap-2">
-                  <MessageCircle className="size-4" />AI 对话
+                  <MessageCircle className="size-4" />{dict.reportDetail.aiChat}
                 </Button>
               </>
             )}
             {(report.status === 'done' || report.status === 'failed') && (
               <Button variant="outline" size="sm" isDisabled={retrying} onPress={handleRetry} className="gap-2">
                 <RefreshCw className={['size-3.5', retrying ? 'animate-spin' : ''].join(' ')} />
-                重新分析
+                {dict.reportDetail.reanalyze}
               </Button>
             )}
             <Chip color={statusChip.color} variant="soft">{statusChip.label}</Chip>
@@ -243,8 +251,8 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
       {(report.status === 'pending' || report.status === 'analyzing') && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4">
           <Spinner size="lg" />
-          <div className="text-sm text-muted-foreground">AI 正在深度分析您的代码...</div>
-          <div className="text-xs text-muted-foreground">正在进行多维度质量分析、安全扫描、性能评估...</div>
+          <div className="text-sm text-muted-foreground">{dict.reportDetail.analyzing}</div>
+          <div className="text-xs text-muted-foreground">{dict.reportDetail.analyzingSubtext}</div>
         </div>
       )}
 
@@ -252,10 +260,10 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
       {report.status === 'failed' && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <AlertCircle className="size-12 text-danger" />
-          <div className="text-sm font-semibold">分析失败</div>
+          <div className="text-sm font-semibold">{dict.reportDetail.analysisFailed}</div>
           <div className="text-sm text-muted-foreground">{report.error_message}</div>
           <Button isDisabled={retrying} onPress={handleRetry} className="mt-2 gap-2">
-            <RefreshCw className="size-4" />重新分析
+            <RefreshCw className="size-4" />{dict.reportDetail.reanalyze}
           </Button>
         </div>
       )}
@@ -272,7 +280,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                   <div className={['text-5xl font-bold', scoreColorClass(report.score ?? 0)].join(' ')}>{report.score}</div>
                   <div className="text-sm text-muted-foreground mt-1">/ 100</div>
                   <div className={['text-sm font-semibold mt-2', scoreColorClass(report.score ?? 0)].join(' ')}>
-                    {(report.score ?? 0) >= 85 ? '优秀' : (report.score ?? 0) >= 70 ? '良好' : '需改进'}
+                    {scoreLabel(report.score ?? 0)}
                   </div>
                 </Card.Content>
               </Card>
@@ -280,7 +288,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                 <Card.Content className="p-6 space-y-3">
                   {Object.entries(report.category_scores ?? {}).map(([k, v]) => (
                     <div key={k} className="flex items-center gap-3">
-                      <div className="w-20 text-sm text-muted-foreground shrink-0">{CAT_LABEL[k] ?? k}</div>
+                      <div className="w-20 text-sm text-muted-foreground shrink-0">{dict.reports.categories[k as keyof typeof dict.reports.categories] ?? k}</div>
                       <div className="flex-1 bg-muted rounded-full h-2">
                         <div className={['h-2 rounded-full', scoreBarClass(v)].join(' ')} style={{ width: `${v}%` }} />
                       </div>
@@ -297,18 +305,18 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                 <Card.Header>
                   <Card.Title className="flex items-center gap-2">
                     <TrendingUp className="size-4 text-primary" />
-                    上下文分析
+                    {dict.reportDetail.contextAnalysis}
                   </Card.Title>
                 </Card.Header>
                 <Card.Content className="px-6 pb-6">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div><div className="text-xs text-muted-foreground mb-1">变更类型</div><div className="text-sm font-medium">{report.context_analysis.changeType}</div></div>
-                    <div><div className="text-xs text-muted-foreground mb-1">风险等级</div><div className="text-sm font-medium">{report.context_analysis.riskLevel}</div></div>
-                    <div><div className="text-xs text-muted-foreground mb-1">破坏性变更</div><div className="text-sm font-medium">{report.context_analysis.breakingChanges ? '是' : '否'}</div></div>
-                    <div><div className="text-xs text-muted-foreground mb-1">影响模块</div><div className="text-sm font-medium">{report.context_analysis.affectedModules.length} 个</div></div>
+                    <div><div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.changeType}</div><div className="text-sm font-medium">{report.context_analysis.changeType}</div></div>
+                    <div><div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.riskLevel}</div><div className="text-sm font-medium">{report.context_analysis.riskLevel}</div></div>
+                    <div><div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.breakingChanges}</div><div className="text-sm font-medium">{report.context_analysis.breakingChanges ? dict.reportDetail.yes : dict.reportDetail.no}</div></div>
+                    <div><div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.affectedModules}</div><div className="text-sm font-medium">{dict.reportDetail.modules.replace('{{count}}', String(report.context_analysis.affectedModules.length))}</div></div>
                   </div>
                   <div className="mt-4">
-                    <div className="text-xs text-muted-foreground mb-1">业务影响</div>
+                    <div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.businessImpact}</div>
                     <div className="text-sm">{report.context_analysis.businessImpact}</div>
                   </div>
                 </Card.Content>
@@ -319,12 +327,12 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
             <Card>
               <Card.Content className="p-0">
                 <div className="px-6 py-4 flex gap-6 flex-wrap items-center">
-                  <div className="text-sm"><span className="text-muted-foreground">变更文件: </span><strong>{report.total_files ?? 0}</strong></div>
+                  <div className="text-sm"><span className="text-muted-foreground">{dict.reportDetail.changedFiles}: </span><strong>{report.total_files ?? 0}</strong></div>
                   <div className="text-sm text-success font-semibold">+{report.total_additions ?? 0}</div>
                   <div className="text-sm text-danger font-semibold">-{report.total_deletions ?? 0}</div>
-                  <div className="text-sm"><span className="text-muted-foreground">提交数: </span><strong>{report.commits?.length ?? 0}</strong></div>
+                  <div className="text-sm"><span className="text-muted-foreground">{dict.reportDetail.commits}: </span><strong>{report.commits?.length ?? 0}</strong></div>
                   <Button variant="ghost" size="sm" onPress={() => setCommitsExpanded(e => !e)} className="ml-auto gap-2">
-                    {commitsExpanded ? <><ChevronUp className="size-4" />隐藏提交</> : <><ChevronDown className="size-4" />显示提交</>}
+                    {commitsExpanded ? <><ChevronUp className="size-4" />{dict.reportDetail.hideCommits}</> : <><ChevronDown className="size-4" />{dict.reportDetail.showCommits}</>}
                   </Button>
                 </div>
                 {commitsExpanded && (
@@ -337,7 +345,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                             <code className="text-xs font-mono shrink-0 px-2 py-0.5 rounded bg-muted text-muted-foreground">{c.sha.slice(0, 7)}</code>
                             <span className="flex-1 text-sm truncate">{c.message}</span>
                             <span className="text-xs text-muted-foreground shrink-0">{c.author}</span>
-                            <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.date)}</span>
+                            <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.date, dict)}</span>
                             {report.projects?.repo && (
                               <a href={`https://github.com/${report.projects.repo}/commit/${c.sha}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground shrink-0">
                                 <Github className="size-4" />
@@ -361,28 +369,28 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                     <Tabs.List>
                       <Tabs.Tab id="issues">
                         <Code2 className="size-4 mr-1.5" />
-                        问题列表 ({allIssues.length})
+                        {dict.reportDetail.issueList.replace('{{count}}', String(allIssues.length))}
                       </Tabs.Tab>
                       <Tabs.Tab id="metrics">
                         <BarChart3 className="size-4 mr-1.5" />
-                        质量指标
+                        {dict.reportDetail.qualityMetrics}
                       </Tabs.Tab>
                       {report.security_findings?.length ? (
                         <Tabs.Tab id="security">
                           <Shield className="size-4 mr-1.5" />
-                          安全发现 ({report.security_findings.length})
+                          {dict.reportDetail.securityFindings.replace('{{count}}', String(report.security_findings.length))}
                         </Tabs.Tab>
                       ) : null}
                       {report.performance_findings?.length ? (
                         <Tabs.Tab id="performance">
                           <Zap className="size-4 mr-1.5" />
-                          性能发现 ({report.performance_findings.length})
+                          {dict.reportDetail.performanceFindings.replace('{{count}}', String(report.performance_findings.length))}
                         </Tabs.Tab>
                       ) : null}
                       {report.ai_suggestions?.length ? (
                         <Tabs.Tab id="suggestions">
                           <Lightbulb className="size-4 mr-1.5" />
-                          AI 建议 ({report.ai_suggestions.length})
+                          {dict.reportDetail.aiSuggestions.replace('{{count}}', String(report.ai_suggestions.length))}
                         </Tabs.Tab>
                       ) : null}
                     </Tabs.List>
@@ -392,11 +400,11 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                   <Tabs.Panel id="issues" className="p-6 space-y-4">
                     <div className="flex items-center gap-3 flex-wrap">
                       <div className="flex items-center gap-2">
-                        <Chip size="sm" color="danger" variant="soft">{criticalCount} 严重</Chip>
-                        <Chip size="sm" color="danger" variant="soft">{highCount} 高</Chip>
-                        <Chip size="sm" color="warning" variant="soft">{mediumCount} 中</Chip>
-                        <Chip size="sm" color="default" variant="soft">{lowCount} 低</Chip>
-                        <Chip size="sm" color="success" variant="soft">{infoCount} 提示</Chip>
+                        <Chip size="sm" color="danger" variant="soft">{criticalCount} {dict.reportDetail.severity.critical}</Chip>
+                        <Chip size="sm" color="danger" variant="soft">{highCount} {dict.reportDetail.severity.high}</Chip>
+                        <Chip size="sm" color="warning" variant="soft">{mediumCount} {dict.reportDetail.severity.medium}</Chip>
+                        <Chip size="sm" color="default" variant="soft">{lowCount} {dict.reportDetail.severity.low}</Chip>
+                        <Chip size="sm" color="success" variant="soft">{infoCount} {dict.reportDetail.severity.info}</Chip>
                       </div>
                       <div className="ml-auto flex gap-2">
                         <Select selectedKey={sevFilter} onSelectionChange={(key) => setSevFilter(key as string)} className="w-[140px]">
@@ -418,12 +426,12 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                           </Select>
                         )}
                         {(sevFilter !== 'all' || catFilter !== 'all') && (
-                          <Button variant="ghost" size="sm" onPress={() => { setSevFilter('all'); setCatFilter('all'); }}>清除</Button>
+                          <Button variant="ghost" size="sm" onPress={() => { setSevFilter('all'); setCatFilter('all'); }}>{dict.reportDetail.clearFilters}</Button>
                         )}
                       </div>
                     </div>
                     {filteredIssues.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">没有匹配当前筛选条件的问题</div>
+                      <div className="text-center py-12 text-muted-foreground">{dict.reportDetail.noMatchingIssues}</div>
                     ) : (
                       <div className="space-y-3">
                         {filteredIssues.map((issue, idx) => (
@@ -437,14 +445,14 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                   <Tabs.Panel id="metrics" className="p-6 space-y-6">
                     {report.complexity_metrics && (
                       <div>
-                        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2"><FileCode className="size-4" />代码复杂度</h4>
+                        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2"><FileCode className="size-4" />{dict.reportDetail.codeComplexity}</h4>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                           {[
-                            { label: '圈复杂度', value: report.complexity_metrics.cyclomaticComplexity },
-                            { label: '认知复杂度', value: report.complexity_metrics.cognitiveComplexity },
-                            { label: '平均函数行数', value: report.complexity_metrics.averageFunctionLength },
-                            { label: '最长函数行数', value: report.complexity_metrics.maxFunctionLength },
-                            { label: '函数总数', value: report.complexity_metrics.totalFunctions },
+                            { label: dict.reportDetail.cyclomaticComplexity, value: report.complexity_metrics.cyclomaticComplexity },
+                            { label: dict.reportDetail.cognitiveComplexity, value: report.complexity_metrics.cognitiveComplexity },
+                            { label: dict.reportDetail.avgFunctionLength, value: report.complexity_metrics.averageFunctionLength },
+                            { label: dict.reportDetail.maxFunctionLength, value: report.complexity_metrics.maxFunctionLength },
+                            { label: dict.reportDetail.totalFunctions, value: report.complexity_metrics.totalFunctions },
                           ].map(m => (
                             <Card key={m.label} variant="secondary">
                               <Card.Content className="p-4">
@@ -458,12 +466,12 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                     )}
                     {report.duplication_metrics && (
                       <div>
-                        <h4 className="text-sm font-semibold mb-3">代码重复度</h4>
+                        <h4 className="text-sm font-semibold mb-3">{dict.reportDetail.codeDuplication}</h4>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                           {[
-                            { label: '重复行数', value: report.duplication_metrics.duplicatedLines },
-                            { label: '重复块数', value: report.duplication_metrics.duplicatedBlocks },
-                            { label: '重复率', value: report.duplication_metrics.duplicationRate + '%' },
+                            { label: dict.reportDetail.duplicatedLines, value: report.duplication_metrics.duplicatedLines },
+                            { label: dict.reportDetail.duplicatedBlocks, value: report.duplication_metrics.duplicatedBlocks },
+                            { label: dict.reportDetail.duplicationRate, value: report.duplication_metrics.duplicationRate + '%' },
                           ].map(m => (
                             <Card key={m.label} variant="secondary">
                               <Card.Content className="p-4">
@@ -475,7 +483,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                         </div>
                         {report.duplication_metrics.duplicatedFiles.length > 0 && (
                           <div className="mt-3">
-                            <div className="text-xs text-muted-foreground mb-2">重复文件:</div>
+                            <div className="text-xs text-muted-foreground mb-2">{dict.reportDetail.duplicatedFiles}:</div>
                             <div className="space-y-1">{report.duplication_metrics.duplicatedFiles.map(f => <code key={f} className="block text-xs bg-muted px-2 py-1 rounded">{f}</code>)}</div>
                           </div>
                         )}
@@ -483,11 +491,11 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                     )}
                     {report.dependency_metrics && (
                       <div>
-                        <h4 className="text-sm font-semibold mb-3">依赖分析</h4>
+                        <h4 className="text-sm font-semibold mb-3">{dict.reportDetail.dependencyAnalysis}</h4>
                         <div className="grid grid-cols-2 gap-4">
                           {[
-                            { label: '依赖总数', value: report.dependency_metrics.totalDependencies },
-                            { label: '过时依赖', value: report.dependency_metrics.outdatedDependencies },
+                            { label: dict.reportDetail.totalDependencies, value: report.dependency_metrics.totalDependencies },
+                            { label: dict.reportDetail.outdatedDependencies, value: report.dependency_metrics.outdatedDependencies },
                           ].map(m => (
                             <Card key={m.label} variant="secondary">
                               <Card.Content className="p-4">
@@ -498,22 +506,22 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                           ))}
                         </div>
                         {report.dependency_metrics.circularDependencies.length > 0 && (
-                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">循环依赖:</div><div className="space-y-1">{report.dependency_metrics.circularDependencies.map((d, i) => <code key={i} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
+                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">{dict.reportDetail.circularDependencies}:</div><div className="space-y-1">{report.dependency_metrics.circularDependencies.map((d, i) => <code key={i} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
                         )}
                         {report.dependency_metrics.unusedDependencies.length > 0 && (
-                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">未使用依赖:</div><div className="space-y-1">{report.dependency_metrics.unusedDependencies.map(d => <code key={d} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
+                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">{dict.reportDetail.unusedDependencies}:</div><div className="space-y-1">{report.dependency_metrics.unusedDependencies.map(d => <code key={d} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
                         )}
                       </div>
                     )}
                     {report.code_explanations && report.code_explanations.length > 0 && (
                       <div>
-                        <h4 className="text-sm font-semibold mb-3">复杂代码解释</h4>
+                        <h4 className="text-sm font-semibold mb-3">{dict.reportDetail.complexCodeExplanations}</h4>
                         <div className="space-y-3">
                           {report.code_explanations.map((exp, i) => (
                             <Card key={i} variant="secondary">
                               <Card.Content className="p-4">
                                 <code className="text-xs font-mono bg-background px-2 py-1 rounded">{exp.file}{exp.line ? ':' + exp.line : ''}</code>
-                                <div className="mt-2 text-xs text-muted-foreground">复杂度: {exp.complexity}</div>
+                                <div className="mt-2 text-xs text-muted-foreground">{dict.reportDetail.complexity}: {exp.complexity}</div>
                                 <div className="mt-2 text-sm">{exp.explanation}</div>
                                 <div className="mt-2 text-sm text-primary">💡 {exp.recommendation}</div>
                               </Card.Content>
@@ -560,7 +568,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                                 <div className="font-semibold">{finding.type}</div>
                                 <div className="text-sm">{finding.description}</div>
                                 <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ':' + finding.line : ''}</code>
-                                <div className="text-xs text-muted-foreground">影响: {finding.impact}</div>
+                                <div className="text-xs text-muted-foreground">{dict.reportDetail.impact}: {finding.impact}</div>
                               </div>
                             </div>
                           </Card.Content>
@@ -584,7 +592,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                                   <span className="text-xs text-muted-foreground">{sug.type}</span>
                                 </div>
                                 <div className="text-sm">{sug.description}</div>
-                                <div className="text-xs text-muted-foreground">预期影响: {sug.estimatedImpact}</div>
+                                <div className="text-xs text-muted-foreground">{dict.reportDetail.estimatedImpact}: {sug.estimatedImpact}</div>
                               </div>
                             </div>
                           </Card.Content>
@@ -600,7 +608,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
             {report.summary && (
               <Card>
                 <Card.Header>
-                  <Card.Title>AI 总结</Card.Title>
+                  <Card.Title>{dict.reportDetail.aiSummary}</Card.Title>
                 </Card.Header>
                 <Card.Content className="px-6 pb-6">
                   <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{report.summary}</div>
@@ -617,7 +625,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
           <Modal.Container size="lg">
             <Modal.Dialog className="h-[600px] flex flex-col">
               <Modal.Header>
-                <Modal.Heading>AI 代码审查员</Modal.Heading>
+                <Modal.Heading>{dict.reportDetail.aiReviewer}</Modal.Heading>
               </Modal.Header>
               <Modal.Body className="flex-1 min-h-0 p-0">
                 <AIChat reportId={report.id} issueId={chatIssueId} />
@@ -633,7 +641,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
           <Modal.Container size="lg">
             <Modal.Dialog>
               <Modal.Header>
-                <Modal.Heading>质量趋势分析</Modal.Heading>
+                <Modal.Heading>{dict.reportDetail.qualityTrendAnalysis}</Modal.Heading>
               </Modal.Header>
               <Modal.Body>
                 <TrendChart projectId={report.project_id} />

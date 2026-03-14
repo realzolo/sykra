@@ -6,13 +6,14 @@ import { ArrowLeft, Send, User, Clock, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 import { Button, Select, ListBox, Modal, useOverlayState, Spinner } from '@heroui/react';
 import { toast } from 'sonner';
+import type { Dictionary } from '@/i18n';
 
 type Commit = { sha: string; message: string; author: string; date: string };
 type Project = { id: string; name: string; repo: string; default_branch: string; ruleset_id?: string };
 
 const PER_PAGE = 30;
 
-export default function CommitsClient({ project, branches }: { project: Project; branches: string[] }) {
+export default function CommitsClient({ project, branches, dict }: { project: Project; branches: string[]; dict: Dictionary }) {
   const router = useRouter();
   const [branch, setBranch] = useState(project.default_branch);
   const [authorFilter, setAuthorFilter] = useState('all');
@@ -67,7 +68,7 @@ export default function CommitsClient({ project, branches }: { project: Project;
 
   async function startReview() {
     confirmState.close();
-    if (!project.ruleset_id) { toast.warning('请先为此项目配置规则集'); return; }
+    if (!project.ruleset_id) { toast.warning(dict.commits.configureRuleSetFirst); return; }
     setAnalyzing(true);
     const res = await fetch('/api/analyze', {
       method: 'POST',
@@ -83,14 +84,14 @@ export default function CommitsClient({ project, branches }: { project: Project;
     const diff = Date.now() - new Date(d).getTime();
     const h = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
-    if (h < 1) return '刚刚';
-    if (h < 24) return `${h}小时前`;
-    if (days < 30) return `${days}天前`;
+    if (h < 1) return dict.commits.justNow;
+    if (h < 24) return dict.commits.hoursAgo.replace('{{hours}}', h.toString());
+    if (days < 30) return dict.commits.daysAgo.replace('{{days}}', days.toString());
     return new Date(d).toLocaleDateString('zh-CN');
   }
 
   const branchItems = branches.map(b => ({ id: b, label: b }));
-  const authorItems = [{ id: 'all', label: '所有作者' }, ...authors.map(a => ({ id: a, label: a }))];
+  const authorItems = [{ id: 'all', label: dict.commits.allAuthors }, ...authors.map(a => ({ id: a, label: a }))];
 
   return (
     <div className="flex flex-col h-full">
@@ -103,18 +104,18 @@ export default function CommitsClient({ project, branches }: { project: Project;
           <div className="text-sm font-bold">{project.name}</div>
           <div className="text-xs text-muted-foreground">{project.repo}</div>
         </div>
-        {selected.length > 0 && <span className="text-xs text-muted-foreground font-medium">已选 {selected.length} 个</span>}
+        {selected.length > 0 && <span className="text-xs text-muted-foreground font-medium">{dict.commits.selected.replace('{{count}}', selected.length.toString())}</span>}
         <Button
           isDisabled={!selected.length || analyzing}
           onPress={() => {
-            if (!project.ruleset_id) { toast.warning('请先为此项目配置规则集'); return; }
+            if (!project.ruleset_id) { toast.warning(dict.commits.configureRuleSetFirst); return; }
             confirmState.open();
           }}
           className="gap-1.5"
           size="sm"
         >
           {analyzing ? <Spinner size="sm" /> : <Send className="size-3.5" />}
-          {analyzing ? '分析中…' : `审查 ${selected.length || ''} 个提交`}
+          {analyzing ? dict.commits.analyzing : dict.commits.reviewCommits.replace('{{count}}', (selected.length || '').toString())}
         </Button>
       </div>
 
@@ -139,10 +140,10 @@ export default function CommitsClient({ project, branches }: { project: Project;
         {filtered.length > 0 && (
           <Button variant="ghost" size="sm" onPress={toggleSelectAll} className="gap-1">
             {allFilteredSelected && <CheckCircle2 className="size-3.5" />}
-            {allFilteredSelected ? '取消全选' : `全选 (${filtered.length})`}
+            {allFilteredSelected ? dict.commits.deselectAll : dict.commits.selectAll.replace('{{count}}', filtered.length.toString())}
           </Button>
         )}
-        <span className="text-xs text-muted-foreground ml-auto">{filtered.length} 个提交</span>
+        <span className="text-xs text-muted-foreground ml-auto">{dict.commits.commitsCount.replace('{{count}}', filtered.length.toString())}</span>
       </div>
 
       {/* Commit list */}
@@ -152,7 +153,7 @@ export default function CommitsClient({ project, branches }: { project: Project;
             <Spinner size="lg" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-20 text-muted-foreground text-sm">未找到提交</div>
+          <div className="text-center py-20 text-muted-foreground text-sm">{dict.commits.noCommits}</div>
         ) : (
           <div className="flex flex-col gap-2">
             {filtered.map(commit => {

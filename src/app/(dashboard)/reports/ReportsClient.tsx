@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FileText, Trash2 } from 'lucide-react';
 import { Button, Select, ListBox, Chip, Spinner } from '@heroui/react';
 import { toast } from 'sonner';
+import type { Dictionary } from '@/i18n';
 
 type Report = {
   id: string; status: string; score?: number;
@@ -13,30 +14,36 @@ type Report = {
   projects?: { name: string; repo: string } | { name: string; repo: string }[];
 };
 
-const STATUS_CHIP: Record<string, { color: 'default' | 'accent' | 'success' | 'danger' | 'warning'; label: string }> = {
-  pending:   { color: 'default', label: '待处理' },
-  analyzing: { color: 'accent',  label: '分析中…' },
-  done:      { color: 'success', label: '已完成' },
-  failed:    { color: 'danger',  label: '失败' },
-};
+export default function ReportsClient({ initialReports, dict }: { initialReports: Report[]; dict: Dictionary }) {
+  const STATUS_CHIP: Record<string, { color: 'default' | 'accent' | 'success' | 'danger' | 'warning'; label: string }> = {
+    pending:   { color: 'default', label: dict.reports.status.pending },
+    analyzing: { color: 'accent',  label: dict.reports.status.analyzing },
+    done:      { color: 'success', label: dict.reports.status.done },
+    failed:    { color: 'danger',  label: dict.reports.status.failed },
+  };
 
-const CAT_LABEL: Record<string, string> = {
-  style: '风格', security: '安全', architecture: '架构',
-  performance: '性能', maintainability: '可维护',
-};
+  const CAT_LABEL: Record<string, string> = {
+    style: dict.reports.categories.style,
+    security: dict.reports.categories.security,
+    architecture: dict.reports.categories.architecture,
+    performance: dict.reports.categories.performance,
+    maintainability: dict.reports.categories.maintainability,
+  };
 
-function scoreColor(s: number) {
-  if (s >= 85) return 'text-success';
-  if (s >= 70) return 'text-warning';
-  return 'text-danger';
-}
+  function scoreColor(s: number) {
+    if (s >= 85) return 'text-success';
+    if (s >= 70) return 'text-warning';
+    return 'text-danger';
+  }
 
-const STATUS_ITEMS = [
-  { id: 'all', label: '所有状态' }, { id: 'done', label: '已完成' },
-  { id: 'analyzing', label: '分析中' }, { id: 'pending', label: '待处理' }, { id: 'failed', label: '失败' },
-];
+  const STATUS_ITEMS = [
+    { id: 'all', label: dict.reports.allStatus },
+    { id: 'done', label: dict.reports.status.done },
+    { id: 'analyzing', label: dict.reports.status.analyzing },
+    { id: 'pending', label: dict.reports.status.pending },
+    { id: 'failed', label: dict.reports.status.failed },
+  ];
 
-export default function ReportsClient({ initialReports }: { initialReports: Report[] }) {
   const router = useRouter();
   const [reports, setReports] = useState<Report[]>(initialReports);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -68,15 +75,15 @@ export default function ReportsClient({ initialReports }: { initialReports: Repo
     setDeletingId(id);
     const res = await fetch(`/api/reports/${id}`, { method: 'DELETE' });
     setDeletingId(null);
-    if (!res.ok) { toast.error('删除失败'); return; }
-    toast.success('报告已删除');
+    if (!res.ok) { toast.error(dict.reports.deleteFailed); return; }
+    toast.success(dict.reports.reportDeleted);
     setReports(prev => prev.filter(r => r.id !== id));
   }
 
   const projectItems = useMemo(() => [
-    { id: 'all', label: '所有项目' },
+    { id: 'all', label: dict.reports.allProjects },
     ...projectNames.map(name => ({ id: name, label: name })),
-  ], [projectNames]);
+  ], [projectNames, dict]);
 
   return (
     <div className="flex flex-col h-full">
@@ -84,10 +91,10 @@ export default function ReportsClient({ initialReports }: { initialReports: Repo
       <div className="border-b border-border bg-card shrink-0">
         <div className="px-6 py-4 max-w-[1200px] mx-auto w-full flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold">报告</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">代码审查报告与质量评分</p>
+            <h1 className="text-xl font-semibold">{dict.reports.title}</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">{dict.reports.description}</p>
           </div>
-          <span className="text-sm text-muted-foreground">{filtered.length} 条记录</span>
+          <span className="text-sm text-muted-foreground">{filtered.length} {dict.reports.issues}</span>
         </div>
       </div>
 
@@ -114,7 +121,7 @@ export default function ReportsClient({ initialReports }: { initialReports: Repo
           )}
           {(statusFilter !== 'all' || projectFilter !== 'all') && (
             <Button variant="ghost" size="sm" onPress={() => { setStatusFilter('all'); setProjectFilter('all'); }}>
-              清除筛选
+              {dict.reports.clearFilters}
             </Button>
           )}
         </div>
@@ -128,22 +135,22 @@ export default function ReportsClient({ initialReports }: { initialReports: Repo
               <FileText className="h-5 w-5 text-muted-foreground" />
             </div>
             <div>
-              <h3 className="text-sm font-medium">还没有报告</h3>
-              <p className="text-sm text-muted-foreground mt-0.5">从项目页面发起代码审查后，报告会显示在这里</p>
+              <h3 className="text-sm font-medium">{dict.reports.noReports}</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">{dict.reports.noReportsDescription}</p>
             </div>
           </div>
         ) : filtered.length === 0 ? (
           <div className="max-w-[1200px] mx-auto w-full px-6 py-20">
-            <p className="text-sm text-muted-foreground">没有匹配当前筛选条件的报告</p>
+            <p className="text-sm text-muted-foreground">{dict.reports.noMatchingReports}</p>
           </div>
         ) : (
           <div className="max-w-[1200px] mx-auto w-full px-6 pb-6">
             <div className="border border-border rounded-lg overflow-hidden bg-card">
               {/* Table header */}
               <div className="grid grid-cols-[64px_1fr_160px_auto] items-center px-4 py-2 border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground gap-4">
-                <div>评分</div>
-                <div>项目 / 时间</div>
-                <div>分类得分</div>
+                <div>{dict.reports.score}</div>
+                <div>{dict.reports.projectAndTime}</div>
+                <div>{dict.reports.categoryScores}</div>
                 <div className="w-8" />
               </div>
               {filtered.map(report => {
@@ -169,11 +176,11 @@ export default function ReportsClient({ initialReports }: { initialReports: Repo
                     {/* Info */}
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium truncate">{projectName ?? '未知项目'}</span>
+                        <span className="text-sm font-medium truncate">{projectName ?? dict.reports.unknownProject}</span>
                         <Chip size="sm" color={st.color} variant="soft">{st.label}</Chip>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {(report.commits as unknown[])?.length ?? 0} 个提交 · {new Date(report.created_at).toLocaleString('zh-CN')}
+                        {(report.commits as unknown[])?.length ?? 0} {dict.reports.commit} · {new Date(report.created_at).toLocaleString()}
                       </p>
                     </div>
 

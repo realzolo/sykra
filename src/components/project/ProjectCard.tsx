@@ -5,16 +5,18 @@ import { useRouter } from 'next/navigation';
 import { Github, Trash2, Pencil, ExternalLink, AlertTriangle } from 'lucide-react';
 import { Button, Chip, Tooltip } from '@heroui/react';
 import EditProjectModal from './EditProjectModal';
+import type { Dictionary } from '@/i18n';
 
 type Project = {
   id: string; name: string; repo: string;
   description?: string; default_branch: string; ruleset_id?: string;
 };
 
-export default function ProjectCard({ project: initialProject, onDelete, onUpdate }: {
+export default function ProjectCard({ project: initialProject, onDelete, onUpdate, dict }: {
   project: Project;
   onDelete: (id: string) => void;
   onUpdate?: (updated: Project) => void;
+  dict: Dictionary;
 }) {
   const router = useRouter();
   const [project, setProject] = useState<Project>(initialProject);
@@ -39,7 +41,7 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
           <Chip size="sm" variant="secondary">{project.default_branch}</Chip>
           {!project.ruleset_id && (
             <Chip size="sm" color="warning" variant="soft">
-              <AlertTriangle className="size-3 mr-1" />未配规则集
+              <AlertTriangle className="size-3 mr-1" />{dict.projects.noRuleSet}
             </Chip>
           )}
         </div>
@@ -55,8 +57,8 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
         {confirmDelete ? (
           <>
-            <Button size="sm" variant="danger" className="h-7 px-2.5 text-xs" onPress={() => onDelete(project.id)}>确认删除</Button>
-            <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onPress={() => setConfirmDelete(false)}>取消</Button>
+            <Button size="sm" variant="danger" className="h-7 px-2.5 text-xs" onPress={() => onDelete(project.id)}>{dict.projects.confirmDelete}</Button>
+            <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onPress={() => setConfirmDelete(false)}>{dict.common.cancel}</Button>
           </>
         ) : (
           <>
@@ -66,7 +68,7 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
               </Tooltip.Trigger>
-              <Tooltip.Content>编辑</Tooltip.Content>
+              <Tooltip.Content>{dict.common.edit}</Tooltip.Content>
             </Tooltip>
             <Tooltip>
               <Tooltip.Trigger>
@@ -74,17 +76,17 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </Tooltip.Trigger>
-              <Tooltip.Content>删除</Tooltip.Content>
+              <Tooltip.Content>{dict.common.delete}</Tooltip.Content>
             </Tooltip>
           </>
         )}
         <Button size="sm" variant="outline" onPress={() => router.push(`/projects/${project.id}`)} className="gap-1.5 h-7 px-2.5 text-xs">
-          审查
+          {dict.projects.review}
           <ExternalLink className="h-3 w-3" />
         </Button>
       </div>
 
-      <EditProjectModal project={project} open={showEdit} onClose={() => setShowEdit(false)} onUpdated={handleUpdated} />
+      <EditProjectModal project={project} open={showEdit} onClose={() => setShowEdit(false)} onUpdated={handleUpdated} dict={dict} />
     </div>
   );
 }

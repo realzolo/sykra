@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import type { Dictionary } from '@/i18n';
 
 type DashboardStats = {
   totalReports: number;
@@ -19,7 +20,7 @@ function scoreColor(s: number) {
   return 'text-danger';
 }
 
-export default function DashboardStats({ projectId }: { projectId?: string }) {
+export default function DashboardStats({ projectId, dict }: { projectId?: string; dict: Dictionary }) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -51,12 +52,12 @@ export default function DashboardStats({ projectId }: { projectId?: string }) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <div className="rounded-lg border border-border bg-card p-4">
-        <div className="text-xs text-muted-foreground mb-1">总报告数</div>
+        <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.totalReports}</div>
         <div className="text-2xl font-semibold">{stats.totalReports}</div>
       </div>
 
       <div className="rounded-lg border border-border bg-card p-4">
-        <div className="text-xs text-muted-foreground mb-1">平均评分</div>
+        <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.averageScore}</div>
         <div className="flex items-baseline gap-1.5">
           <span className={['text-2xl font-semibold', scoreColor(stats.averageScore)].join(' ')}>{stats.averageScore}</span>
           <span className="text-xs text-muted-foreground">/ 100</span>
@@ -69,27 +70,27 @@ export default function DashboardStats({ projectId }: { projectId?: string }) {
       </div>
 
       <div className="rounded-lg border border-border bg-card p-4">
-        <div className="text-xs text-muted-foreground mb-1">问题总数</div>
+        <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.totalIssues}</div>
         <div className="text-2xl font-semibold">{stats.totalIssues}</div>
         {stats.criticalIssues > 0 && (
           <div className="text-xs text-danger mt-0.5 flex items-center gap-1">
-            <AlertTriangle className="size-3" />{stats.criticalIssues} 严重
+            <AlertTriangle className="size-3" />{stats.criticalIssues} {dict.dashboard.critical}
           </div>
         )}
       </div>
 
       <div className="rounded-lg border border-border bg-card p-4">
-        <div className="text-xs text-muted-foreground mb-1">待处理</div>
+        <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.pending}</div>
         <div className="flex items-baseline gap-1.5">
           <span className="text-2xl font-semibold">{stats.pendingReports}</span>
           {stats.pendingReports === 0 && (
             <span className="text-xs text-success flex items-center gap-0.5">
-              <CheckCircle className="size-3" />全部完成
+              <CheckCircle className="size-3" />{dict.dashboard.allCompleted}
             </span>
           )}
           {stats.pendingReports > 0 && (
             <span className="text-xs text-muted-foreground flex items-center gap-0.5">
-              <Clock className="size-3" />进行中
+              <Clock className="size-3" />{dict.dashboard.inProgress}
             </span>
           )}
         </div>

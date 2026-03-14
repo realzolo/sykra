@@ -6,18 +6,26 @@ import { Code2, FolderOpen, FileText, Shield, Settings, LogOut } from 'lucide-re
 import { Button, Chip } from '@heroui/react';
 import { createClient } from '@/lib/supabase/client';
 import ThemeToggle from '@/components/theme/ThemeToggle';
+import { LanguageSwitcher } from '@/components/common/LanguageSwitcher';
+import type { Locale } from '@/i18n/config';
+import type { Dictionary } from '@/i18n';
 
-const navItems = [
-  { href: '/projects', label: '项目', icon: FolderOpen, countKey: 'projects' as const },
-  { href: '/reports',  label: '报告',  icon: FileText,   countKey: 'reports' as const },
-  { href: '/rules',    label: '规则集', icon: Shield,     countKey: null },
-  { href: '/settings', label: '设置',  icon: Settings,   countKey: null },
-];
+interface SidebarProps {
+  locale: Locale;
+  dict: Dictionary;
+}
 
-export default function Sidebar() {
+export default function Sidebar({ locale, dict }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [counts, setCounts] = useState<Record<string, number>>({});
+
+  const navItems = [
+    { href: '/projects', label: dict.nav.projects, icon: FolderOpen, countKey: 'projects' as const },
+    { href: '/reports',  label: dict.nav.reports,  icon: FileText,   countKey: 'reports' as const },
+    { href: '/rules',    label: dict.nav.rules,    icon: Shield,     countKey: null },
+    { href: '/settings', label: dict.nav.settings,  icon: Settings,   countKey: null },
+  ];
 
   const activeHref = navItems.find(item => pathname.startsWith(item.href))?.href ?? '/projects';
 
@@ -42,7 +50,7 @@ export default function Sidebar() {
         <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow-sm ring-1 ring-primary/20">
           <Code2 className="text-primary-foreground size-4" />
         </div>
-        <span className="font-semibold text-base tracking-tight">代码审查</span>
+        <span className="font-semibold text-base tracking-tight">spec-axis</span>
       </div>
 
       {/* Nav */}
@@ -71,12 +79,16 @@ export default function Sidebar() {
       {/* Footer */}
       <div className="p-3 border-t border-sidebar shrink-0 space-y-2">
         <div className="flex items-center justify-between px-2">
-          <span className="text-xs text-muted-foreground">主题</span>
+          <span className="text-xs text-muted-foreground">{dict.settings.language}</span>
+          <LanguageSwitcher currentLocale={locale} />
+        </div>
+        <div className="flex items-center justify-between px-2">
+          <span className="text-xs text-muted-foreground">Theme</span>
           <ThemeToggle />
         </div>
         <Button variant="ghost" onPress={handleSignOut} className="w-full justify-start gap-3 h-10">
           <LogOut className="size-4" />
-          退出登录
+          {dict.nav.logout}
         </Button>
       </div>
     </div>
