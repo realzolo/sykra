@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import ThemeToggle from '@/components/theme/ThemeToggle';
 import { LanguageSwitcher } from '@/components/common/LanguageSwitcher';
 import NexalyMark from '@/components/common/NexalyMark';
+import { cn } from '@/lib/utils';
 import type { Dictionary } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 
@@ -21,11 +22,12 @@ interface LoginClientProps {
 
 export default function LoginClient({ dict, locale }: LoginClientProps) {
   const router = useRouter();
+  const emailRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [codeSent, setCodeSent] = useState(false);
-  const [sendingCode, setSendingCode] = useState(false);
-  const [verifyingCode, setVerifyingCode] = useState(false);
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [signingUp, setSigningUp] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<'google' | 'github' | null>(null);
   const currentYear = new Date().getFullYear();
 
@@ -48,11 +50,6 @@ export default function LoginClient({ dict, locale }: LoginClientProps) {
     </svg>
   );
 
-  useEffect(() => {
-    setCode('');
-    setCodeSent(false);
-  }, [email]);
-
   async function handleOAuth(provider: 'google' | 'github') {
     setOauthLoading(provider);
 
@@ -72,49 +69,16 @@ export default function LoginClient({ dict, locale }: LoginClientProps) {
     }
   }
 
-  async function handleSendCode() {
-    if (!email.trim()) {
-      toast.error(dict.auth.emailRequired);
-      return;
-    }
-
-    setSendingCode(true);
-
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: {
-          shouldCreateUser: true,
-        },
-      });
-
-      if (error) throw error;
-      setCodeSent(true);
-      toast.success(dict.auth.codeSent);
-    } catch {
-      toast.error(dict.auth.sendCodeFailed);
-    } finally {
-      setSendingCode(false);
-    }
-  }
-
-  async function handleVerifyCode(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!code.trim()) {
-      toast.error(dict.auth.codeRequired);
-      return;
-    }
-
-    setVerifyingCode(true);
+    setLoading(true);
 
     try {
       const supabase = createClient();
-      const { error } = await supabase.auth.verifyOtp({
+      const { error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
-        token: code.trim(),
-        type: 'email',
+        password,
       });
 
       if (error) throw error;
@@ -122,10 +86,66 @@ export default function LoginClient({ dict, locale }: LoginClientProps) {
       router.push('/projects');
       router.refresh();
     } catch {
-      toast.error(dict.auth.verifyCodeFailed);
+      toast.error(dict.auth.loginFailed);
     } finally {
-      setVerifyingCode(false);
+      setLoading(false);
     }
+  }
+
+  async function handleSignUp(e: React.FormEvent) {
+    e.preventDefault();
+
+    if (!email.trim()) {
+      toast.error(dict.auth.emailRequired);
+      return;
+    }
+
+    if (!password.trim()) {
+      toast.error(dict.auth.passwordRequired);
+      return;
+    }
+
+    const strengthScore = getPasswordStrengthScore(password);
+    if (strengthScore < 3) {
+      toast.error(dict.auth.passwordTooWeak);
+      return;
+    }
+
+    setSigningUp(true);
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+      if (error) throw error;
+
+      router.push('/projects');
+      router.refresh();
+    } catch {
+      toast.error(dict.auth.signUpFailed);
+    } finally {
+      setSigningUp(false);
+    }
+  }
+
+  function getPasswordStrengthScore(value: string) {
+    const lengthOk = value.length >= 8;
+    const hasUpper = /[A-Z]/.test(value);
+    const hasNumber = /[0-9]/.test(value);
+    const hasSymbol = /[^A-Za-z0-9]/.test(value);
+    return [lengthOk, hasUpper, hasNumber, hasSymbol].filter(Boolean).length;
+  }
+
+  function getPasswordStrengthLabel(value: string) {
+    if (!value.trim()) {
+      return { label: dict.auth.passwordStrengthEmpty, color: 'text-muted-foreground' };
+    }
+    const score = getPasswordStrengthScore(value);
+    if (score >= 4) return { label: dict.auth.passwordStrengthStrong, color: 'text-success' };
+    if (score >= 2) return { label: dict.auth.passwordStrengthMedium, color: 'text-warning' };
+    return { label: dict.auth.passwordStrengthWeak, color: 'text-danger' };
   }
 
   return (
@@ -143,35 +163,39 @@ export default function LoginClient({ dict, locale }: LoginClientProps) {
       <div className="auth-main">
         <div className="auth-stack">
           <Card className="auth-card">
-            <div className="px-8 pt-8 text-center space-y-3">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/60">
-                <NexalyMark className="h-7 w-7" />
+            <div className="px-8 pt-8 pb-8 space-y-6">
+              <div className="flex flex-col items-center gap-2 text-center">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-transparent">
+                    <NexalyMark className="h-9 w-9" />
+                  </div>
+                  <div className="text-xl font-semibold">Nexaly</div>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {mode === 'login' ? dict.auth.login : dict.auth.signUpTitle}
+                </div>
               </div>
-              <div className="text-base font-semibold">Nexaly</div>
-              <div className="text-sm text-muted-foreground">{dict.auth.login}</div>
-            </div>
 
-            <div className="px-8 pb-8 pt-6 space-y-6">
-              <div className="grid gap-2">
+              <div className="grid gap-2 max-w-[320px] w-full mx-auto">
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 w-full justify-center gap-2 text-sm"
-                  disabled={oauthLoading !== null}
-                  onClick={() => handleOAuth('google')}
-                >
-                  <GoogleMark className="h-4 w-4" />
-                  {dict.auth.continueWithGoogle}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 w-full justify-center gap-2 text-sm"
+                  className="h-11 w-full justify-center gap-2 text-sm px-4"
                   disabled={oauthLoading !== null}
                   onClick={() => handleOAuth('github')}
                 >
                   <GithubMark className="h-4 w-4 text-foreground" />
                   {dict.auth.continueWithGithub}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full justify-center gap-2 text-sm px-4"
+                  disabled={oauthLoading !== null}
+                  onClick={() => handleOAuth('google')}
+                >
+                  <GoogleMark className="h-4 w-4" />
+                  {dict.auth.continueWithGoogle}
                 </Button>
               </div>
 
@@ -181,62 +205,126 @@ export default function LoginClient({ dict, locale }: LoginClientProps) {
                 <span className="h-px flex-1 bg-border" />
               </div>
 
-              <form onSubmit={handleVerifyCode} className="space-y-4">
-                <div className="space-y-2 text-left">
-                  <label className="text-sm font-medium">
-                    {dict.auth.email}
-                  </label>
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder={dict.auth.emailPlaceholder}
-                    required
-                    disabled={sendingCode || verifyingCode}
-                    className="h-11 text-sm"
-                  />
-                </div>
+              {mode === 'login' ? (
+                <form onSubmit={handleLogin} className="space-y-4 max-w-[320px] w-full mx-auto text-left">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      {dict.auth.email}
+                    </label>
+                    <Input
+                      ref={emailRef}
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder={dict.auth.emailPlaceholder}
+                      required
+                      disabled={loading}
+                      className="h-10 text-sm"
+                    />
+                  </div>
 
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      {dict.auth.password}
+                    </label>
+                    <Input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={dict.auth.passwordPlaceholder}
+                      required
+                      disabled={loading}
+                      className="h-10 text-sm"
+                    />
+                  </div>
+
                   <Button
-                    type="button"
-                    variant="outline"
-                    className="h-11 w-full text-sm"
-                    onClick={handleSendCode}
-                    disabled={sendingCode}
+                    type="submit"
+                    variant="default"
+                    className="h-11 w-full text-sm font-semibold shadow-sm border border-border"
+                    disabled={loading}
                   >
-                    {sendingCode ? dict.common.loading : (codeSent ? dict.auth.resendCode : dict.auth.sendCode)}
+                    {loading ? dict.common.loading : dict.auth.signIn}
                   </Button>
-                  <div className="hidden sm:flex items-center justify-end text-[11px] text-muted-foreground">
-                    <Mail className="h-3.5 w-3.5 mr-1" />
-                    {dict.auth.emailCodeTab}
+                </form>
+              ) : (
+                <form onSubmit={handleSignUp} className="space-y-4 max-w-[320px] w-full mx-auto text-left">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      {dict.auth.email}
+                    </label>
+                    <Input
+                      ref={emailRef}
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder={dict.auth.emailPlaceholder}
+                      required
+                      disabled={signingUp}
+                      className="h-10 text-sm"
+                    />
                   </div>
-                </div>
 
-                {codeSent && (
-                  <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                    <div className="space-y-2 text-left">
-                      <label className="text-sm font-medium">
-                        {dict.auth.codeLabel}
-                      </label>
-                      <Input
-                        value={code}
-                        onChange={(e) => setCode(e.target.value)}
-                        placeholder={dict.auth.codePlaceholder}
-                        disabled={verifyingCode}
-                        className="h-11 text-sm"
-                      />
-                    </div>
-                    <Button
-                      type="submit"
-                      className="h-11 w-full text-sm"
-                      disabled={!codeSent || verifyingCode}
-                    >
-                      {verifyingCode ? dict.common.loading : dict.auth.verifyCode}
-                    </Button>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      {dict.auth.password}
+                    </label>
+                    <Input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={dict.auth.passwordPlaceholder}
+                      required
+                      disabled={signingUp}
+                      className="h-10 text-sm"
+                    />
                   </div>
-                )}
-              </form>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{dict.auth.passwordStrength}</span>
+                      <span className={cn('font-medium', getPasswordStrengthLabel(password).color)}>
+                        {getPasswordStrengthLabel(password).label}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1">
+                      {Array.from({ length: 4 }).map((_, index) => (
+                        <span
+                          key={index}
+                          className={cn(
+                            'h-1 rounded-full bg-muted',
+                            password.trim() && index < getPasswordStrengthScore(password) && 'bg-accent',
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    variant="default"
+                    className="h-11 w-full text-sm font-semibold shadow-sm border border-border"
+                    disabled={signingUp || getPasswordStrengthScore(password) < 3}
+                  >
+                    {signingUp ? dict.common.loading : dict.auth.signUpAction}
+                  </Button>
+                </form>
+              )}
+
+              <div className="text-center text-xs text-muted-foreground">
+                {mode === 'login' ? dict.auth.signUpPrompt : dict.auth.signInPrompt}{' '}
+                <button
+                  type="button"
+                  onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
+                  className="text-foreground hover:underline"
+                >
+                  {mode === 'login' ? dict.auth.signUpAction : dict.auth.signInAction}
+                </button>
+              </div>
+
+              <div className="text-center text-[11px] leading-relaxed text-muted-foreground">
+                {dict.auth.termsNotice}
+              </div>
             </div>
           </Card>
         </div>

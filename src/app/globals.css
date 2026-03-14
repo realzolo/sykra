@@ -25,6 +25,12 @@
     --sidebar-foreground: 0 0% 90%;
     --sidebar-muted: 0 0% 9%;
     --sidebar-border: 0 0% 12%;
+    --auth-bg-1: 142 70% 40%;
+    --auth-bg-2: 215 35% 35%;
+    --auth-bg-3: 0 0% 4%;
+    --auth-surface: 0 0% 7%;
+    --auth-border: 0 0% 14%;
+    --auth-shadow: 0 30px 80px hsl(0 0% 0% / 0.4);
   }
 
   :root[data-theme="light"] {
@@ -51,6 +57,12 @@
     --sidebar-foreground: 222 47% 11%;
     --sidebar-muted: 0 0% 94%;
     --sidebar-border: 0 0% 88%;
+    --auth-bg-1: 142 40% 55%;
+    --auth-bg-2: 210 45% 60%;
+    --auth-bg-3: 0 0% 98%;
+    --auth-surface: 0 0% 100%;
+    --auth-border: 0 0% 90%;
+    --auth-shadow: 0 20px 50px hsl(220 20% 20% / 0.12);
   }
 
   * {
@@ -116,9 +128,9 @@
   flex-direction: column;
   padding: 2.5rem 1.25rem;
   background:
-    radial-gradient(circle at 20% 20%, hsl(var(--accent) / 0.12), transparent 45%),
-    radial-gradient(circle at 80% 80%, hsl(var(--primary) / 0.08), transparent 40%),
-    hsl(var(--background));
+    radial-gradient(900px circle at 50% 0%, hsl(var(--auth-bg-1) / 0.18), transparent 45%),
+    radial-gradient(700px circle at 85% 20%, hsl(var(--auth-bg-2) / 0.16), transparent 40%),
+    hsl(var(--auth-bg-3));
 }
 
 .auth-page {
@@ -146,13 +158,13 @@
 
 .auth-card {
   width: 100%;
-  max-width: 420px;
-  border-radius: 20px;
+  max-width: 400px;
+  border-radius: 14px;
   padding: 0;
-  background: hsl(var(--card) / 0.98);
-  border: 1px solid hsl(var(--border));
-  box-shadow: 0 32px 90px hsl(0 0% 0% / 0.35);
-  backdrop-filter: blur(14px);
+  background: hsl(var(--auth-surface));
+  border: 1px solid hsl(var(--auth-border));
+  box-shadow: var(--auth-shadow);
+  backdrop-filter: blur(10px);
   overflow: hidden;
 }
 
@@ -163,11 +175,11 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.25rem 0.4rem;
   border-radius: 999px;
-  background: hsl(var(--card) / 0.92);
-  border: 1px solid hsl(var(--border));
-  box-shadow: 0 16px 40px hsl(0 0% 0% / 0.16);
+  background: hsl(var(--auth-surface) / 0.75);
+  border: 1px solid hsl(var(--auth-border));
+  box-shadow: 0 10px 30px hsl(0 0% 0% / 0.08);
   backdrop-filter: blur(12px);
 }
 
@@ -175,6 +187,8 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
 }
 
 .auth-tool-label {
