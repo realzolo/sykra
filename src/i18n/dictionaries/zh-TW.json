@@ -212,7 +212,8 @@
     "integrations": "整合",
     "vcs": "版本控制",
     "ai": "AI",
-    "language": "語言"
+    "language": "語言",
+    "theme": "主題"
   },
   "commits": {
     "title": "提交",

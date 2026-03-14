@@ -100,7 +100,7 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
           <LanguageSwitcher currentLocale={locale} />
         </div>
         <div className="flex items-center justify-between px-2">
-          <span className="text-xs text-muted-foreground">Theme</span>
+          <span className="text-xs text-muted-foreground">{dict.settings.theme}</span>
           <ThemeToggle />
         </div>
         <Button variant="ghost" onClick={handleSignOut} className="w-full justify-start gap-2 h-9 text-sm">

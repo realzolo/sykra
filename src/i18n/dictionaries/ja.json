@@ -212,7 +212,8 @@
     "integrations": "統合",
     "vcs": "バージョン管理",
     "ai": "AI",
-    "language": "言語"
+    "language": "言語",
+    "theme": "テーマ"
   },
   "commits": {
     "title": "コミット",

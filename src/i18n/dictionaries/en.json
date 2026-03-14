@@ -212,7 +212,8 @@
     "integrations": "Integrations",
     "vcs": "VCS",
     "ai": "AI",
-    "language": "Language"
+    "language": "Language",
+    "theme": "Theme"
   },
   "commits": {
     "title": "Commits",
