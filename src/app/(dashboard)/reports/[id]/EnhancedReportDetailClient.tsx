@@ -65,14 +65,14 @@ const CAT_LABEL: Record<string, string> = {
 };
 
 function scoreColorClass(s: number) {
-  if (s >= 85) return 'text-green-600';
-  if (s >= 70) return 'text-yellow-600';
-  return 'text-red-600';
+  if (s >= 85) return 'text-success';
+  if (s >= 70) return 'text-warning';
+  return 'text-danger';
 }
 function scoreBarClass(s: number) {
-  if (s >= 85) return 'bg-green-500';
-  if (s >= 70) return 'bg-yellow-500';
-  return 'bg-red-500';
+  if (s >= 85) return 'bg-success';
+  if (s >= 70) return 'bg-warning';
+  return 'bg-danger';
 }
 
 function formatDate(d: string) {
@@ -203,37 +203,39 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 h-16 border-b border-border shrink-0 bg-card">
-        <Link href="/reports">
-          <Button isIconOnly variant="ghost" size="sm">
-            <ArrowLeft className="size-4" />
-          </Button>
-        </Link>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold">报告详情</h2>
-            <code className="text-xs font-mono text-muted-foreground">#{report.id.slice(0, 8)}</code>
-          </div>
-          <div className="text-xs text-muted-foreground truncate">{report.projects?.name}</div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {report.status === 'done' && (
-            <>
-              <Button variant="outline" size="sm" onPress={() => setTrendsOpen(true)} className="gap-2">
-                <BarChart3 className="size-4" />趋势分析
-              </Button>
-              <Button variant="outline" size="sm" onPress={() => openChat()} className="gap-2">
-                <MessageCircle className="size-4" />AI 对话
-              </Button>
-            </>
-          )}
-          {(report.status === 'done' || report.status === 'failed') && (
-            <Button variant="outline" size="sm" isDisabled={retrying} onPress={handleRetry} className="gap-2">
-              <RefreshCw className={['size-3.5', retrying ? 'animate-spin' : ''].join(' ')} />
-              重新分析
+      <div className="border-b border-border shrink-0 bg-card">
+        <div className="flex items-center gap-3 px-6 h-16 max-w-[1200px] mx-auto w-full">
+          <Link href="/reports">
+            <Button isIconOnly variant="ghost" size="sm">
+              <ArrowLeft className="size-4" />
             </Button>
-          )}
-          <Chip color={statusChip.color} variant="soft">{statusChip.label}</Chip>
+          </Link>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-semibold">报告详情</h2>
+              <code className="text-xs font-mono text-muted-foreground">#{report.id.slice(0, 8)}</code>
+            </div>
+            <div className="text-xs text-muted-foreground truncate">{report.projects?.name}</div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {report.status === 'done' && (
+              <>
+                <Button variant="outline" size="sm" onPress={() => setTrendsOpen(true)} className="gap-2">
+                  <BarChart3 className="size-4" />趋势分析
+                </Button>
+                <Button variant="outline" size="sm" onPress={() => openChat()} className="gap-2">
+                  <MessageCircle className="size-4" />AI 对话
+                </Button>
+              </>
+            )}
+            {(report.status === 'done' || report.status === 'failed') && (
+              <Button variant="outline" size="sm" isDisabled={retrying} onPress={handleRetry} className="gap-2">
+                <RefreshCw className={['size-3.5', retrying ? 'animate-spin' : ''].join(' ')} />
+                重新分析
+              </Button>
+            )}
+            <Chip color={statusChip.color} variant="soft">{statusChip.label}</Chip>
+          </div>
         </div>
       </div>
 
@@ -249,7 +251,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
       {/* Failed */}
       {report.status === 'failed' && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          <AlertCircle className="size-12 text-destructive" />
+          <AlertCircle className="size-12 text-danger" />
           <div className="text-sm font-semibold">分析失败</div>
           <div className="text-sm text-muted-foreground">{report.error_message}</div>
           <Button isDisabled={retrying} onPress={handleRetry} className="mt-2 gap-2">
@@ -261,7 +263,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
       {/* Done */}
       {report.status === 'done' && (
         <div className="flex-1 overflow-auto">
-          <div className="p-6 space-y-6 max-w-6xl mx-auto">
+          <div className="p-6 space-y-6 max-w-[1200px] mx-auto">
 
             {/* Score Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -318,8 +320,8 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
               <Card.Content className="p-0">
                 <div className="px-6 py-4 flex gap-6 flex-wrap items-center">
                   <div className="text-sm"><span className="text-muted-foreground">变更文件: </span><strong>{report.total_files ?? 0}</strong></div>
-                  <div className="text-sm text-green-600 font-semibold">+{report.total_additions ?? 0}</div>
-                  <div className="text-sm text-red-600 font-semibold">-{report.total_deletions ?? 0}</div>
+                  <div className="text-sm text-success font-semibold">+{report.total_additions ?? 0}</div>
+                  <div className="text-sm text-danger font-semibold">-{report.total_deletions ?? 0}</div>
                   <div className="text-sm"><span className="text-muted-foreground">提交数: </span><strong>{report.commits?.length ?? 0}</strong></div>
                   <Button variant="ghost" size="sm" onPress={() => setCommitsExpanded(e => !e)} className="ml-auto gap-2">
                     {commitsExpanded ? <><ChevronUp className="size-4" />隐藏提交</> : <><ChevronDown className="size-4" />显示提交</>}

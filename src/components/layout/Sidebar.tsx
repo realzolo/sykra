@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Code2, FolderOpen, FileText, Shield, Settings, LogOut } from 'lucide-react';
 import { Button, Chip } from '@heroui/react';
 import { createClient } from '@/lib/supabase/client';
+import ThemeToggle from '@/components/theme/ThemeToggle';
 
 const navItems = [
   { href: '/projects', label: '项目', icon: FolderOpen, countKey: 'projects' as const },
@@ -35,13 +36,13 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="w-64 h-screen flex flex-col shrink-0 border-r border-border bg-card">
+    <div className="w-64 h-screen flex flex-col shrink-0 border-r border-sidebar bg-sidebar text-sidebar-foreground">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-5 h-16 border-b border-border shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center shrink-0 shadow-md">
-          <Code2 className="text-white size-4" />
+      <div className="flex items-center gap-3 px-5 h-16 border-b border-sidebar shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow-sm ring-1 ring-primary/20">
+          <Code2 className="text-primary-foreground size-4" />
         </div>
-        <span className="font-bold text-lg tracking-tight">代码审查</span>
+        <span className="font-semibold text-base tracking-tight">代码审查</span>
       </div>
 
       {/* Nav */}
@@ -55,7 +56,7 @@ export default function Sidebar() {
               key={item.href}
               variant={active ? 'secondary' : 'ghost'}
               onPress={() => router.push(item.href)}
-              className="w-full justify-start gap-3 h-10"
+              className="w-full justify-start gap-3 h-9 text-sm"
             >
               <Icon className="size-4 shrink-0" />
               <span className="flex-1 text-left">{item.label}</span>
@@ -68,7 +69,11 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t border-border shrink-0">
+      <div className="p-3 border-t border-sidebar shrink-0 space-y-2">
+        <div className="flex items-center justify-between px-2">
+          <span className="text-xs text-muted-foreground">主题</span>
+          <ThemeToggle />
+        </div>
         <Button variant="ghost" onPress={handleSignOut} className="w-full justify-start gap-3 h-10">
           <LogOut className="size-4" />
           退出登录

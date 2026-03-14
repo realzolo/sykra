@@ -30,14 +30,17 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
-        <h1 className="text-xl font-semibold">设置</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">环境变量与服务连接状态</p>
+      <div className="border-b border-border bg-card shrink-0">
+        <div className="px-6 py-4 max-w-[1200px] mx-auto w-full">
+          <h1 className="text-xl font-semibold">设置</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">环境变量与服务连接状态</p>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
+        <div className="max-w-[1200px] mx-auto w-full px-6 py-6 space-y-4">
         {/* GitHub */}
-        <div className="border-b border-border">
+        <div className="border border-border rounded-lg bg-card">
           <div className="flex items-start gap-4 px-6 py-4">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted shrink-0 mt-0.5">
               <Github className="size-4 text-muted-foreground" />
@@ -94,7 +97,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Anthropic */}
-        <div className="border-b border-border">
+        <div className="border border-border rounded-lg bg-card">
           <div className="flex items-center gap-4 px-6 py-4">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted shrink-0">
               <Layers className="size-4 text-muted-foreground" />
@@ -110,7 +113,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Supabase */}
-        <div className="border-b border-border">
+        <div className="border border-border rounded-lg bg-card">
           <div className="flex items-center gap-4 px-6 py-4">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted shrink-0">
               <Key className="size-4 text-muted-foreground" />
@@ -126,6 +129,7 @@ export default function SettingsPage() {
             </div>
             <Chip color="success" variant="soft" size="sm">已配置</Chip>
           </div>
+        </div>
         </div>
       </div>
     </div>

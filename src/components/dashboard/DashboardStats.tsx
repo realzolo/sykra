@@ -33,11 +33,11 @@ export default function DashboardStats({ projectId }: { projectId?: string }) {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="space-y-1.5">
-            <div className="h-3 w-16 bg-muted rounded animate-pulse" />
-            <div className="h-6 w-10 bg-muted rounded animate-pulse" />
+          <div key={i} className="rounded-lg border border-border bg-card p-4 space-y-2">
+            <div className="h-3 w-20 bg-muted rounded animate-pulse" />
+            <div className="h-6 w-12 bg-muted rounded animate-pulse" />
           </div>
         ))}
       </div>
@@ -49,13 +49,13 @@ export default function DashboardStats({ projectId }: { projectId?: string }) {
   const TrendIcon = stats.recentTrend === 'up' ? TrendingUp : stats.recentTrend === 'down' ? TrendingDown : BarChart3;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-      <div>
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <div className="text-xs text-muted-foreground mb-1">总报告数</div>
         <div className="text-2xl font-semibold">{stats.totalReports}</div>
       </div>
 
-      <div>
+      <div className="rounded-lg border border-border bg-card p-4">
         <div className="text-xs text-muted-foreground mb-1">平均评分</div>
         <div className="flex items-baseline gap-1.5">
           <span className={['text-2xl font-semibold', scoreColor(stats.averageScore)].join(' ')}>{stats.averageScore}</span>
@@ -68,7 +68,7 @@ export default function DashboardStats({ projectId }: { projectId?: string }) {
         </div>
       </div>
 
-      <div>
+      <div className="rounded-lg border border-border bg-card p-4">
         <div className="text-xs text-muted-foreground mb-1">问题总数</div>
         <div className="text-2xl font-semibold">{stats.totalIssues}</div>
         {stats.criticalIssues > 0 && (
@@ -78,7 +78,7 @@ export default function DashboardStats({ projectId }: { projectId?: string }) {
         )}
       </div>
 
-      <div>
+      <div className="rounded-lg border border-border bg-card p-4">
         <div className="text-xs text-muted-foreground mb-1">待处理</div>
         <div className="flex items-baseline gap-1.5">
           <span className="text-2xl font-semibold">{stats.pendingReports}</span>

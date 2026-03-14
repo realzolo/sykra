@@ -90,7 +90,7 @@ export default function AIChat({ reportId, issueId }: { reportId: string; issueI
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t p-4">
+      <div className="border-t border-border bg-card p-4">
         <div className="flex gap-2">
           <Input
             value={input}

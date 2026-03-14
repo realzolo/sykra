@@ -62,9 +62,9 @@ export default function TrendChart({ projectId }: { projectId: string }) {
         </div>
         <div className="flex items-center gap-1.5">
           {scoreDiff > 0 ? (
-            <><TrendingUp className="size-4 text-green-600" /><span className="text-sm font-semibold text-green-600">+{scoreDiff}</span></>
+            <><TrendingUp className="size-4 text-success" /><span className="text-sm font-semibold text-success">+{scoreDiff}</span></>
           ) : scoreDiff < 0 ? (
-            <><TrendingDown className="size-4 text-red-600" /><span className="text-sm font-semibold text-red-600">{scoreDiff}</span></>
+            <><TrendingDown className="size-4 text-danger" /><span className="text-sm font-semibold text-danger">{scoreDiff}</span></>
           ) : (
             <><Minus className="size-4 text-muted-foreground" /><span className="text-sm text-muted-foreground">无变化</span></>
           )}
@@ -76,9 +76,9 @@ export default function TrendChart({ projectId }: { projectId: string }) {
         </div>
         <div className="flex items-center gap-1.5">
           {issuesDiff < 0 ? (
-            <><TrendingUp className="size-4 text-green-600" /><span className="text-sm font-semibold text-green-600">{issuesDiff}</span></>
+            <><TrendingUp className="size-4 text-success" /><span className="text-sm font-semibold text-success">{issuesDiff}</span></>
           ) : issuesDiff > 0 ? (
-            <><TrendingDown className="size-4 text-red-600" /><span className="text-sm font-semibold text-red-600">+{issuesDiff}</span></>
+            <><TrendingDown className="size-4 text-danger" /><span className="text-sm font-semibold text-danger">+{issuesDiff}</span></>
           ) : (
             <><Minus className="size-4 text-muted-foreground" /><span className="text-sm text-muted-foreground">无变化</span></>
           )}

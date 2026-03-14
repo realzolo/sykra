@@ -105,31 +105,33 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 bg-background border-b border-border shrink-0">
-        <Button isIconOnly variant="ghost" size="sm" onPress={() => router.push('/rules')}>
-          <ArrowLeft className="size-4" />
-        </Button>
-        <Shield className="size-4 text-muted-foreground shrink-0" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-base font-semibold">{initialRuleSet.name}</span>
-            {initialRuleSet.is_global && <Chip size="sm" variant="soft" color="accent">全局</Chip>}
+      <div className="border-b border-border bg-card shrink-0">
+        <div className="flex items-center gap-3 px-6 py-4 max-w-[1200px] mx-auto w-full">
+          <Button isIconOnly variant="ghost" size="sm" onPress={() => router.push('/rules')}>
+            <ArrowLeft className="size-4" />
+          </Button>
+          <Shield className="size-4 text-muted-foreground shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-base font-semibold">{initialRuleSet.name}</span>
+              {initialRuleSet.is_global && <Chip size="sm" variant="soft" color="accent">全局</Chip>}
+            </div>
+            {initialRuleSet.description && <div className="text-xs text-muted-foreground mt-0.5">{initialRuleSet.description}</div>}
           </div>
-          {initialRuleSet.description && <div className="text-xs text-muted-foreground mt-0.5">{initialRuleSet.description}</div>}
+          <span className="text-sm text-muted-foreground">
+            <span className="text-success font-semibold">{enabledCount}</span>/{rules.length} 已启用
+          </span>
+          <Button size="sm" onPress={openAdd} className="gap-1.5">
+            <Plus className="size-4" />
+            添加规则
+          </Button>
         </div>
-        <span className="text-sm text-muted-foreground">
-          <span className="text-success font-semibold">{enabledCount}</span>/{rules.length} 已启用
-        </span>
-        <Button size="sm" onPress={openAdd} className="gap-1.5">
-          <Plus className="size-4" />
-          添加规则
-        </Button>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {rules.length === 0 ? (
-          <div className="flex flex-col items-start gap-3 px-6 py-20">
+          <div className="max-w-[1200px] mx-auto w-full flex flex-col items-start gap-3 px-6 py-20">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
               <Shield className="size-5 text-muted-foreground" />
             </div>
@@ -142,57 +144,59 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
             </Button>
           </div>
         ) : (
-          CATEGORIES.map(cat => {
-            const catRules = grouped[cat];
-            if (catRules.length === 0) return null;
-            return (
-              <div key={cat}>
-                {/* Category header */}
-                <div className="flex items-center gap-2 px-6 py-2 border-b border-border bg-muted/40">
-                  <Chip size="sm" color={CAT_COLOR[cat]} variant="soft">{CAT_LABEL[cat] ?? cat}</Chip>
-                  <span className="text-xs text-muted-foreground">{catRules.length} 条规则</span>
-                </div>
-                {catRules.map(rule => (
-                  <div key={rule.id} className={['flex items-start gap-3 px-6 py-3.5 border-b border-border hover:bg-muted/20 transition-colors', !rule.is_enabled ? 'opacity-50' : ''].join(' ')}>
-                    <Switch
-                      isSelected={rule.is_enabled}
-                      isDisabled={togglingId === rule.id}
-                      onChange={() => handleToggle(rule)}
-                      className="mt-0.5 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        <span className="text-sm font-medium">{rule.name}</span>
-                        <Chip size="sm" color={SEV_COLOR[rule.severity]} variant="soft">{SEV_LABEL[rule.severity]}</Chip>
-                        <span className="text-xs text-muted-foreground">权重 {rule.weight}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground leading-relaxed bg-muted rounded px-3 py-2 font-mono whitespace-pre-wrap">
-                        {rule.prompt}
-                      </div>
-                    </div>
-                    <div className="flex gap-0.5 shrink-0">
-                      <Tooltip>
-                        <Tooltip.Trigger>
-                          <Button isIconOnly variant="ghost" size="sm" onPress={() => openEdit(rule)}>
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        </Tooltip.Trigger>
-                        <Tooltip.Content>编辑</Tooltip.Content>
-                      </Tooltip>
-                      <Tooltip>
-                        <Tooltip.Trigger>
-                          <Button isIconOnly variant="ghost" size="sm" onPress={() => handleDelete(rule.id)}>
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </Tooltip.Trigger>
-                        <Tooltip.Content>删除</Tooltip.Content>
-                      </Tooltip>
-                    </div>
+          <div className="max-w-[1200px] mx-auto w-full px-6 py-6 space-y-4">
+            {CATEGORIES.map(cat => {
+              const catRules = grouped[cat];
+              if (catRules.length === 0) return null;
+              return (
+                <div key={cat} className="border border-border rounded-lg overflow-hidden bg-card">
+                  {/* Category header */}
+                  <div className="flex items-center gap-2 px-6 py-2 border-b border-border bg-muted/40">
+                    <Chip size="sm" color={CAT_COLOR[cat]} variant="soft">{CAT_LABEL[cat] ?? cat}</Chip>
+                    <span className="text-xs text-muted-foreground">{catRules.length} 条规则</span>
                   </div>
-                ))}
-              </div>
-            );
-          })
+                  {catRules.map(rule => (
+                    <div key={rule.id} className={['flex items-start gap-3 px-6 py-3.5 border-b border-border last:border-0 hover:bg-muted/20 transition-colors', !rule.is_enabled ? 'opacity-50' : ''].join(' ')}>
+                      <Switch
+                        isSelected={rule.is_enabled}
+                        isDisabled={togglingId === rule.id}
+                        onChange={() => handleToggle(rule)}
+                        className="mt-0.5 shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                          <span className="text-sm font-medium">{rule.name}</span>
+                          <Chip size="sm" color={SEV_COLOR[rule.severity]} variant="soft">{SEV_LABEL[rule.severity]}</Chip>
+                          <span className="text-xs text-muted-foreground">权重 {rule.weight}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground leading-relaxed bg-muted rounded px-3 py-2 font-mono whitespace-pre-wrap">
+                          {rule.prompt}
+                        </div>
+                      </div>
+                      <div className="flex gap-0.5 shrink-0">
+                        <Tooltip>
+                          <Tooltip.Trigger>
+                            <Button isIconOnly variant="ghost" size="sm" onPress={() => openEdit(rule)}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          </Tooltip.Trigger>
+                          <Tooltip.Content>编辑</Tooltip.Content>
+                        </Tooltip>
+                        <Tooltip>
+                          <Tooltip.Trigger>
+                            <Button isIconOnly variant="ghost" size="sm" onPress={() => handleDelete(rule.id)}>
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </Tooltip.Trigger>
+                          <Tooltip.Content>删除</Tooltip.Content>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 

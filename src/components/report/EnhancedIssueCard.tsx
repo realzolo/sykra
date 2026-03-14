@@ -21,11 +21,11 @@ type Issue = {
 };
 
 const SEV_CONFIG = {
-  critical: { icon: AlertCircle, color: '#dc2626', bg: '#fee2e2', label: '严重' },
-  high: { icon: AlertTriangle, color: '#ea580c', bg: '#ffedd5', label: '高' },
-  medium: { icon: AlertTriangle, color: '#ca8a04', bg: '#fef9c3', label: '中' },
-  low: { icon: Info, color: '#0891b2', bg: '#cffafe', label: '低' },
-  info: { icon: Info, color: '#059669', bg: '#d1fae5', label: '提示' },
+  critical: { icon: AlertCircle, iconClass: 'text-danger', badgeClass: 'bg-danger/10 text-danger', label: '严重' },
+  high: { icon: AlertTriangle, iconClass: 'text-warning', badgeClass: 'bg-warning/20 text-warning', label: '高' },
+  medium: { icon: AlertTriangle, iconClass: 'text-warning', badgeClass: 'bg-warning/10 text-warning', label: '中' },
+  low: { icon: Info, iconClass: 'text-accent', badgeClass: 'bg-accent/10 text-accent', label: '低' },
+  info: { icon: Info, iconClass: 'text-success', badgeClass: 'bg-success/10 text-success', label: '提示' },
 };
 
 const CAT_LABEL: Record<string, string> = {
@@ -54,7 +54,7 @@ export default function EnhancedIssueCard({ issue, onChat }: { issue: Issue; onC
         className="flex items-start gap-3 px-5 py-4 cursor-pointer hover:bg-muted/50 transition-colors"
       >
         <div className="shrink-0 mt-0.5">
-          <Icon className="size-5" style={{ color: config.color }} />
+          <Icon className={['size-5', config.iconClass].join(' ')} />
         </div>
 
         <div className="flex-1 min-w-0 space-y-2">
@@ -62,8 +62,7 @@ export default function EnhancedIssueCard({ issue, onChat }: { issue: Issue; onC
             <code className="text-xs font-mono bg-muted rounded-lg px-2.5 py-1">
               {issue.file}{issue.line ? `:${issue.line}` : ''}
             </code>
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide"
-              style={{ background: config.bg, color: config.color }}>
+            <span className={['px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide', config.badgeClass].join(' ')}>
               {config.label}
             </span>
             <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">

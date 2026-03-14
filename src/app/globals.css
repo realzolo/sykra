@@ -1,7 +1,119 @@
 @import "@heroui/styles";
 
 @layer base {
-  body {
-    font-family: Arial, Helvetica, sans-serif;
+  :root {
+    color-scheme: light;
+    --background: 210 20% 99%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --border: 214 20% 90%;
+    --input: 214 20% 90%;
+    --primary: 158 64% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 13% 94%;
+    --secondary-foreground: 222 47% 11%;
+    --accent: 200 94% 42%;
+    --accent-foreground: 0 0% 100%;
+    --success: 158 64% 42%;
+    --warning: 38 92% 50%;
+    --danger: 0 84% 60%;
+    --ring: 158 64% 42%;
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-muted: 210 40% 96%;
+    --sidebar-border: 214 20% 90%;
   }
+
+  [data-theme="dark"],
+  .dark {
+    color-scheme: dark;
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 13%;
+    --card-foreground: 210 40% 98%;
+    --muted: 215 28% 17%;
+    --muted-foreground: 215 16% 60%;
+    --border: 215 20% 24%;
+    --input: 215 20% 24%;
+    --primary: 158 64% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 215 28% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --accent: 200 94% 45%;
+    --accent-foreground: 0 0% 100%;
+    --success: 158 64% 42%;
+    --warning: 38 92% 50%;
+    --danger: 0 72% 55%;
+    --ring: 158 64% 42%;
+    --sidebar: 222 47% 12%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-muted: 215 28% 17%;
+    --sidebar-border: 215 20% 24%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  }
+}
+
+@layer utilities {
+  .bg-background { background-color: hsl(var(--background)); }
+  .text-foreground { color: hsl(var(--foreground)); }
+  .bg-card { background-color: hsl(var(--card)); }
+  .text-card-foreground { color: hsl(var(--card-foreground)); }
+  .bg-muted { background-color: hsl(var(--muted)); }
+  .text-muted-foreground { color: hsl(var(--muted-foreground)); }
+  .border-border { border-color: hsl(var(--border)); }
+  .bg-primary { background-color: hsl(var(--primary)); }
+  .text-primary { color: hsl(var(--primary)); }
+  .text-primary-foreground { color: hsl(var(--primary-foreground)); }
+  .bg-secondary { background-color: hsl(var(--secondary)); }
+  .text-secondary-foreground { color: hsl(var(--secondary-foreground)); }
+  .bg-accent { background-color: hsl(var(--accent)); }
+  .text-accent { color: hsl(var(--accent)); }
+  .text-success { color: hsl(var(--success)); }
+  .bg-success { background-color: hsl(var(--success)); }
+  .text-warning { color: hsl(var(--warning)); }
+  .bg-warning { background-color: hsl(var(--warning)); }
+  .text-danger { color: hsl(var(--danger)); }
+  .bg-danger { background-color: hsl(var(--danger)); }
+  .bg-sidebar { background-color: hsl(var(--sidebar)); }
+  .text-sidebar-foreground { color: hsl(var(--sidebar-foreground)); }
+  .bg-sidebar-muted { background-color: hsl(var(--sidebar-muted)); }
+  .border-sidebar { border-color: hsl(var(--sidebar-border)); }
+}
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 15% 20%, hsl(var(--primary) / 0.18), transparent 45%),
+    radial-gradient(circle at 85% 80%, hsl(var(--accent) / 0.18), transparent 45%),
+    hsl(var(--background));
+}
+
+.auth-card {
+  width: 420px;
+  max-width: calc(100vw - 2rem);
+  border-radius: 20px;
+  padding: 2.5rem;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 24px 60px hsl(222 47% 11% / 0.12);
 }

@@ -28,7 +28,7 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
   }
 
   return (
-    <div className="group flex items-center gap-4 px-4 py-3.5 border-b border-border hover:bg-muted/30 transition-colors">
+    <div className="group flex items-center gap-4 px-4 py-3.5 border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
       <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted shrink-0">
         <Github className="h-4 w-4 text-muted-foreground" />
       </div>

@@ -43,8 +43,8 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
-        <div className="flex items-center justify-between">
+      <div className="border-b border-border bg-card shrink-0">
+        <div className="px-6 py-4 max-w-[1200px] mx-auto w-full flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold">项目</h1>
             <p className="text-sm text-muted-foreground mt-0.5">管理 GitHub 仓库代码审查</p>
@@ -58,32 +58,36 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
 
       {/* Stats */}
       {projects.length > 0 && (
-        <div className="px-6 py-4 border-b border-border bg-background shrink-0">
-          <DashboardStats />
+        <div className="border-b border-border bg-card shrink-0">
+          <div className="px-6 py-4 max-w-[1200px] mx-auto w-full">
+            <DashboardStats />
+          </div>
         </div>
       )}
 
       {/* Toolbar */}
       {projects.length > 0 && (
-        <div className="px-6 py-3 border-b border-border bg-background shrink-0 flex items-center justify-between gap-3">
-          <InputGroup className="max-w-xs">
-            <InputGroup.Prefix>
-              <Search className="size-3.5 text-muted-foreground" />
-            </InputGroup.Prefix>
-            <InputGroup.Input
-              placeholder="搜索项目..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </InputGroup>
-          <span className="text-xs text-muted-foreground">{filtered.length} 个项目</span>
+        <div className="border-b border-border bg-card shrink-0">
+          <div className="px-6 py-3 max-w-[1200px] mx-auto w-full flex items-center justify-between gap-3">
+            <InputGroup className="max-w-xs">
+              <InputGroup.Prefix>
+                <Search className="size-3.5 text-muted-foreground" />
+              </InputGroup.Prefix>
+              <InputGroup.Input
+                placeholder="搜索项目..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </InputGroup>
+            <span className="text-xs text-muted-foreground">{filtered.length} 个项目</span>
+          </div>
         </div>
       )}
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {projects.length === 0 ? (
-          <div className="flex flex-col items-start justify-center gap-3 px-6 py-20">
+          <div className="max-w-[1200px] mx-auto w-full flex flex-col items-start justify-center gap-3 px-6 py-20">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
               <FolderOpen className="h-5 w-5 text-muted-foreground" />
             </div>
@@ -97,21 +101,23 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
             </Button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="px-6 py-20">
+          <div className="max-w-[1200px] mx-auto w-full px-6 py-20">
             <p className="text-sm text-muted-foreground">没有匹配 &quot;{search}&quot; 的项目</p>
           </div>
         ) : (
-          <div>
-            {/* Table header */}
-            <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-muted/40">
-              <div className="w-8 shrink-0" />
-              <div className="flex-1 text-xs font-medium text-muted-foreground">项目名称</div>
-              <div className="hidden md:block text-xs font-medium text-muted-foreground w-[200px]">描述</div>
-              <div className="w-[140px] shrink-0" />
+          <div className="max-w-[1200px] mx-auto w-full px-6 pb-6">
+            <div className="border border-border rounded-lg overflow-hidden bg-card">
+              {/* Table header */}
+              <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-muted/40">
+                <div className="w-8 shrink-0" />
+                <div className="flex-1 text-xs font-medium text-muted-foreground">项目名称</div>
+                <div className="hidden md:block text-xs font-medium text-muted-foreground w-[200px]">描述</div>
+                <div className="w-[140px] shrink-0" />
+              </div>
+              {filtered.map(p => (
+                <ProjectCard key={p.id} project={p} onDelete={handleDelete} onUpdate={handleUpdate} />
+              ))}
             </div>
-            {filtered.map(p => (
-              <ProjectCard key={p.id} project={p} onDelete={handleDelete} onUpdate={handleUpdate} />
-            ))}
           </div>
         )}
       </div>
