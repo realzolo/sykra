@@ -78,7 +78,7 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
               key={item.href}
               href={item.href}
               className={[
-                'flex items-center gap-2.5 h-9 px-3 rounded-md text-sm w-full transition-colors',
+                'flex items-center gap-2.5 h-8 px-3 rounded-md text-[13px] w-full transition-colors',
                 active
                   ? 'bg-secondary/70 text-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',

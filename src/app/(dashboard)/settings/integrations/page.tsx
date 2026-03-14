@@ -192,18 +192,16 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
-        <h1 className="text-xl font-semibold">Integrations</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Manage your code repository and AI model integrations
-        </p>
-      </div>
+    <div className="flex-1 overflow-auto">
+      <div className="max-w-4xl space-y-6 px-6 py-6">
+        <div>
+          <h1 className="text-lg font-semibold">Integrations</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Manage your code repository and AI model integrations
+          </p>
+        </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
-        <div className="max-w-4xl space-y-8">
+        <div className="space-y-8">
           {/* VCS Integrations */}
           <div>
             <div className="flex items-center justify-between mb-4">

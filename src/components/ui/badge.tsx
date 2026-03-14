@@ -14,7 +14,7 @@ const badgeVariants = cva(
         warning: 'bg-warning/15 text-warning border-warning/20',
         danger: 'bg-danger/15 text-danger border-danger/20',
         accent: 'bg-accent/15 text-accent border-accent/20',
-        muted: 'bg-muted/50 text-muted-foreground border-border',
+        muted: 'bg-muted/60 text-muted-foreground border-border',
       },
       size: {
         sm: 'text-[10px] px-2 py-0.5',

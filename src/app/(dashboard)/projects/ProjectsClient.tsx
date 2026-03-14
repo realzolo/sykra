@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Plus, Search, LayoutGrid, List as ListIcon, ChevronDown } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { FolderOpen } from 'lucide-react';
 import ProjectCard from '@/components/project/ProjectCard';
@@ -19,8 +19,9 @@ type Project = {
 export default function ProjectsClient({ initialProjects, dict }: { initialProjects: Project[]; dict: Dictionary }) {
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [showAdd, setShowAdd] = useState(false);
-  const [search, setSearch] = useState('');
-  const [view, setView] = useState<'grid' | 'list'>('grid');
+  const searchParams = useSearchParams();
+  const search = searchParams.get('q') ?? '';
+  const view = searchParams.get('view') === 'list' ? 'list' : 'grid';
 
   const filtered = useMemo(() => {
     if (!search.trim()) return projects;
@@ -43,55 +44,17 @@ export default function ProjectsClient({ initialProjects, dict }: { initialProje
     setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
   }
 
-  return (
-    <div className="flex flex-col h-full">
-      <div className="border-b border-border bg-background shrink-0">
-        <div className="px-6 h-14 flex items-center gap-3">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            All Projects
-            <ChevronDown className="size-4 text-muted-foreground" />
-          </div>
-          <div className="ml-auto text-xs text-muted-foreground">Overview</div>
-        </div>
-        <div className="px-6 pb-4 flex items-center gap-3">
-          <div className="relative flex-1 max-w-[520px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <Input
-              placeholder={dict.projects.searchProjects}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-9 h-9 bg-muted/40"
-            />
-          </div>
-          <div className="flex items-center gap-1 rounded-md border border-border bg-muted/40 p-1">
-            <button
-              onClick={() => setView('grid')}
-              className={[
-                'h-7 w-7 rounded-md flex items-center justify-center',
-                view === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-              ].join(' ')}
-            >
-              <LayoutGrid className="size-4" />
-            </button>
-            <button
-              onClick={() => setView('list')}
-              className={[
-                'h-7 w-7 rounded-md flex items-center justify-center',
-                view === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-              ].join(' ')}
-            >
-              <ListIcon className="size-4" />
-            </button>
-          </div>
-          <Button onClick={() => setShowAdd(true)} className="gap-1.5 h-9">
-            <Plus className="h-4 w-4" />
-            Add New
-          </Button>
-        </div>
-      </div>
+  useEffect(() => {
+    function handleOpen() {
+      setShowAdd(true);
+    }
+    window.addEventListener('open-add-project', handleOpen);
+    return () => window.removeEventListener('open-add-project', handleOpen);
+  }, []);
 
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-[1200px] mx-auto w-full px-6 py-6">
+  return (
+    <div className="flex-1 overflow-auto">
+      <div className="max-w-[1200px] mx-auto w-full px-6 py-6">
           {projects.length === 0 ? (
             <div className="flex flex-col items-start justify-center gap-3 py-20">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
@@ -149,7 +112,6 @@ export default function ProjectsClient({ initialProjects, dict }: { initialProje
               </div>
             </div>
           )}
-        </div>
       </div>
 
       <AddProjectModal
