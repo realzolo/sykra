@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# spec-axis
 
-## Getting Started
+An AI code review platform built with Next.js 16 + React 19 + TypeScript. It integrates GitHub project management, commit selection, Claude analysis, configurable rule sets, and quality report scoring. The UI follows a Supabase Dashboard-style white theme using HeroUI v3 (beta) and Tailwind CSS v4. The backend runs analysis via a task queue and streams incremental updates over SSE.
 
-First, run the development server:
+## Features
+
+- Multi-GitHub project management and commit-based analysis
+- Claude AI reviews with configurable rule sets
+- Quality scoring and report detail pages
+- Incremental report updates via SSE
+- Admin-friendly task queue with secure trigger endpoint
+
+## Tech Stack
+
+- Next.js 16 (App Router, Turbopack)
+- React 19 + TypeScript
+- HeroUI v3 (beta) + Tailwind CSS v4
+- Supabase (auth + database)
+- Octokit (GitHub API)
+- Anthropic SDK (Claude)
+
+## Quick Start
+
+Install dependencies and run the dev server:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:8109](http://localhost:8109) with your browser to see the result.
+Open `http://localhost:8109`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Copy the example file and fill in values:
 
-## Learn More
+```bash
+cp .env.example .env
+```
 
-To learn more about Next.js, take a look at the following resources:
+Required variables:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+GITHUB_PAT=
+ANTHROPIC_API_KEY=
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Optional:
 
-## Deploy on Vercel
+```
+ANTHROPIC_BASE_URL=
+TASK_RUNNER_TOKEN=
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Scripts
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+pnpm dev     # start dev server (port 8109)
+pnpm build   # production build
+pnpm start   # start production server
+pnpm lint    # run ESLint
+```
+
+## API Notes
+
+- `POST /api/analyze` triggers analysis (returns `{ reportId }` immediately).
+- `POST /api/tasks/run?limit=1` runs the task queue. Use `x-task-token` if `TASK_RUNNER_TOKEN` is set.
+- `GET /api/stream` provides SSE updates for report status.
+
+## Project Structure
+
+```
+src/
+  app/              # Next.js routes (auth, dashboard, api)
+  components/       # UI components
+  services/         # Supabase, GitHub, Claude, queue, and helpers
+  lib/              # shared utilities
+  proxy.ts          # Next.js 16 proxy (middleware equivalent)
+```
+
+## Deployment
+
+Vercel is supported. The analysis API uses a 300s function timeout in `vercel.json`.
