@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { CheckSquare, Square, Trash2 } from 'lucide-react';
-import { Button, Select, ListBox } from '@heroui/react';
+import { Select, ListBox } from '@heroui/react';
+import { Button } from '@heroui/react';
 import { toast } from 'sonner';
 
 type Issue = {
@@ -87,7 +88,7 @@ export default function BatchOperations({
           <div className="h-4 w-px bg-default-200" />
 
           <Select onSelectionChange={(key) => handleBatchOperation('update_status', key as string)} isDisabled={operating} className="w-[140px]">
-            <Select.Trigger><Select.Value placeholder="更新状态" /><Select.Indicator /></Select.Trigger>
+            <Select.Trigger><Select.Value>更新状态</Select.Value><Select.Indicator /></Select.Trigger>
             <Select.Popover>
               <ListBox items={STATUS_ITEMS}>
                 {(item) => <ListBox.Item id={item.id}>{item.label}</ListBox.Item>}
@@ -96,7 +97,7 @@ export default function BatchOperations({
           </Select>
 
           <Select onSelectionChange={(key) => handleBatchOperation('assign', key as string)} isDisabled={operating} className="w-[140px]">
-            <Select.Trigger><Select.Value placeholder="分配给" /><Select.Indicator /></Select.Trigger>
+            <Select.Trigger><Select.Value>分配给</Select.Value><Select.Indicator /></Select.Trigger>
             <Select.Popover>
               <ListBox items={ASSIGN_ITEMS}>
                 {(item) => <ListBox.Item id={item.id}>{item.label}</ListBox.Item>}
@@ -104,7 +105,7 @@ export default function BatchOperations({
             </Select.Popover>
           </Select>
 
-          <Button variant="danger" size="sm" onPress={() => handleBatchOperation('delete')} isLoading={operating} className="gap-2">
+          <Button variant="danger" size="sm" onPress={() => handleBatchOperation('delete')} isDisabled={operating} className="gap-2">
             <Trash2 className="size-3.5" />
             删除
           </Button>

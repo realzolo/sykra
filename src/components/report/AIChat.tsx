@@ -97,7 +97,7 @@ export default function AIChat({ reportId, issueId }: { reportId: string; issueI
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
             placeholder="输入您的问题..."
-            isDisabled={loading}
+            disabled={loading}
             className="flex-1"
           />
           <Button onPress={handleSend} isDisabled={!input.trim() || loading} isIconOnly>

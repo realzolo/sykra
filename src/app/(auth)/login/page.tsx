@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Code2 } from 'lucide-react';
-import { Button, Input } from '@heroui/react';
+import { Input, Button } from '@heroui/react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 
@@ -62,11 +62,11 @@ export default function LoginPage() {
         </div>
         <Button
           type="submit"
-          isLoading={loading}
+          isDisabled={loading}
           className="w-full h-10 font-semibold border-none mt-1"
           style={{ background: 'linear-gradient(135deg, #4f6ef7 0%, #7c3aed 100%)', boxShadow: '0 4px 16px rgba(79,110,247,0.35)' }}
         >
-          登录
+          {loading ? '登录中…' : '登录'}
         </Button>
       </form>
 

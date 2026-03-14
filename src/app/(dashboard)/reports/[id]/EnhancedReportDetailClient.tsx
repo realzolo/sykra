@@ -4,10 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  ArrowLeft, AlertCircle, RefreshCw, Github, Loader2, ChevronDown, ChevronUp,
+  ArrowLeft, AlertCircle, RefreshCw, Github, ChevronDown, ChevronUp,
   TrendingUp, Shield, Zap, Code2, FileCode, MessageCircle, BarChart3, Lightbulb
 } from 'lucide-react';
-import { Button, Select, ListBox, Modal, useOverlayState } from '@heroui/react';
+import { Button, Select, ListBox, Modal, useOverlayState, Chip, Spinner, Card } from '@heroui/react';
 import { toast } from 'sonner';
 import EnhancedIssueCard from '@/components/report/EnhancedIssueCard';
 import AIChat from '@/components/report/AIChat';
@@ -64,10 +64,15 @@ const CAT_LABEL: Record<string, string> = {
   performance: '性能', maintainability: '可维护性',
 };
 
-function scoreColor(s: number) {
-  if (s >= 85) return '#059669';
-  if (s >= 70) return '#ca8a04';
-  return '#dc2626';
+function scoreColorClass(s: number) {
+  if (s >= 85) return 'text-green-600';
+  if (s >= 70) return 'text-yellow-600';
+  return 'text-red-600';
+}
+function scoreBarClass(s: number) {
+  if (s >= 85) return 'bg-green-500';
+  if (s >= 70) return 'bg-yellow-500';
+  return 'bg-red-500';
 }
 
 function formatDate(d: string) {
@@ -82,12 +87,13 @@ function formatDate(d: string) {
 
 const SEV_ITEMS = [
   { id: 'all', label: '所有严重级别' },
-  { id: 'critical', label: '严重' },
-  { id: 'high', label: '高' },
-  { id: 'medium', label: '中' },
-  { id: 'low', label: '低' },
-  { id: 'info', label: '提示' },
+  { id: 'critical', label: '严重' }, { id: 'high', label: '高' },
+  { id: 'medium', label: '中' }, { id: 'low', label: '低' }, { id: 'info', label: '提示' },
 ];
+
+const SEV_CHIP_COLOR: Record<string, 'danger' | 'warning' | 'success' | 'default' | 'accent'> = {
+  critical: 'danger', high: 'danger', medium: 'warning', low: 'default', info: 'success',
+};
 
 export default function EnhancedReportDetailClient({ initialReport }: { initialReport: Report }) {
   const router = useRouter();
@@ -148,61 +154,65 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
 
   const catItems = [{ id: 'all', label: '所有分类' }, ...categories.map(c => ({ id: c, label: CAT_LABEL[c] ?? c }))];
 
-  const statusStyle = {
-    done: { bg: '#d1fae5', color: '#059669', label: '已完成' },
-    failed: { bg: '#fee2e2', color: '#dc2626', label: '失败' },
-    pending: { bg: '#dbeafe', color: '#2563eb', label: '待处理' },
-    analyzing: { bg: '#dbeafe', color: '#2563eb', label: '分析中' },
-  }[report.status] ?? { bg: '#dbeafe', color: '#2563eb', label: report.status };
+  const statusChip = {
+    done:      { color: 'success' as const, label: '已完成' },
+    failed:    { color: 'danger' as const,  label: '失败' },
+    pending:   { color: 'default' as const, label: '待处理' },
+    analyzing: { color: 'accent' as const,  label: '分析中' },
+  }[report.status] ?? { color: 'default' as const, label: report.status };
 
   function openChat(issueFile?: string) {
     setChatIssueId(issueFile);
     setChatOpen(true);
   }
 
+  const TABS = [
+    { id: 'issues' as const, label: `问题列表 (${allIssues.length})`, icon: Code2 },
+    { id: 'metrics' as const, label: '质量指标', icon: BarChart3 },
+    ...(report.security_findings?.length ? [{ id: 'security' as const, label: `安全发现 (${report.security_findings.length})`, icon: Shield }] : []),
+    ...(report.performance_findings?.length ? [{ id: 'performance' as const, label: `性能发现 (${report.performance_findings.length})`, icon: Zap }] : []),
+    ...(report.ai_suggestions?.length ? [{ id: 'suggestions' as const, label: `AI 建议 (${report.ai_suggestions.length})`, icon: Lightbulb }] : []),
+  ];
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-8 h-16 border-b shrink-0 bg-background">
+      <div className="flex items-center gap-3 px-8 h-16 border-b border-border shrink-0 bg-card">
         <Link href="/reports">
-          <Button isIconOnly variant="ghost" className="h-8 w-8">
+          <Button isIconOnly variant="ghost" size="sm">
             <ArrowLeft className="size-4" />
           </Button>
         </Link>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold">报告详情</h2>
+            <h2 className="text-base font-semibold">报告详情</h2>
             <code className="text-xs font-mono text-muted-foreground">#{report.id.slice(0, 8)}</code>
           </div>
-          <div className="text-sm text-muted-foreground">{report.projects?.name}</div>
+          <div className="text-xs text-muted-foreground">{report.projects?.name}</div>
         </div>
         {report.status === 'done' && (
           <>
             <Button variant="outline" size="sm" onPress={() => setTrendsOpen(true)} className="gap-2">
-              <BarChart3 className="size-4" />
-              趋势分析
+              <BarChart3 className="size-4" />趋势分析
             </Button>
             <Button variant="outline" size="sm" onPress={() => openChat()} className="gap-2">
-              <MessageCircle className="size-4" />
-              AI 对话
+              <MessageCircle className="size-4" />AI 对话
             </Button>
           </>
         )}
         {(report.status === 'done' || report.status === 'failed') && (
-          <Button variant="outline" size="sm" isLoading={retrying} onPress={handleRetry} className="gap-2">
-            <RefreshCw className="size-3.5" />
+          <Button variant="outline" size="sm" isDisabled={retrying} onPress={handleRetry} className="gap-2">
+            <RefreshCw className={['size-3.5', retrying ? 'animate-spin' : ''].join(' ')} />
             重新分析
           </Button>
         )}
-        <span className="px-3 py-1 rounded-full text-xs font-semibold" style={{ background: statusStyle.bg, color: statusStyle.color }}>
-          {statusStyle.label}
-        </span>
+        <Chip color={statusChip.color} variant="soft">{statusChip.label}</Chip>
       </div>
 
       {/* Analyzing */}
       {(report.status === 'pending' || report.status === 'analyzing') && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4">
-          <Loader2 className="size-12 animate-spin text-primary" />
+          <Spinner size="lg" />
           <div className="text-sm text-muted-foreground">AI 正在深度分析您的代码...</div>
           <div className="text-xs text-muted-foreground">正在进行多维度质量分析、安全扫描、性能评估...</div>
         </div>
@@ -214,9 +224,8 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
           <AlertCircle className="size-12 text-destructive" />
           <div className="text-sm font-semibold">分析失败</div>
           <div className="text-sm text-muted-foreground">{report.error_message}</div>
-          <Button isLoading={retrying} onPress={handleRetry} className="mt-2 gap-2">
-            <RefreshCw className="size-4" />
-            重新分析
+          <Button isDisabled={retrying} onPress={handleRetry} className="mt-2 gap-2">
+            <RefreshCw className="size-4" />重新分析
           </Button>
         </div>
       )}
@@ -227,62 +236,49 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
           <div className="p-8 space-y-6">
             {/* Score Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-card border rounded-lg p-6 text-center">
-                <div className="text-5xl font-bold" style={{ color: scoreColor(report.score ?? 0) }}>{report.score}</div>
+              <Card className="p-6 text-center">
+                <div className={['text-5xl font-bold', scoreColorClass(report.score ?? 0)].join(' ')}>{report.score}</div>
                 <div className="text-sm text-muted-foreground mt-1">/ 100</div>
-                <div className="text-sm font-semibold mt-2" style={{ color: scoreColor(report.score ?? 0) }}>
+                <div className={['text-sm font-semibold mt-2', scoreColorClass(report.score ?? 0)].join(' ')}>
                   {(report.score ?? 0) >= 85 ? '优秀' : (report.score ?? 0) >= 70 ? '良好' : '需改进'}
                 </div>
-              </div>
-              <div className="md:col-span-2 bg-card border rounded-lg p-6 space-y-3">
+              </Card>
+              <Card className="md:col-span-2 p-6 space-y-3">
                 {Object.entries(report.category_scores ?? {}).map(([k, v]) => (
                   <div key={k} className="flex items-center gap-3">
                     <div className="w-24 text-sm text-muted-foreground">{CAT_LABEL[k] ?? k}</div>
-                    <div className="flex-1 bg-gray-200 rounded-full h-2">
-                      <div className="h-2 rounded-full" style={{ width: `${v}%`, backgroundColor: scoreColor(v) }} />
+                    <div className="flex-1 bg-muted rounded-full h-2">
+                      <div className={['h-2 rounded-full', scoreBarClass(v)].join(' ')} style={{ width: `${v}%` }} />
                     </div>
-                    <div className="w-12 text-right text-sm font-bold" style={{ color: scoreColor(v) }}>{v}</div>
+                    <div className={['w-12 text-right text-sm font-bold', scoreColorClass(v)].join(' ')}>{v}</div>
                   </div>
                 ))}
-              </div>
+              </Card>
             </div>
 
             {/* Context Analysis */}
             {report.context_analysis && (
-              <div className="bg-card border rounded-lg p-6">
+              <Card className="p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <TrendingUp className="size-5 text-primary" />
-                  <h3 className="text-lg font-semibold">上下文分析</h3>
+                  <h3 className="text-base font-semibold">上下文分析</h3>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">变更类型</div>
-                    <div className="text-sm font-medium">{report.context_analysis.changeType}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">风险等级</div>
-                    <div className="text-sm font-medium">{report.context_analysis.riskLevel}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">破坏性变更</div>
-                    <div className="text-sm font-medium">{report.context_analysis.breakingChanges ? '是' : '否'}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">影响模块</div>
-                    <div className="text-sm font-medium">{report.context_analysis.affectedModules.length} 个</div>
-                  </div>
+                  <div><div className="text-xs text-muted-foreground mb-1">变更类型</div><div className="text-sm font-medium">{report.context_analysis.changeType}</div></div>
+                  <div><div className="text-xs text-muted-foreground mb-1">风险等级</div><div className="text-sm font-medium">{report.context_analysis.riskLevel}</div></div>
+                  <div><div className="text-xs text-muted-foreground mb-1">破坏性变更</div><div className="text-sm font-medium">{report.context_analysis.breakingChanges ? '是' : '否'}</div></div>
+                  <div><div className="text-xs text-muted-foreground mb-1">影响模块</div><div className="text-sm font-medium">{report.context_analysis.affectedModules.length} 个</div></div>
                 </div>
                 <div className="mt-4">
                   <div className="text-xs text-muted-foreground mb-1">业务影响</div>
                   <div className="text-sm">{report.context_analysis.businessImpact}</div>
                 </div>
-              </div>
+              </Card>
             )}
 
             {/* Commit Stats */}
-            <div className="bg-card border rounded-lg overflow-hidden">
-              <div className="px-6 py-4 flex gap-6 flex-wrap items-center"
-                style={{ borderBottom: commitsExpanded ? '1px solid hsl(var(--border))' : 'none' }}>
+            <Card className="overflow-hidden">
+              <div className="px-6 py-4 flex gap-6 flex-wrap items-center border-b border-border/50">
                 <div className="text-sm"><span className="text-muted-foreground">变更文件: </span><strong>{report.total_files ?? 0}</strong></div>
                 <div className="text-sm text-green-600 font-semibold">+{report.total_additions ?? 0}</div>
                 <div className="text-sm text-red-600 font-semibold">-{report.total_deletions ?? 0}</div>
@@ -292,10 +288,10 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                 </Button>
               </div>
               {commitsExpanded && (
-                <div className="divide-y">
+                <div className="divide-y divide-border">
                   {report.commits.map(c => (
                     <div key={c.sha} className="flex items-center gap-3 px-6 py-3">
-                      <code className="text-xs font-mono shrink-0 px-2 py-0.5 rounded bg-muted">{c.sha.slice(0, 7)}</code>
+                      <code className="text-xs font-mono shrink-0 px-2 py-0.5 rounded bg-muted text-muted-foreground">{c.sha.slice(0, 7)}</code>
                       <span className="flex-1 text-sm truncate">{c.message}</span>
                       <span className="text-xs text-muted-foreground shrink-0">{c.author}</span>
                       <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.date)}</span>
@@ -308,42 +304,37 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                   ))}
                 </div>
               )}
-            </div>
+            </Card>
+
             {/* Tabs */}
-            <div className="bg-card border rounded-lg overflow-hidden">
-              <div className="flex border-b">
-                <button onClick={() => setActiveTab("issues")} className={"flex-1 px-4 py-3 text-sm font-medium transition-colors " + (activeTab === "issues" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>
-                  <Code2 className="size-4 inline mr-2" />问题列表 ({allIssues.length})
-                </button>
-                <button onClick={() => setActiveTab("metrics")} className={"flex-1 px-4 py-3 text-sm font-medium transition-colors " + (activeTab === "metrics" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>
-                  <BarChart3 className="size-4 inline mr-2" />质量指标
-                </button>
-                {report.security_findings && report.security_findings.length > 0 && (
-                  <button onClick={() => setActiveTab("security")} className={"flex-1 px-4 py-3 text-sm font-medium transition-colors " + (activeTab === "security" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>
-                    <Shield className="size-4 inline mr-2" />安全发现 ({report.security_findings.length})
-                  </button>
-                )}
-                {report.performance_findings && report.performance_findings.length > 0 && (
-                  <button onClick={() => setActiveTab("performance")} className={"flex-1 px-4 py-3 text-sm font-medium transition-colors " + (activeTab === "performance" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>
-                    <Zap className="size-4 inline mr-2" />性能发现 ({report.performance_findings.length})
-                  </button>
-                )}
-                {report.ai_suggestions && report.ai_suggestions.length > 0 && (
-                  <button onClick={() => setActiveTab("suggestions")} className={"flex-1 px-4 py-3 text-sm font-medium transition-colors " + (activeTab === "suggestions" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>
-                    <Lightbulb className="size-4 inline mr-2" />AI 建议 ({report.ai_suggestions.length})
-                  </button>
-                )}
+            <Card className="overflow-hidden">
+              <div className="flex border-b border-border">
+                {TABS.map(tab => {
+                  const Icon = tab.icon;
+                  const active = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={['flex-1 px-4 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2',
+                        active ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground hover:text-foreground'].join(' ')}
+                    >
+                      <Icon className="size-4" />{tab.label}
+                    </button>
+                  );
+                })}
               </div>
               <div className="p-6">
-                {activeTab === "issues" && (
+                {/* Issues Tab */}
+                {activeTab === 'issues' && (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 flex-wrap">
                       <div className="flex items-center gap-2">
-                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">{criticalCount} 严重</span>
-                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700">{highCount} 高</span>
-                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">{mediumCount} 中</span>
-                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-cyan-100 text-cyan-700">{lowCount} 低</span>
-                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">{infoCount} 提示</span>
+                        <Chip size="sm" color="danger" variant="soft">{criticalCount} 严重</Chip>
+                        <Chip size="sm" color="danger" variant="soft">{highCount} 高</Chip>
+                        <Chip size="sm" color="warning" variant="soft">{mediumCount} 中</Chip>
+                        <Chip size="sm" color="default" variant="soft">{lowCount} 低</Chip>
+                        <Chip size="sm" color="success" variant="soft">{infoCount} 提示</Chip>
                       </div>
                       <div className="ml-auto flex gap-2">
                         <Select selectedKey={sevFilter} onSelectionChange={(key) => setSevFilter(key as string)} className="w-[140px]">
@@ -364,8 +355,8 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                             </Select.Popover>
                           </Select>
                         )}
-                        {(sevFilter !== "all" || catFilter !== "all") && (
-                          <Button variant="ghost" size="sm" onPress={() => { setSevFilter("all"); setCatFilter("all"); }}>清除</Button>
+                        {(sevFilter !== 'all' || catFilter !== 'all') && (
+                          <Button variant="ghost" size="sm" onPress={() => { setSevFilter('all'); setCatFilter('all'); }}>清除</Button>
                         )}
                       </div>
                     </div>
@@ -373,22 +364,31 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                       <div className="text-center py-12 text-muted-foreground">没有匹配当前筛选条件的问题</div>
                     ) : (
                       filteredIssues.map((issue, idx) => (
-                        <EnhancedIssueCard key={issue.file + "-" + issue.line + "-" + idx} issue={issue} onChat={() => openChat(issue.file)} />
+                        <EnhancedIssueCard key={issue.file + '-' + issue.line + '-' + idx} issue={issue} onChat={() => openChat(issue.file)} />
                       ))
                     )}
                   </div>
                 )}
-                {activeTab === "metrics" && (
+
+                {/* Metrics Tab */}
+                {activeTab === 'metrics' && (
                   <div className="space-y-6">
                     {report.complexity_metrics && (
                       <div>
                         <h4 className="text-sm font-semibold mb-3 flex items-center gap-2"><FileCode className="size-4" />代码复杂度</h4>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.complexity_metrics.cyclomaticComplexity}</div><div className="text-xs text-muted-foreground mt-1">圈复杂度</div></div>
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.complexity_metrics.cognitiveComplexity}</div><div className="text-xs text-muted-foreground mt-1">认知复杂度</div></div>
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.complexity_metrics.averageFunctionLength}</div><div className="text-xs text-muted-foreground mt-1">平均函数行数</div></div>
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.complexity_metrics.maxFunctionLength}</div><div className="text-xs text-muted-foreground mt-1">最长函数行数</div></div>
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.complexity_metrics.totalFunctions}</div><div className="text-xs text-muted-foreground mt-1">函数总数</div></div>
+                          {[
+                            { label: '圈复杂度', value: report.complexity_metrics.cyclomaticComplexity },
+                            { label: '认知复杂度', value: report.complexity_metrics.cognitiveComplexity },
+                            { label: '平均函数行数', value: report.complexity_metrics.averageFunctionLength },
+                            { label: '最长函数行数', value: report.complexity_metrics.maxFunctionLength },
+                            { label: '函数总数', value: report.complexity_metrics.totalFunctions },
+                          ].map(m => (
+                            <Card key={m.label} variant="secondary" className="p-4">
+                              <div className="text-2xl font-bold">{m.value}</div>
+                              <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                            </Card>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -396,12 +396,22 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                       <div>
                         <h4 className="text-sm font-semibold mb-3">代码重复度</h4>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.duplication_metrics.duplicatedLines}</div><div className="text-xs text-muted-foreground mt-1">重复行数</div></div>
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.duplication_metrics.duplicatedBlocks}</div><div className="text-xs text-muted-foreground mt-1">重复块数</div></div>
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.duplication_metrics.duplicationRate}%</div><div className="text-xs text-muted-foreground mt-1">重复率</div></div>
+                          {[
+                            { label: '重复行数', value: report.duplication_metrics.duplicatedLines },
+                            { label: '重复块数', value: report.duplication_metrics.duplicatedBlocks },
+                            { label: '重复率', value: report.duplication_metrics.duplicationRate + '%' },
+                          ].map(m => (
+                            <Card key={m.label} variant="secondary" className="p-4">
+                              <div className="text-2xl font-bold">{m.value}</div>
+                              <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                            </Card>
+                          ))}
                         </div>
                         {report.duplication_metrics.duplicatedFiles.length > 0 && (
-                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">重复文件:</div><div className="space-y-1">{report.duplication_metrics.duplicatedFiles.map(f => (<code key={f} className="block text-xs bg-muted px-2 py-1 rounded">{f}</code>))}</div></div>
+                          <div className="mt-3">
+                            <div className="text-xs text-muted-foreground mb-2">重复文件:</div>
+                            <div className="space-y-1">{report.duplication_metrics.duplicatedFiles.map(f => (<code key={f} className="block text-xs bg-muted px-2 py-1 rounded">{f}</code>))}</div>
+                          </div>
                         )}
                       </div>
                     )}
@@ -409,8 +419,15 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                       <div>
                         <h4 className="text-sm font-semibold mb-3">依赖分析</h4>
                         <div className="grid grid-cols-2 gap-4">
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.dependency_metrics.totalDependencies}</div><div className="text-xs text-muted-foreground mt-1">依赖总数</div></div>
-                          <div className="bg-muted/50 rounded-lg p-4"><div className="text-2xl font-bold">{report.dependency_metrics.outdatedDependencies}</div><div className="text-xs text-muted-foreground mt-1">过时依赖</div></div>
+                          {[
+                            { label: '依赖总数', value: report.dependency_metrics.totalDependencies },
+                            { label: '过时依赖', value: report.dependency_metrics.outdatedDependencies },
+                          ].map(m => (
+                            <Card key={m.label} variant="secondary" className="p-4">
+                              <div className="text-2xl font-bold">{m.value}</div>
+                              <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                            </Card>
+                          ))}
                         </div>
                         {report.dependency_metrics.circularDependencies.length > 0 && (
                           <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">循环依赖:</div><div className="space-y-1">{report.dependency_metrics.circularDependencies.map((d, i) => (<code key={i} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>))}</div></div>
@@ -425,91 +442,101 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                         <h4 className="text-sm font-semibold mb-3">复杂代码解释</h4>
                         <div className="space-y-3">
                           {report.code_explanations.map((exp, i) => (
-                            <div key={i} className="bg-muted/50 rounded-lg p-4">
-                              <code className="text-xs font-mono bg-background px-2 py-1 rounded">{exp.file}{exp.line ? ":" + exp.line : ""}</code>
+                            <Card key={i} variant="secondary" className="p-4">
+                              <code className="text-xs font-mono bg-background px-2 py-1 rounded">{exp.file}{exp.line ? ':' + exp.line : ''}</code>
                               <div className="mt-2 text-xs text-muted-foreground">复杂度: {exp.complexity}</div>
                               <div className="mt-2 text-sm">{exp.explanation}</div>
                               <div className="mt-2 text-sm text-primary">💡 {exp.recommendation}</div>
-                            </div>
+                            </Card>
                           ))}
                         </div>
                       </div>
                     )}
                   </div>
                 )}
-                {activeTab === "security" && report.security_findings && (
+
+                {/* Security Tab */}
+                {activeTab === 'security' && report.security_findings && (
                   <div className="space-y-3">
                     {report.security_findings.map((finding, i) => (
-                      <div key={i} className="bg-card border border-red-200 rounded-lg p-4">
+                      <Card key={i} className="p-4 border-red-200 dark:border-red-900">
                         <div className="flex items-start gap-3">
                           <Shield className="size-5 text-red-600 shrink-0 mt-0.5" />
                           <div className="flex-1 space-y-2">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-semibold">{finding.type}</span>
-                              <span className="px-2 py-0.5 rounded-full text-xs font-bold uppercase" style={{ background: finding.severity === "critical" ? "#fee2e2" : "#ffedd5", color: finding.severity === "critical" ? "#dc2626" : "#ea580c" }}>{finding.severity}</span>
+                              <Chip size="sm" color={finding.severity === 'critical' ? 'danger' : 'warning'} variant="soft">
+                                {finding.severity}
+                              </Chip>
                               {finding.cwe && <span className="text-xs text-muted-foreground">{finding.cwe}</span>}
                             </div>
                             <div className="text-sm">{finding.description}</div>
-                            <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ":" + finding.line : ""}</code>
+                            <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ':' + finding.line : ''}</code>
                           </div>
                         </div>
-                      </div>
+                      </Card>
                     ))}
                   </div>
                 )}
-                {activeTab === "performance" && report.performance_findings && (
+
+                {/* Performance Tab */}
+                {activeTab === 'performance' && report.performance_findings && (
                   <div className="space-y-3">
                     {report.performance_findings.map((finding, i) => (
-                      <div key={i} className="bg-card border border-yellow-200 rounded-lg p-4">
+                      <Card key={i} className="p-4 border-yellow-200 dark:border-yellow-900">
                         <div className="flex items-start gap-3">
                           <Zap className="size-5 text-yellow-600 shrink-0 mt-0.5" />
                           <div className="flex-1 space-y-2">
                             <div className="font-semibold">{finding.type}</div>
                             <div className="text-sm">{finding.description}</div>
-                            <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ":" + finding.line : ""}</code>
+                            <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ':' + finding.line : ''}</code>
                             <div className="text-xs text-muted-foreground">影响: {finding.impact}</div>
                           </div>
                         </div>
-                      </div>
+                      </Card>
                     ))}
                   </div>
                 )}
-                {activeTab === "suggestions" && report.ai_suggestions && (
+
+                {/* Suggestions Tab */}
+                {activeTab === 'suggestions' && report.ai_suggestions && (
                   <div className="space-y-3">
                     {report.ai_suggestions.sort((a, b) => b.priority - a.priority).map((sug, i) => (
-                      <div key={i} className="bg-card border border-blue-200 rounded-lg p-4">
+                      <Card key={i} className="p-4 border-primary/20">
                         <div className="flex items-start gap-3">
-                          <Lightbulb className="size-5 text-blue-600 shrink-0 mt-0.5" />
+                          <Lightbulb className="size-5 text-primary shrink-0 mt-0.5" />
                           <div className="flex-1 space-y-2">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold">{sug.title}</span>
-                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">P{sug.priority}</span>
+                              <Chip size="sm" color="accent" variant="soft">P{sug.priority}</Chip>
                               <span className="text-xs text-muted-foreground">{sug.type}</span>
                             </div>
                             <div className="text-sm">{sug.description}</div>
                             <div className="text-xs text-muted-foreground">预期影响: {sug.estimatedImpact}</div>
                           </div>
                         </div>
-                      </div>
+                      </Card>
                     ))}
                   </div>
                 )}
               </div>
-            </div>
+            </Card>
 
-            <div className="bg-card border rounded-lg p-6">
-              <h3 className="text-lg font-semibold mb-3">AI 总结</h3>
+            {/* AI Summary */}
+            <Card className="p-6">
+              <h3 className="text-base font-semibold mb-3">AI 总结</h3>
               <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{report.summary}</div>
-            </div>
+            </Card>
           </div>
         </div>
       )}
 
+      {/* Chat Modal */}
       <Modal state={chatModalState}>
         <Modal.Backdrop isDismissable>
-          <Modal.Container size="xl">
+          <Modal.Container size="lg">
             <Modal.Dialog className="h-[600px] flex flex-col">
-              <Modal.Header className="px-6 py-4 border-b">
+              <Modal.Header className="px-6 py-4 border-b border-border">
                 <Modal.Heading>AI 代码审查员</Modal.Heading>
               </Modal.Header>
               <Modal.Body className="flex-1 min-h-0 p-0">
@@ -520,9 +547,10 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
         </Modal.Backdrop>
       </Modal>
 
+      {/* Trends Modal */}
       <Modal state={trendsModalState}>
         <Modal.Backdrop isDismissable>
-          <Modal.Container size="2xl">
+          <Modal.Container size="lg">
             <Modal.Dialog>
               <Modal.Header>
                 <Modal.Heading>质量趋势分析</Modal.Heading>

@@ -38,26 +38,26 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-7 h-[60px] bg-white border-b border-[#eaecf0] shrink-0">
+      <div className="flex items-center justify-between px-8 h-16 border-b border-border bg-card shrink-0">
         <div>
-          <div className="text-[15px] font-bold text-[#101828]">规则集</div>
-          <div className="text-xs text-[#667085] mt-0.5">为每个项目配置审查规则</div>
+          <h2 className="text-lg font-semibold">规则集</h2>
+          <p className="text-xs text-muted-foreground">为每个项目配置审查规则</p>
         </div>
-        <Button size="sm" onPress={() => setShowCreate(true)} className="gap-1.5 font-semibold">
+        <Button size="sm" onPress={() => setShowCreate(true)} className="gap-1.5">
           <Plus className="size-4" />
           新建规则集
         </Button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-7 bg-[#f0f2f5]">
+      <div className="flex-1 overflow-auto p-6 bg-muted/30">
         {ruleSets.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
-            <div className="w-14 h-14 rounded-2xl bg-white border border-[#eaecf0] flex items-center justify-center shadow-sm">
-              <Shield className="size-6 text-[#98a2b3]" />
+            <div className="w-14 h-14 rounded-2xl bg-card border border-border flex items-center justify-center shadow-sm">
+              <Shield className="size-6 text-muted-foreground" />
             </div>
-            <div className="text-sm font-semibold text-[#344054]">暂无规则集</div>
-            <div className="text-[13px] text-[#667085]">创建第一个规则集开始使用</div>
+            <p className="text-sm font-semibold">暂无规则集</p>
+            <p className="text-sm text-muted-foreground">创建第一个规则集开始使用</p>
             <Button size="sm" onPress={() => setShowCreate(true)} className="mt-1 gap-1.5">
               <Plus className="size-4" />
               新建规则集
@@ -72,24 +72,23 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
                 <div
                   key={rs.id}
                   onClick={() => router.push(`/rules/${rs.id}`)}
-                  className="flex items-center gap-4 px-5 py-4 rounded-xl cursor-pointer border border-[#eaecf0] bg-white shadow-sm transition-all hover:shadow-md hover:-translate-y-px"
+                  className="flex items-center gap-4 px-5 py-4 rounded-xl cursor-pointer border border-border bg-card shadow-sm transition-all hover:shadow-md hover:-translate-y-px"
                 >
-                  <div className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center border border-[#e0e7ff]"
-                    style={{ background: 'linear-gradient(135deg, #eff4ff 0%, #f4f0ff 100%)' }}>
-                    <Shield className="size-4 text-[#4f6ef7]" />
+                  <div className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center bg-primary/10">
+                    <Shield className="size-4 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-bold text-[#101828]">{rs.name}</span>
+                      <span className="text-sm font-bold">{rs.name}</span>
                       {rs.is_global && (
-                        <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#f4f0ff] text-[#6941c6]">全局</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-primary/10 text-primary">全局</span>
                       )}
                     </div>
-                    <div className="text-xs text-[#667085]">
-                      {total} 条规则 · <span className="text-[#027a48] font-semibold">{enabled} 条已启用</span>
+                    <div className="text-xs text-muted-foreground">
+                      {total} 条规则 · <span className="text-green-600 font-semibold">{enabled} 条已启用</span>
                     </div>
                   </div>
-                  <ChevronRight className="size-4 text-[#d0d5dd] shrink-0" />
+                  <ChevronRight className="size-4 text-muted-foreground shrink-0" />
                 </div>
               );
             })}
@@ -105,19 +104,21 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
                 <Modal.Heading>新建规则集</Modal.Heading>
               </Modal.Header>
               <form onSubmit={handleCreate}>
-                <Modal.Body className="flex flex-col gap-4 mt-2">
+                <Modal.Body className="flex flex-col gap-4">
                   <div className="flex flex-col gap-1.5">
                     <label className="text-sm font-medium">名称</label>
                     <Input value={name} onChange={e => setName(e.target.value)} placeholder="例如：Nuxt SaaS 规则" required />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium">描述 <span className="text-[#98a2b3] font-normal">（可选）</span></label>
+                    <label className="text-sm font-medium">描述 <span className="text-muted-foreground font-normal">（可选）</span></label>
                     <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="这个规则集用于什么？" />
                   </div>
                 </Modal.Body>
                 <Modal.Footer>
                   <Button type="button" variant="outline" onPress={() => setShowCreate(false)}>取消</Button>
-                  <Button type="submit" isLoading={creating}>创建</Button>
+                  <Button type="submit" isDisabled={creating}>
+                    {creating ? '创建中…' : '创建'}
+                  </Button>
                 </Modal.Footer>
               </form>
             </Modal.Dialog>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Settings, Save, Loader2 } from 'lucide-react';
-import { Button, Input, TextArea, Switch } from '@heroui/react';
+import { Input, TextArea, Switch, Button } from '@heroui/react';
 import { toast } from 'sonner';
 
 type ProjectConfig = {
@@ -153,9 +153,9 @@ export default function ProjectConfigPanel({ projectId }: { projectId: string })
 
       {/* Save Button */}
       <div className="flex justify-end pt-4">
-        <Button onPress={handleSave} isLoading={saving} className="gap-2">
-          <Save className="size-4" />
-          保存配置
+        <Button onPress={handleSave} isDisabled={saving} className="gap-2">
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+          {saving ? '保存中…' : '保存配置'}
         </Button>
       </div>
     </div>

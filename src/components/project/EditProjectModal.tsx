@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Modal, ModalBackdrop, ModalContainer, ModalDialog, ModalHeader, ModalHeading, ModalBody, ModalFooter, Button, Input, Select, ListBox, useOverlayState } from '@heroui/react';
+import { Modal, Input, Select, ListBox, useOverlayState } from '@heroui/react';
+import { Button } from '@heroui/react';
 import { toast } from 'sonner';
 
 type Project = {
@@ -85,7 +86,7 @@ export default function EditProjectModal({ project, open, onClose, onUpdated }: 
             </Modal.Body>
             <Modal.Footer>
               <Button type="button" variant="outline" onPress={onClose}>取消</Button>
-              <Button type="submit" variant="primary" isLoading={loading} onPress={handleSubmit as unknown as () => void}>保存</Button>
+              <Button type="submit" variant="primary" isDisabled={loading} onPress={handleSubmit as unknown as () => void}>{loading ? '保存中…' : '保存'}</Button>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

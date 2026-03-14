@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Trash2, Pencil, Shield } from 'lucide-react';
-import { Button, Input, TextArea, Select, ListBox, Switch, Modal, useOverlayState, Tooltip } from '@heroui/react';
+import { Button, Input, TextArea, Select, ListBox, Switch, Modal, useOverlayState, Tooltip, Chip } from '@heroui/react';
 import { toast } from 'sonner';
 
 type Rule = {
@@ -15,27 +15,15 @@ type RuleSet = { id: string; name: string; description?: string; is_global: bool
 
 const CATEGORIES = ['style', 'security', 'architecture', 'performance', 'maintainability'];
 const CAT_LABEL: Record<string, string> = { style: '风格', security: '安全', architecture: '架构', performance: '性能', maintainability: '可维护性' };
-
-const CATEGORY_COLOR: Record<string, string> = {
-  style: '#4f6ef7', security: '#c01048', architecture: '#027a48',
-  performance: '#b54708', maintainability: '#6941c6',
-};
-const CATEGORY_BG: Record<string, string> = {
-  style: '#eff4ff', security: '#fff1f3', architecture: '#ecfdf3',
-  performance: '#fffaeb', maintainability: '#f4f0ff',
-};
-const SEV_COLOR: Record<string, string> = { error: '#c01048', warning: '#b54708', info: '#027a48' };
-const SEV_BG: Record<string, string> = { error: '#fff1f3', warning: '#fffaeb', info: '#ecfdf3' };
 const SEV_LABEL: Record<string, string> = { error: '错误', warning: '警告', info: '提示' };
+const SEV_COLOR: Record<string, 'danger' | 'warning' | 'success'> = { error: 'danger', warning: 'warning', info: 'success' };
+const CAT_COLOR: Record<string, 'accent' | 'danger' | 'success' | 'warning' | 'default'> = {
+  style: 'accent', security: 'danger', architecture: 'success', performance: 'warning', maintainability: 'default',
+};
 
 const EMPTY_RULE = { category: 'style', name: '', prompt: '', weight: 20, severity: 'warning' as const, is_enabled: true };
-
 const CAT_ITEMS = CATEGORIES.map(c => ({ id: c, label: CAT_LABEL[c] ?? c }));
-const SEV_ITEMS = [
-  { id: 'error', label: '错误' },
-  { id: 'warning', label: '警告' },
-  { id: 'info', label: '提示' },
-];
+const SEV_ITEMS = [{ id: 'error', label: '错误' }, { id: 'warning', label: '警告' }, { id: 'info', label: '提示' }];
 
 export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet: RuleSet }) {
   const router = useRouter();
@@ -117,50 +105,45 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 h-[60px] bg-white border-b border-[#eaecf0] shrink-0">
-        <Button isIconOnly variant="ghost" className="h-8 w-8" onPress={() => router.push('/rules')}>
+      <div className="flex items-center gap-3 px-6 h-16 bg-card border-b border-border shrink-0">
+        <Button isIconOnly variant="ghost" size="sm" onPress={() => router.push('/rules')}>
           <ArrowLeft className="size-4" />
         </Button>
-        <div className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center border border-[#e0e7ff]"
-          style={{ background: 'linear-gradient(135deg, #eff4ff 0%, #f4f0ff 100%)' }}>
-          <Shield className="size-4 text-[#4f6ef7]" />
+        <div className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center bg-primary/10">
+          <Shield className="size-4 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-[15px] font-bold text-[#101828]">
-            {initialRuleSet.name}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold">{initialRuleSet.name}</span>
             {initialRuleSet.is_global && (
-              <span className="ml-2 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#f4f0ff] text-[#6941c6]">全局</span>
+              <Chip size="sm" variant="soft" color="accent">全局</Chip>
             )}
           </div>
-          {initialRuleSet.description && <div className="text-xs text-[#667085] mt-0.5">{initialRuleSet.description}</div>}
+          {initialRuleSet.description && <div className="text-xs text-muted-foreground mt-0.5">{initialRuleSet.description}</div>}
         </div>
-        <div className="text-xs text-[#667085] mr-2">
-          <span className="text-[#027a48] font-semibold">{enabledCount}</span>/{rules.length} 已启用
-        </div>
-        <Button size="sm" onPress={openAdd} className="gap-1.5 font-semibold">
+        <span className="text-xs text-muted-foreground mr-2">
+          <span className="text-green-600 font-semibold">{enabledCount}</span>/{rules.length} 已启用
+        </span>
+        <Button size="sm" onPress={openAdd} className="gap-1.5">
           <Plus className="size-4" />
           添加规则
         </Button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6 bg-[#f0f2f5] flex flex-col gap-4">
+      <div className="flex-1 overflow-auto p-6 bg-muted/30 flex flex-col gap-4">
         {CATEGORIES.map(cat => {
           const catRules = grouped[cat];
           if (catRules.length === 0) return null;
           return (
             <div key={cat}>
               <div className="flex items-center gap-2 mb-2">
-                <span className="px-2.5 py-1 rounded-full text-[11px] font-bold capitalize"
-                  style={{ background: CATEGORY_BG[cat], color: CATEGORY_COLOR[cat] }}>
-                  {CAT_LABEL[cat] ?? cat}
-                </span>
-                <span className="text-xs text-[#98a2b3]">{catRules.length} 条规则</span>
+                <Chip size="sm" color={CAT_COLOR[cat]} variant="soft">{CAT_LABEL[cat] ?? cat}</Chip>
+                <span className="text-xs text-muted-foreground">{catRules.length} 条规则</span>
               </div>
               <div className="flex flex-col gap-2">
                 {catRules.map(rule => (
-                  <div key={rule.id} className="bg-white rounded-xl border px-[18px] py-3.5 transition-opacity"
-                    style={{ borderColor: rule.is_enabled ? '#eaecf0' : '#f2f4f7', opacity: rule.is_enabled ? 1 : 0.6 }}>
+                  <div key={rule.id} className={['bg-card rounded-xl border px-4 py-3.5 transition-opacity', rule.is_enabled ? 'border-border' : 'border-border/50 opacity-60'].join(' ')}>
                     <div className="flex items-start gap-3">
                       <Switch
                         isSelected={rule.is_enabled}
@@ -170,27 +153,30 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                          <span className="text-[13px] font-bold text-[#101828]">{rule.name}</span>
-                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide"
-                            style={{ background: SEV_BG[rule.severity], color: SEV_COLOR[rule.severity] }}>
-                            {SEV_LABEL[rule.severity]}
-                          </span>
-                          <span className="text-[11px] text-[#98a2b3]">权重: {rule.weight}</span>
+                          <span className="text-sm font-bold">{rule.name}</span>
+                          <Chip size="sm" color={SEV_COLOR[rule.severity]} variant="soft">{SEV_LABEL[rule.severity]}</Chip>
+                          <span className="text-xs text-muted-foreground">权重: {rule.weight}</span>
                         </div>
-                        <div className="text-xs text-[#667085] leading-relaxed bg-[#f8f9fc] rounded-md px-3 py-2 font-mono whitespace-pre-wrap">
+                        <div className="text-xs text-muted-foreground leading-relaxed bg-muted/50 rounded-md px-3 py-2 font-mono whitespace-pre-wrap">
                           {rule.prompt}
                         </div>
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <Tooltip content="编辑">
-                          <Button isIconOnly variant="ghost" className="h-7 w-7 text-[#667085]" onPress={() => openEdit(rule)}>
-                            <Pencil className="size-3.5" />
-                          </Button>
+                        <Tooltip>
+                          <Tooltip.Trigger>
+                            <Button isIconOnly variant="ghost" size="sm" onPress={() => openEdit(rule)}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          </Tooltip.Trigger>
+                          <Tooltip.Content>编辑</Tooltip.Content>
                         </Tooltip>
-                        <Tooltip content="删除">
-                          <Button isIconOnly variant="ghost" className="h-7 w-7 text-[#98a2b3] hover:text-red-500" onPress={() => handleDelete(rule.id)}>
-                            <Trash2 className="size-3.5" />
-                          </Button>
+                        <Tooltip>
+                          <Tooltip.Trigger>
+                            <Button isIconOnly variant="ghost" size="sm" onPress={() => handleDelete(rule.id)}>
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </Tooltip.Trigger>
+                          <Tooltip.Content>删除</Tooltip.Content>
                         </Tooltip>
                       </div>
                     </div>
@@ -203,11 +189,11 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
 
         {rules.length === 0 && (
           <div className="flex flex-col items-center justify-center flex-1 gap-3 min-h-[300px]">
-            <div className="w-14 h-14 rounded-2xl bg-white border border-[#eaecf0] flex items-center justify-center">
-              <Shield className="size-6 text-[#98a2b3]" />
+            <div className="w-14 h-14 rounded-2xl bg-card border border-border flex items-center justify-center">
+              <Shield className="size-6 text-muted-foreground" />
             </div>
-            <div className="text-sm font-semibold text-[#344054]">暂无规则</div>
-            <div className="text-[13px] text-[#667085]">添加规则以定义 Claude 应检查的内容</div>
+            <p className="text-sm font-semibold">暂无规则</p>
+            <p className="text-sm text-muted-foreground">添加规则以定义 Claude 应检查的内容</p>
             <Button size="sm" onPress={openAdd} className="mt-1 gap-1.5">
               <Plus className="size-4" />
               添加规则
@@ -225,7 +211,7 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
                 <Modal.Heading>{editRule ? '编辑规则' : '添加规则'}</Modal.Heading>
               </Modal.Header>
               <form onSubmit={handleSaveRule}>
-                <Modal.Body className="flex flex-col gap-4 mt-2">
+                <Modal.Body className="flex flex-col gap-4">
                   <div className="flex gap-3">
                     <div className="flex flex-col gap-1.5 flex-1">
                       <label className="text-sm font-medium">分类</label>
@@ -257,7 +243,7 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
                   <div className="flex flex-col gap-1.5">
                     <label className="text-sm font-medium">提示词（Claude 的检查指令）</label>
                     <TextArea value={fPrompt} onChange={e => setFPrompt(e.target.value)}
-                      placeholder="描述 Claude 应检查的内容…" required rows={4} className="font-mono text-[13px]" />
+                      placeholder="描述 Claude 应检查的内容…" required rows={4} className="font-mono text-sm" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="text-sm font-medium">权重（0–100）</label>
@@ -267,7 +253,7 @@ export default function RuleSetDetailClient({ initialRuleSet }: { initialRuleSet
                 </Modal.Body>
                 <Modal.Footer>
                   <Button type="button" variant="outline" onPress={() => { setShowAdd(false); setEditRule(null); }}>取消</Button>
-                  <Button type="submit" isLoading={saving}>{editRule ? '保存更改' : '添加规则'}</Button>
+                  <Button type="submit" isDisabled={saving}>{saving ? '保存中…' : editRule ? '保存更改' : '添加规则'}</Button>
                 </Modal.Footer>
               </form>
             </Modal.Dialog>

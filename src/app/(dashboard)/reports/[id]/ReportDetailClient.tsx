@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, AlertCircle, ChevronDown, ChevronUp, RefreshCw, Github, Loader2 } from 'lucide-react';
-import { Button, Select, ListBox } from '@heroui/react';
+import { ArrowLeft, AlertCircle, RefreshCw, Github, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Button, Select, ListBox, Chip, Spinner } from '@heroui/react';
 import { toast } from 'sonner';
 
 type Issue = {
@@ -23,14 +23,17 @@ type Report = {
 };
 
 const SEV_ORDER = { error: 0, warning: 1, info: 2 };
-const SEV_COLOR: Record<string, string> = { error: '#c01048', warning: '#b54708', info: '#027a48' };
-const SEV_BG: Record<string, string> = { error: '#fff1f3', warning: '#fffaeb', info: '#ecfdf3' };
+const SEV_CHIP: Record<string, { color: 'danger' | 'warning' | 'success'; label: string }> = {
+  error:   { color: 'danger',  label: '错误' },
+  warning: { color: 'warning', label: '警告' },
+  info:    { color: 'success', label: '提示' },
+};
 const CAT_LABEL: Record<string, string> = { style: '风格', security: '安全', architecture: '架构', performance: '性能', maintainability: '可维护性' };
 
 function scoreColor(s: number) {
-  if (s >= 85) return '#027a48';
-  if (s >= 70) return '#b54708';
-  return '#c01048';
+  if (s >= 85) return 'text-green-600';
+  if (s >= 70) return 'text-yellow-600';
+  return 'text-red-600';
 }
 
 function formatDate(d: string) {
@@ -44,47 +47,41 @@ function formatDate(d: string) {
 }
 
 const SEV_ITEMS = [
-  { id: 'all', label: '所有严重级别' },
-  { id: 'error', label: '错误' },
-  { id: 'warning', label: '警告' },
-  { id: 'info', label: '提示' },
+  { id: 'all', label: '所有严重级别' }, { id: 'error', label: '错误' },
+  { id: 'warning', label: '警告' }, { id: 'info', label: '提示' },
 ];
 
 function IssueRow({ issue }: { issue: Issue }) {
   const [expanded, setExpanded] = useState(false);
+  const chip = SEV_CHIP[issue.severity];
   return (
-    <div className="bg-white border border-[#eaecf0] rounded-lg overflow-hidden mb-1.5">
+    <div className="bg-card border border-border rounded-lg overflow-hidden mb-1.5">
       <div
         onClick={() => issue.suggestion && setExpanded(e => !e)}
         className="flex items-start gap-3 px-4 py-3 select-none"
         style={{ cursor: issue.suggestion ? 'pointer' : 'default' }}
       >
-        <span className="shrink-0 mt-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide"
-          style={{ background: SEV_BG[issue.severity], color: SEV_COLOR[issue.severity] }}>
-          {issue.severity === 'error' ? '错误' : issue.severity === 'warning' ? '警告' : '提示'}
-        </span>
+        <Chip size="sm" color={chip.color} variant="soft" className="mt-0.5 shrink-0">{chip.label}</Chip>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <code className="text-[11px] font-mono bg-[#f2f4f7] rounded px-1.5 py-0.5 text-[#344054]">
+            <code className="text-xs font-mono bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
               {issue.file}{issue.line ? `:${issue.line}` : ''}
             </code>
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eff4ff] text-[#4f6ef7]">
-              {CAT_LABEL[issue.category] ?? issue.category}
-            </span>
-            <span className="text-[11px] text-[#98a2b3]">{issue.rule}</span>
+            <Chip size="sm" variant="soft" color="accent">{CAT_LABEL[issue.category] ?? issue.category}</Chip>
+            <span className="text-xs text-muted-foreground">{issue.rule}</span>
           </div>
-          <div className="text-[13px] text-[#344054] leading-relaxed">{issue.message}</div>
+          <div className="text-sm leading-relaxed">{issue.message}</div>
         </div>
         {issue.suggestion && (
-          <div className="shrink-0 text-[#98a2b3] mt-0.5">
+          <div className="shrink-0 text-muted-foreground mt-0.5">
             {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
           </div>
         )}
       </div>
       {expanded && issue.suggestion && (
-        <div className="border-t border-[#eaecf0] px-4 py-3 bg-[#f8f9fc]">
-          <div className="text-[11px] font-semibold text-[#667085] mb-1.5">💡 建议</div>
-          <div className="text-xs text-[#344054] leading-relaxed font-mono whitespace-pre-wrap bg-white border border-[#eaecf0] rounded-md px-3.5 py-2.5">
+        <div className="border-t border-border px-4 py-3 bg-muted/30">
+          <div className="text-xs font-semibold text-muted-foreground mb-1.5">💡 建议</div>
+          <div className="text-xs leading-relaxed font-mono whitespace-pre-wrap bg-card border border-border rounded-md px-3.5 py-2.5">
             {issue.suggestion}
           </div>
         </div>
@@ -140,53 +137,52 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
 
   const catItems = [{ id: 'all', label: '所有分类' }, ...categories.map(c => ({ id: c, label: CAT_LABEL[c] ?? c }))];
 
-  const statusStyle = {
-    done: { bg: '#ecfdf3', color: '#027a48', label: '已完成' },
-    failed: { bg: '#fff1f3', color: '#c01048', label: '失败' },
-    pending: { bg: '#eff8ff', color: '#1570ef', label: '待处理' },
-    analyzing: { bg: '#eff8ff', color: '#1570ef', label: '分析中' },
-  }[report.status] ?? { bg: '#eff8ff', color: '#1570ef', label: report.status };
+  const statusChip = {
+    done:      { color: 'success' as const, label: '已完成' },
+    failed:    { color: 'danger' as const,  label: '失败' },
+    pending:   { color: 'default' as const, label: '待处理' },
+    analyzing: { color: 'accent' as const,  label: '分析中' },
+  }[report.status] ?? { color: 'default' as const, label: report.status };
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 h-[60px] border-b border-[#eaecf0] bg-white shrink-0">
+      <div className="flex items-center gap-3 px-6 h-16 border-b border-border bg-card shrink-0">
         <Link href="/reports">
-          <Button isIconOnly variant="ghost" className="h-8 w-8"><ArrowLeft className="size-4" /></Button>
+          <Button isIconOnly variant="ghost" size="sm"><ArrowLeft className="size-4" /></Button>
         </Link>
         <div className="flex-1">
-          <div className="text-[15px] font-bold text-[#101828]">
-            报告 <span className="font-mono text-[13px] text-[#667085]">#{report.id.slice(0, 8)}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-base font-bold">报告</span>
+            <code className="text-xs font-mono text-muted-foreground">#{report.id.slice(0, 8)}</code>
           </div>
-          <div className="text-xs text-[#667085] mt-0.5">{report.projects?.name}</div>
+          <div className="text-xs text-muted-foreground">{report.projects?.name}</div>
         </div>
         {(report.status === 'done' || report.status === 'failed') && (
-          <Button variant="outline" size="sm" isLoading={retrying} onPress={handleRetry} className="gap-1.5">
-            <RefreshCw className="size-3.5" />
+          <Button variant="outline" size="sm" isDisabled={retrying} onPress={handleRetry} className="gap-1.5">
+            <RefreshCw className={['size-3.5', retrying ? 'animate-spin' : ''].join(' ')} />
             重新分析
           </Button>
         )}
-        <span className="px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: statusStyle.bg, color: statusStyle.color }}>
-          {statusStyle.label}
-        </span>
+        <Chip color={statusChip.color} variant="soft">{statusChip.label}</Chip>
       </div>
 
       {/* Analyzing */}
       {(report.status === 'pending' || report.status === 'analyzing') && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4">
-          <Loader2 className="size-10 animate-spin text-[#4f6ef7]" />
-          <div className="text-sm text-[#667085]">AI 正在分析您的代码变更…</div>
-          <div className="text-xs text-[#98a2b3]">这可能需要一分钟，页面将自动更新。</div>
+          <Spinner size="lg" />
+          <div className="text-sm text-muted-foreground">AI 正在分析您的代码变更…</div>
+          <div className="text-xs text-muted-foreground">这可能需要一分钟，页面将自动更新。</div>
         </div>
       )}
 
       {/* Failed */}
       {report.status === 'failed' && (
         <div className="flex-1 flex flex-col items-center justify-center gap-2">
-          <AlertCircle className="size-12 text-[#c01048]" />
-          <div className="text-sm font-semibold text-[#344054]">分析失败</div>
-          <div className="text-[13px] text-[#667085]">{report.error_message}</div>
-          <Button isLoading={retrying} onPress={handleRetry} className="mt-2 gap-1.5">
+          <AlertCircle className="size-12 text-destructive" />
+          <div className="text-sm font-semibold">分析失败</div>
+          <div className="text-sm text-muted-foreground">{report.error_message}</div>
+          <Button isDisabled={retrying} onPress={handleRetry} className="mt-2 gap-1.5">
             <RefreshCw className="size-3.5" />
             重新分析
           </Button>
@@ -198,51 +194,49 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
         <div className="flex-1 overflow-auto p-6 flex flex-col gap-5">
           {/* Score + categories */}
           <div className="flex gap-4">
-            <div className="px-7 py-5 rounded-xl border border-[#eaecf0] bg-white text-center shrink-0">
-              <div className="text-5xl font-bold leading-none" style={{ color: scoreColor(report.score ?? 0) }}>{report.score}</div>
-              <div className="text-xs text-[#98a2b3] mt-1">/ 100</div>
-              <div className="text-[13px] font-semibold mt-1.5" style={{ color: scoreColor(report.score ?? 0) }}>
+            <div className="px-7 py-5 rounded-xl border border-border bg-card text-center shrink-0">
+              <div className={['text-5xl font-bold leading-none', scoreColor(report.score ?? 0)].join(' ')}>{report.score}</div>
+              <div className="text-xs text-muted-foreground mt-1">/ 100</div>
+              <div className={['text-sm font-semibold mt-1.5', scoreColor(report.score ?? 0)].join(' ')}>
                 {(report.score ?? 0) >= 85 ? '优秀' : (report.score ?? 0) >= 70 ? '良好' : '需改进'}
               </div>
             </div>
-            <div className="flex-1 px-5 py-4 rounded-xl border border-[#eaecf0] bg-white flex flex-col gap-2.5">
+            <div className="flex-1 px-5 py-4 rounded-xl border border-border bg-card flex flex-col gap-2.5">
               {Object.entries(report.category_scores ?? {}).map(([k, v]) => (
                 <div key={k} className="flex items-center gap-3">
-                  <div className="w-[110px] text-[13px] text-[#667085] capitalize">{CAT_LABEL[k] ?? k}</div>
-                  <div className="flex-1 bg-gray-200 rounded-full h-2">
-                    <div className="h-2 rounded-full" style={{ width: `${v}%`, backgroundColor: scoreColor(v) }} />
+                  <div className="w-24 text-sm text-muted-foreground">{CAT_LABEL[k] ?? k}</div>
+                  <div className="flex-1 bg-muted rounded-full h-2">
+                    <div className={['h-2 rounded-full', v >= 85 ? 'bg-green-500' : v >= 70 ? 'bg-yellow-500' : 'bg-red-500'].join(' ')}
+                      style={{ width: `${v}%` }} />
                   </div>
-                  <div className="w-7 text-right text-[13px] font-bold" style={{ color: scoreColor(v) }}>{v}</div>
+                  <div className={['w-8 text-right text-sm font-bold', scoreColor(v)].join(' ')}>{v}</div>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Commit stats */}
-          <div className="rounded-xl border border-[#eaecf0] bg-white overflow-hidden">
-            <div className="px-5 py-3.5 flex gap-7 flex-wrap items-center"
-              style={{ borderBottom: commitsExpanded ? '1px solid #eaecf0' : 'none' }}>
-              <div className="text-[13px]"><span className="text-[#667085]">变更文件: </span><strong className="text-[#101828]">{report.total_files ?? 0}</strong></div>
-              <div className="text-[13px] text-[#027a48] font-semibold">+{report.total_additions ?? 0}</div>
-              <div className="text-[13px] text-[#c01048] font-semibold">-{report.total_deletions ?? 0}</div>
-              <div className="text-[13px]"><span className="text-[#667085]">提交数: </span><strong className="text-[#101828]">{report.commits?.length ?? 0}</strong></div>
-              <Button variant="ghost" size="sm" onPress={() => setCommitsExpanded(e => !e)}
-                className="ml-auto text-[#667085] gap-1 h-7">
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-3.5 flex gap-7 flex-wrap items-center border-b border-border/50">
+              <div className="text-sm"><span className="text-muted-foreground">变更文件: </span><strong>{report.total_files ?? 0}</strong></div>
+              <div className="text-sm text-green-600 font-semibold">+{report.total_additions ?? 0}</div>
+              <div className="text-sm text-red-600 font-semibold">-{report.total_deletions ?? 0}</div>
+              <div className="text-sm"><span className="text-muted-foreground">提交数: </span><strong>{report.commits?.length ?? 0}</strong></div>
+              <Button variant="ghost" size="sm" onPress={() => setCommitsExpanded(e => !e)} className="ml-auto gap-1 h-7">
                 {commitsExpanded ? <><ChevronUp className="size-4" />隐藏提交</> : <><ChevronDown className="size-4" />显示提交</>}
               </Button>
             </div>
             {commitsExpanded && (
-              <div className="flex flex-col">
+              <div className="flex flex-col divide-y divide-border">
                 {report.commits.map((c, idx) => (
-                  <div key={c.sha} className="flex items-center gap-3 px-5 py-2.5"
-                    style={{ borderBottom: idx < report.commits.length - 1 ? '1px solid #f2f4f7' : 'none' }}>
-                    <code className="text-[11px] font-mono shrink-0 px-1.5 py-0.5 rounded bg-[#f2f4f7] text-[#344054]">{c.sha.slice(0, 7)}</code>
-                    <span className="flex-1 text-[13px] text-[#344054] truncate">{c.message}</span>
-                    <span className="text-[11px] text-[#98a2b3] shrink-0">{c.author}</span>
-                    <span className="text-[11px] text-[#98a2b3] shrink-0">{formatDate(c.date)}</span>
+                  <div key={c.sha} className="flex items-center gap-3 px-5 py-2.5">
+                    <code className="text-xs font-mono shrink-0 px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{c.sha.slice(0, 7)}</code>
+                    <span className="flex-1 text-sm truncate">{c.message}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{c.author}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.date)}</span>
                     {report.projects?.repo && (
                       <a href={`https://github.com/${report.projects.repo}/commit/${c.sha}`} target="_blank" rel="noopener noreferrer"
-                        className="text-[#98a2b3] flex shrink-0" onClick={e => e.stopPropagation()}>
+                        className="text-muted-foreground flex shrink-0" onClick={e => e.stopPropagation()}>
                         <Github className="size-3.5" />
                       </a>
                     )}
@@ -253,14 +247,14 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
           </div>
 
           {/* Issues */}
-          <div className="rounded-xl border border-[#eaecf0] overflow-hidden bg-white">
-            <div className="px-4 py-3 border-b border-[#eaecf0] flex items-center gap-2.5 flex-wrap">
-              <span className="text-sm font-bold text-[#101828]">问题</span>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#fff1f3] text-[#c01048]">{errorCount} 个错误</span>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#fffaeb] text-[#b54708]">{warningCount} 个警告</span>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ecfdf3] text-[#027a48]">{infoCount} 个提示</span>
+          <div className="rounded-xl border border-border overflow-hidden bg-card">
+            <div className="px-4 py-3 border-b border-border flex items-center gap-2.5 flex-wrap">
+              <span className="text-sm font-bold">问题</span>
+              <Chip size="sm" color="danger" variant="soft">{errorCount} 个错误</Chip>
+              <Chip size="sm" color="warning" variant="soft">{warningCount} 个警告</Chip>
+              <Chip size="sm" color="success" variant="soft">{infoCount} 个提示</Chip>
               <div className="ml-auto flex gap-2">
-                <Select selectedKey={sevFilter} onSelectionChange={(key) => setSevFilter(key as string)} className="h-8 w-[140px] text-xs">
+                <Select selectedKey={sevFilter} onSelectionChange={(key) => setSevFilter(key as string)} className="w-[140px]">
                   <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
                   <Select.Popover>
                     <ListBox items={SEV_ITEMS}>
@@ -269,7 +263,7 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
                   </Select.Popover>
                 </Select>
                 {categories.length > 1 && (
-                  <Select selectedKey={catFilter} onSelectionChange={(key) => setCatFilter(key as string)} className="h-8 w-[150px] text-xs">
+                  <Select selectedKey={catFilter} onSelectionChange={(key) => setCatFilter(key as string)} className="w-[150px]">
                     <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
                     <Select.Popover>
                       <ListBox items={catItems}>
@@ -279,13 +273,13 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
                   </Select>
                 )}
                 {(sevFilter !== 'all' || catFilter !== 'all') && (
-                  <Button variant="ghost" size="sm" className="h-8 text-xs" onPress={() => { setSevFilter('all'); setCatFilter('all'); }}>清除</Button>
+                  <Button variant="ghost" size="sm" onPress={() => { setSevFilter('all'); setCatFilter('all'); }}>清除</Button>
                 )}
               </div>
             </div>
             <div className="p-3 pb-1.5">
               {filteredIssues.length === 0 ? (
-                <div className="text-center py-10 text-[#98a2b3] text-[13px]">没有匹配当前筛选条件的问题</div>
+                <div className="text-center py-10 text-muted-foreground text-sm">没有匹配当前筛选条件的问题</div>
               ) : (
                 filteredIssues.map((issue, idx) => (
                   <IssueRow key={`${issue.file}-${issue.line}-${issue.rule}-${idx}`} issue={issue} />
@@ -295,9 +289,9 @@ export default function ReportDetailClient({ initialReport }: { initialReport: R
           </div>
 
           {/* Summary */}
-          <div className="px-5 py-4 rounded-xl border border-[#eaecf0] bg-white">
-            <div className="text-sm font-bold text-[#101828] mb-2.5">AI 总结</div>
-            <div className="text-[13px] text-[#667085] leading-[1.8] whitespace-pre-wrap">{report.summary}</div>
+          <div className="px-5 py-4 rounded-xl border border-border bg-card">
+            <div className="text-sm font-bold mb-2.5">AI 总结</div>
+            <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{report.summary}</div>
           </div>
         </div>
       )}

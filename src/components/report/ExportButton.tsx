@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { Download, FileText, FileJson, FileSpreadsheet } from 'lucide-react';
-import { Button, Select, ListBox } from '@heroui/react';
+import { Select, ListBox } from '@heroui/react';
+import { Button } from '@heroui/react';
 import { toast } from 'sonner';
 
 const FORMAT_ITEMS = [
@@ -69,7 +70,7 @@ export default function ExportButton({ reportId }: { reportId: string }) {
           </ListBox>
         </Select.Popover>
       </Select>
-      <Button variant="outline" size="sm" onPress={handleExport} isLoading={exporting} className="gap-2">
+      <Button variant="outline" size="sm" onPress={handleExport} isDisabled={exporting} className="gap-2">
         <Download className="size-4" />
         导出
       </Button>

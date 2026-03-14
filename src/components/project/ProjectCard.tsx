@@ -41,10 +41,13 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
           </div>
         </div>
         <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <Tooltip content="编辑">
-            <Button isIconOnly variant="ghost" size="sm" className="h-9 w-9 rounded-lg" onPress={() => setShowEdit(true)}>
-              <Pencil className="h-4 w-4" />
-            </Button>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button isIconOnly variant="ghost" size="sm" className="h-9 w-9 rounded-lg" onPress={() => setShowEdit(true)}>
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>编辑</Tooltip.Content>
           </Tooltip>
           {confirmDelete ? (
             <>
@@ -52,10 +55,13 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
               <Button size="sm" variant="outline" className="h-9 px-3" onPress={() => setConfirmDelete(false)}>取消</Button>
             </>
           ) : (
-            <Tooltip content="删除">
-              <Button isIconOnly variant="ghost" size="sm" className="h-9 w-9 rounded-lg" onPress={() => setConfirmDelete(true)}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
+            <Tooltip>
+              <Tooltip.Trigger>
+                <Button isIconOnly variant="ghost" size="sm" className="h-9 w-9 rounded-lg" onPress={() => setConfirmDelete(true)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </Tooltip.Trigger>
+              <Tooltip.Content>删除</Tooltip.Content>
             </Tooltip>
           )}
         </div>

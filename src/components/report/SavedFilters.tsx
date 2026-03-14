@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Save, Trash2, Star } from 'lucide-react';
-import { Button, Input, Modal, useOverlayState } from '@heroui/react';
+import { Input, Modal, useOverlayState } from '@heroui/react';
+import { Button } from '@heroui/react';
 import { toast } from 'sonner';
 
 type SavedFilter = {
@@ -117,7 +118,7 @@ export default function SavedFilters({ userId, currentFilter, onApplyFilter }: {
               </Modal.Body>
               <Modal.Footer>
                 <Button variant="outline" onPress={dialogState.close}>取消</Button>
-                <Button variant="primary" isLoading={saving} onPress={handleSave}>保存</Button>
+                <Button variant="primary" isDisabled={saving} onPress={handleSave}>{saving ? '保存中…' : '保存'}</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>

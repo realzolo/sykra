@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Search, Github, Lock, Loader2 } from 'lucide-react';
-import { Modal, Button, Input, Select, ListBox, useOverlayState } from '@heroui/react';
+import { Modal, Input, Select, ListBox, useOverlayState } from '@heroui/react';
+import { Button } from '@heroui/react';
 import { toast } from 'sonner';
 
 type GHRepo = {
@@ -85,7 +86,7 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
   return (
     <Modal state={state}>
       <Modal.Backdrop isDismissable>
-        <Modal.Container size="2xl">
+        <Modal.Container size="lg">
           <Modal.Dialog>
             <Modal.Header>
               <Modal.Heading>{step === 'pick' ? '选择仓库' : '确认项目信息'}</Modal.Heading>
@@ -176,7 +177,7 @@ export default function AddProjectModal({ open, onClose, onCreated }: {
               {step === 'confirm' && selected && (
                 <>
                   <Button type="button" variant="outline" onPress={onClose}>取消</Button>
-                  <Button type="submit" variant="primary" isLoading={submitting} isDisabled={!projectName.trim()} onPress={handleSubmit as unknown as () => void}>添加项目</Button>
+                  <Button type="submit" variant="primary" isDisabled={submitting || !projectName.trim()} onPress={handleSubmit as unknown as () => void}>{submitting ? '添加中…' : '添加项目'}</Button>
                 </>
               )}
             </Modal.Footer>
