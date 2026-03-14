@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { Button, Card, Chip } from '@heroui/react';
-import { Plus, Settings, Trash2, Check, X } from 'lucide-react';
+import { Plus, Settings, Trash2, Check, X, Edit } from 'lucide-react';
 import { toast } from 'sonner';
 import AddVCSIntegrationModal from '@/components/settings/AddVCSIntegrationModal';
 import AddAIIntegrationModal from '@/components/settings/AddAIIntegrationModal';
+import EditVCSIntegrationModal from '@/components/settings/EditVCSIntegrationModal';
+import EditAIIntegrationModal from '@/components/settings/EditAIIntegrationModal';
 
 interface Integration {
   id: string;
@@ -23,6 +25,8 @@ export default function IntegrationsPage() {
   const [loading, setLoading] = useState(true);
   const [showVCSModal, setShowVCSModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
+  const [editingVCS, setEditingVCS] = useState<Integration | null>(null);
+  const [editingAI, setEditingAI] = useState<Integration | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -121,6 +125,11 @@ export default function IntegrationsPage() {
                 URL: {integration.config.baseUrl}
               </p>
             )}
+            {integration.config.model && (
+              <p className="text-xs text-muted-foreground">
+                Model: {integration.config.model}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -131,6 +140,20 @@ export default function IntegrationsPage() {
               isDisabled={testingId === integration.id}
             >
               {testingId === integration.id ? 'Testing...' : 'Test'}
+            </Button>
+
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                if (type === 'vcs') {
+                  setEditingVCS(integration);
+                } else {
+                  setEditingAI(integration);
+                }
+              }}
+            >
+              <Edit className="size-4" />
             </Button>
 
             {!integration.is_default && (
@@ -253,6 +276,28 @@ export default function IntegrationsPage() {
           onClose={() => setShowAIModal(false)}
           onSuccess={() => {
             setShowAIModal(false);
+            loadIntegrations();
+          }}
+        />
+      )}
+
+      {editingVCS && (
+        <EditVCSIntegrationModal
+          integration={editingVCS}
+          onClose={() => setEditingVCS(null)}
+          onSuccess={() => {
+            setEditingVCS(null);
+            loadIntegrations();
+          }}
+        />
+      )}
+
+      {editingAI && (
+        <EditAIIntegrationModal
+          integration={editingAI}
+          onClose={() => setEditingAI(null)}
+          onSuccess={() => {
+            setEditingAI(null);
             loadIntegrations();
           }}
         />

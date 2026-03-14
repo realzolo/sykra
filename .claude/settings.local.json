@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(find P:/work-project/spec-axis -name \"*.sql\" -o -name \"schema.sql\" -o -name \"migrations\" -type d 2>/dev/null | head -10)"
-    ]
-  }
-}

@@ -69,24 +69,36 @@ export function decrypt(encryptedData: string): string {
   // Parse encrypted data
   const parts = encryptedData.split(':');
   if (parts.length !== 4) {
-    throw new Error('Invalid encrypted data format');
+    console.error('Invalid encrypted data format. Expected 4 parts, got:', parts.length);
+    console.error('Data preview:', encryptedData.substring(0, 50) + '...');
+    throw new Error('Invalid encrypted data format. Please re-create this integration.');
   }
 
   const [ivHex, authTagHex, saltHex, encryptedHex] = parts;
 
-  const iv = Buffer.from(ivHex, 'hex');
-  const authTag = Buffer.from(authTagHex, 'hex');
-  const encrypted = encryptedHex;
+  // Validate hex strings
+  if (!ivHex || !authTagHex || !encryptedHex) {
+    throw new Error('Invalid encrypted data format. Please re-create this integration.');
+  }
 
-  // Create decipher
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
+  try {
+    const iv = Buffer.from(ivHex, 'hex');
+    const authTag = Buffer.from(authTagHex, 'hex');
+    const encrypted = encryptedHex;
 
-  // Decrypt
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
+    // Create decipher
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
 
-  return decrypted;
+    // Decrypt
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+
+    return decrypted;
+  } catch (error) {
+    console.error('Decryption failed:', error);
+    throw new Error('Failed to decrypt secret. Please re-create this integration.');
+  }
 }
 
 /**
