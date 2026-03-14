@@ -3,8 +3,8 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Code2, FolderOpen, FileText, Shield, Settings, LogOut } from 'lucide-react';
+import { Button, Chip } from '@heroui/react';
 import { createClient } from '@/lib/supabase/client';
-import { cn } from '@/lib/utils';
 
 const navItems = [
   { href: '/projects', label: '项目', icon: FolderOpen, countKey: 'projects' as const },
@@ -37,7 +37,7 @@ export default function Sidebar() {
   return (
     <div className="w-64 h-screen flex flex-col shrink-0 border-r border-border bg-card">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-6 h-16 border-b border-border">
+      <div className="flex items-center gap-3 px-5 h-16 border-b border-border shrink-0">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center shrink-0 shadow-md">
           <Code2 className="text-white size-4" />
         </div>
@@ -45,46 +45,34 @@ export default function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {navItems.map(item => {
           const active = activeHref === item.href;
           const count = item.countKey ? counts[item.countKey] : null;
           const Icon = item.icon;
           return (
-            <button
+            <Button
               key={item.href}
-              onClick={() => router.push(item.href)}
-              className={cn(
-                'flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm w-full text-left transition-all duration-200 cursor-pointer font-medium',
-                active
-                  ? 'bg-primary text-primary-foreground shadow-md'
-                  : 'text-foreground hover:bg-muted'
-              )}
+              variant={active ? 'secondary' : 'ghost'}
+              onPress={() => router.push(item.href)}
+              className="w-full justify-start gap-3 h-10"
             >
-              <Icon className="size-5 shrink-0" />
-              <span className="flex-1">{item.label}</span>
+              <Icon className="size-4 shrink-0" />
+              <span className="flex-1 text-left">{item.label}</span>
               {count != null && count > 0 && (
-                <span className={cn(
-                  'text-xs font-semibold px-2 py-1 rounded-full',
-                  active ? 'bg-white/20' : 'bg-muted text-muted-foreground'
-                )}>
-                  {count}
-                </span>
+                <Chip size="sm" variant={active ? 'primary' : 'secondary'}>{count}</Chip>
               )}
-            </button>
+            </Button>
           );
         })}
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-border">
-        <button
-          onClick={handleSignOut}
-          className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm w-full text-foreground hover:bg-muted transition-all duration-200 cursor-pointer font-medium"
-        >
-          <LogOut className="size-5" />
+      <div className="p-3 border-t border-border shrink-0">
+        <Button variant="ghost" onPress={handleSignOut} className="w-full justify-start gap-3 h-10">
+          <LogOut className="size-4" />
           退出登录
-        </button>
+        </Button>
       </div>
     </div>
   );

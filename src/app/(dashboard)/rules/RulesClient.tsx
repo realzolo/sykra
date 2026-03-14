@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Shield, ChevronRight } from 'lucide-react';
-import { Button, Input, Modal, useOverlayState } from '@heroui/react';
+import { Button, Input, Modal, useOverlayState, Chip } from '@heroui/react';
 import { toast } from 'sonner';
 
 type RuleSet = { id: string; name: string; description?: string; is_global: boolean; rules?: unknown[] };
@@ -38,55 +38,68 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-8 h-16 border-b border-border bg-card shrink-0">
-        <div>
-          <h2 className="text-lg font-semibold">规则集</h2>
-          <p className="text-xs text-muted-foreground">为每个项目配置审查规则</p>
+      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold">规则集</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">配置 AI 代码审查规则</p>
+          </div>
+          <Button onPress={() => setShowCreate(true)} size="sm" className="gap-1.5">
+            <Plus className="size-4" />
+            新建规则集
+          </Button>
         </div>
-        <Button size="sm" onPress={() => setShowCreate(true)} className="gap-1.5">
-          <Plus className="size-4" />
-          新建规则集
-        </Button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6 bg-muted/30">
+      <div className="flex-1 overflow-auto">
         {ruleSets.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <div className="w-14 h-14 rounded-2xl bg-card border border-border flex items-center justify-center shadow-sm">
-              <Shield className="size-6 text-muted-foreground" />
+          <div className="flex flex-col items-start gap-3 px-6 py-20">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              <Shield className="h-5 w-5 text-muted-foreground" />
             </div>
-            <p className="text-sm font-semibold">暂无规则集</p>
-            <p className="text-sm text-muted-foreground">创建第一个规则集开始使用</p>
-            <Button size="sm" onPress={() => setShowCreate(true)} className="mt-1 gap-1.5">
-              <Plus className="size-4" />
-              新建规则集
+            <div>
+              <h3 className="text-sm font-medium">还没有规则集</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">创建规则集来定义 AI 应检查的内容</p>
+            </div>
+            <Button onPress={() => setShowCreate(true)} size="sm" className="gap-1.5 mt-1">
+              <Plus className="size-4" />新建规则集
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col gap-2.5">
+          <div>
+            {/* Table header */}
+            <div className="flex items-center px-4 py-2 border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground gap-4">
+              <div className="w-8 shrink-0" />
+              <div className="flex-1">名称</div>
+              <div className="w-24 text-right">规则数</div>
+              <div className="w-6 shrink-0" />
+            </div>
             {ruleSets.map(rs => {
               const total = (rs.rules as unknown[])?.length ?? 0;
               const enabled = (rs.rules as { is_enabled: boolean }[])?.filter(r => r.is_enabled).length ?? 0;
               return (
                 <div
                   key={rs.id}
+                  className="flex items-center gap-4 px-4 py-3.5 border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
                   onClick={() => router.push(`/rules/${rs.id}`)}
-                  className="flex items-center gap-4 px-5 py-4 rounded-xl cursor-pointer border border-border bg-card shadow-sm transition-all hover:shadow-md hover:-translate-y-px"
                 >
-                  <div className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center bg-primary/10">
-                    <Shield className="size-4 text-primary" />
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted shrink-0">
+                    <Shield className="size-4 text-muted-foreground" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-bold">{rs.name}</span>
-                      {rs.is_global && (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-primary/10 text-primary">全局</span>
-                      )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{rs.name}</span>
+                      {rs.is_global && <Chip size="sm" variant="soft" color="accent">全局</Chip>}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {total} 条规则 · <span className="text-green-600 font-semibold">{enabled} 条已启用</span>
-                    </div>
+                    {rs.description && (
+                      <div className="text-xs text-muted-foreground mt-0.5 truncate">{rs.description}</div>
+                    )}
+                  </div>
+                  <div className="w-24 text-right shrink-0">
+                    <span className="text-sm font-medium text-success">{enabled}</span>
+                    <span className="text-sm text-muted-foreground">/{total}</span>
+                    <div className="text-[10px] text-muted-foreground">已启用</div>
                   </div>
                   <ChevronRight className="size-4 text-muted-foreground shrink-0" />
                 </div>
@@ -116,9 +129,7 @@ export default function RulesClient({ initialRuleSets }: { initialRuleSets: Rule
                 </Modal.Body>
                 <Modal.Footer>
                   <Button type="button" variant="outline" onPress={() => setShowCreate(false)}>取消</Button>
-                  <Button type="submit" isDisabled={creating}>
-                    {creating ? '创建中…' : '创建'}
-                  </Button>
+                  <Button type="submit" isDisabled={creating}>{creating ? '创建中…' : '创建'}</Button>
                 </Modal.Footer>
               </form>
             </Modal.Dialog>

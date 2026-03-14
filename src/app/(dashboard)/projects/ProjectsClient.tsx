@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Plus, FolderOpen, Search } from 'lucide-react';
-import { Button, Input } from '@heroui/react';
+import { Plus, Search } from 'lucide-react';
+import { Button, Input, InputGroup } from '@heroui/react';
 import { toast } from 'sonner';
+import { FolderOpen } from 'lucide-react';
 import ProjectCard from '@/components/project/ProjectCard';
 import AddProjectModal from '@/components/project/AddProjectModal';
 import DashboardStats from '@/components/dashboard/DashboardStats';
@@ -40,59 +41,74 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
   }
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      <div className="flex flex-col gap-6 px-8 py-6 border-b border-border bg-card">
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
         <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <h2 className="text-3xl font-bold tracking-tight">项目</h2>
-            <p className="text-sm text-muted-foreground">管理代码审查仓库</p>
+          <div>
+            <h1 className="text-xl font-semibold">项目</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">管理 GitHub 仓库代码审查</p>
           </div>
-          <Button onPress={() => setShowAdd(true)} size="lg" className="gap-2">
-            <Plus className="h-5 w-5" />
+          <Button onPress={() => setShowAdd(true)} size="sm" className="gap-1.5">
+            <Plus className="h-4 w-4" />
             添加项目
           </Button>
         </div>
-        {projects.length > 0 && (
-          <div className="flex items-center gap-3">
-            <div className="relative w-full max-w-sm">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="搜索项目..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
-        )}
-        {projects.length > 0 && <DashboardStats />}
       </div>
 
-      <div className="flex-1 overflow-auto px-8 py-6">
+      {/* Stats */}
+      {projects.length > 0 && (
+        <div className="px-6 py-4 border-b border-border bg-background shrink-0">
+          <DashboardStats />
+        </div>
+      )}
+
+      {/* Toolbar */}
+      {projects.length > 0 && (
+        <div className="px-6 py-3 border-b border-border bg-background shrink-0 flex items-center justify-between gap-3">
+          <InputGroup className="max-w-xs">
+            <InputGroup.Prefix>
+              <Search className="size-3.5 text-muted-foreground" />
+            </InputGroup.Prefix>
+            <InputGroup.Input
+              placeholder="搜索项目..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </InputGroup>
+          <span className="text-xs text-muted-foreground">{filtered.length} 个项目</span>
+        </div>
+      )}
+
+      {/* Content */}
+      <div className="flex-1 overflow-auto">
         {projects.length === 0 ? (
-          <div className="flex h-[450px] shrink-0 items-center justify-center rounded-xl border border-dashed border-border">
-            <div className="mx-auto flex max-w-[420px] flex-col items-center justify-center text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                <FolderOpen className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <h3 className="mt-4 text-lg font-semibold">暂无项目</h3>
-              <p className="mb-6 mt-2 text-sm text-muted-foreground">
-                添加 GitHub 仓库开始使用代码审查功能
-              </p>
-              <Button onPress={() => setShowAdd(true)} size="lg" className="gap-2">
-                <Plus className="h-5 w-5" />
-                添加项目
-              </Button>
+          <div className="flex flex-col items-start justify-center gap-3 px-6 py-20">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              <FolderOpen className="h-5 w-5 text-muted-foreground" />
             </div>
+            <div>
+              <h3 className="text-sm font-medium">还没有项目</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">添加 GitHub 仓库开始使用代码审查功能</p>
+            </div>
+            <Button onPress={() => setShowAdd(true)} size="sm" className="gap-1.5 mt-1">
+              <Plus className="h-4 w-4" />
+              添加项目
+            </Button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex h-[450px] shrink-0 items-center justify-center rounded-xl border border-dashed border-border">
-            <div className="mx-auto flex max-w-[420px] flex-col items-center justify-center text-center">
-              <p className="text-sm text-muted-foreground">没有匹配 &quot;{search}&quot; 的项目</p>
-            </div>
+          <div className="px-6 py-20">
+            <p className="text-sm text-muted-foreground">没有匹配 &quot;{search}&quot; 的项目</p>
           </div>
         ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div>
+            {/* Table header */}
+            <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-muted/40">
+              <div className="w-8 shrink-0" />
+              <div className="flex-1 text-xs font-medium text-muted-foreground">项目名称</div>
+              <div className="hidden md:block text-xs font-medium text-muted-foreground w-[200px]">描述</div>
+              <div className="w-[140px] shrink-0" />
+            </div>
             {filtered.map(p => (
               <ProjectCard key={p.id} project={p} onDelete={handleDelete} onUpdate={handleUpdate} />
             ))}

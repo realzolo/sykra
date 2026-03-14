@@ -7,7 +7,7 @@ import {
   ArrowLeft, AlertCircle, RefreshCw, Github, ChevronDown, ChevronUp,
   TrendingUp, Shield, Zap, Code2, FileCode, MessageCircle, BarChart3, Lightbulb
 } from 'lucide-react';
-import { Button, Select, ListBox, Modal, useOverlayState, Chip, Spinner, Card } from '@heroui/react';
+import { Button, Select, ListBox, Modal, useOverlayState, Chip, Spinner, Card, Tabs, Separator } from '@heroui/react';
 import { toast } from 'sonner';
 import EnhancedIssueCard from '@/components/report/EnhancedIssueCard';
 import AIChat from '@/components/report/AIChat';
@@ -91,10 +91,6 @@ const SEV_ITEMS = [
   { id: 'medium', label: '中' }, { id: 'low', label: '低' }, { id: 'info', label: '提示' },
 ];
 
-const SEV_CHIP_COLOR: Record<string, 'danger' | 'warning' | 'success' | 'default' | 'accent'> = {
-  critical: 'danger', high: 'danger', medium: 'warning', low: 'default', info: 'success',
-};
-
 export default function EnhancedReportDetailClient({ initialReport }: { initialReport: Report }) {
   const router = useRouter();
   const [report, setReport] = useState<Report>(initialReport);
@@ -102,7 +98,6 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
   const [catFilter, setCatFilter] = useState('all');
   const [retrying, setRetrying] = useState(false);
   const [commitsExpanded, setCommitsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<'issues' | 'metrics' | 'security' | 'performance' | 'suggestions'>('issues');
   const [chatOpen, setChatOpen] = useState(false);
   const [chatIssueId, setChatIssueId] = useState<string | undefined>();
   const [trendsOpen, setTrendsOpen] = useState(false);
@@ -166,47 +161,41 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
     setChatOpen(true);
   }
 
-  const TABS = [
-    { id: 'issues' as const, label: `问题列表 (${allIssues.length})`, icon: Code2 },
-    { id: 'metrics' as const, label: '质量指标', icon: BarChart3 },
-    ...(report.security_findings?.length ? [{ id: 'security' as const, label: `安全发现 (${report.security_findings.length})`, icon: Shield }] : []),
-    ...(report.performance_findings?.length ? [{ id: 'performance' as const, label: `性能发现 (${report.performance_findings.length})`, icon: Zap }] : []),
-    ...(report.ai_suggestions?.length ? [{ id: 'suggestions' as const, label: `AI 建议 (${report.ai_suggestions.length})`, icon: Lightbulb }] : []),
-  ];
-
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-8 h-16 border-b border-border shrink-0 bg-card">
+      <div className="flex items-center gap-3 px-6 h-16 border-b border-border shrink-0 bg-card">
         <Link href="/reports">
           <Button isIconOnly variant="ghost" size="sm">
             <ArrowLeft className="size-4" />
           </Button>
         </Link>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold">报告详情</h2>
             <code className="text-xs font-mono text-muted-foreground">#{report.id.slice(0, 8)}</code>
           </div>
-          <div className="text-xs text-muted-foreground">{report.projects?.name}</div>
+          <div className="text-xs text-muted-foreground truncate">{report.projects?.name}</div>
         </div>
-        {report.status === 'done' && (
-          <>
-            <Button variant="outline" size="sm" onPress={() => setTrendsOpen(true)} className="gap-2">
-              <BarChart3 className="size-4" />趋势分析
+        <div className="flex items-center gap-2 shrink-0">
+          {report.status === 'done' && (
+            <>
+              <Button variant="outline" size="sm" onPress={() => setTrendsOpen(true)} className="gap-2">
+                <BarChart3 className="size-4" />趋势分析
+              </Button>
+              <Button variant="outline" size="sm" onPress={() => openChat()} className="gap-2">
+                <MessageCircle className="size-4" />AI 对话
+              </Button>
+            </>
+          )}
+          {(report.status === 'done' || report.status === 'failed') && (
+            <Button variant="outline" size="sm" isDisabled={retrying} onPress={handleRetry} className="gap-2">
+              <RefreshCw className={['size-3.5', retrying ? 'animate-spin' : ''].join(' ')} />
+              重新分析
             </Button>
-            <Button variant="outline" size="sm" onPress={() => openChat()} className="gap-2">
-              <MessageCircle className="size-4" />AI 对话
-            </Button>
-          </>
-        )}
-        {(report.status === 'done' || report.status === 'failed') && (
-          <Button variant="outline" size="sm" isDisabled={retrying} onPress={handleRetry} className="gap-2">
-            <RefreshCw className={['size-3.5', retrying ? 'animate-spin' : ''].join(' ')} />
-            重新分析
-          </Button>
-        )}
-        <Chip color={statusChip.color} variant="soft">{statusChip.label}</Chip>
+          )}
+          <Chip color={statusChip.color} variant="soft">{statusChip.label}</Chip>
+        </div>
       </div>
 
       {/* Analyzing */}
@@ -233,101 +222,133 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
       {/* Done */}
       {report.status === 'done' && (
         <div className="flex-1 overflow-auto">
-          <div className="p-8 space-y-6">
+          <div className="p-6 space-y-6 max-w-6xl mx-auto">
+
             {/* Score Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="p-6 text-center">
-                <div className={['text-5xl font-bold', scoreColorClass(report.score ?? 0)].join(' ')}>{report.score}</div>
-                <div className="text-sm text-muted-foreground mt-1">/ 100</div>
-                <div className={['text-sm font-semibold mt-2', scoreColorClass(report.score ?? 0)].join(' ')}>
-                  {(report.score ?? 0) >= 85 ? '优秀' : (report.score ?? 0) >= 70 ? '良好' : '需改进'}
-                </div>
-              </Card>
-              <Card className="md:col-span-2 p-6 space-y-3">
-                {Object.entries(report.category_scores ?? {}).map(([k, v]) => (
-                  <div key={k} className="flex items-center gap-3">
-                    <div className="w-24 text-sm text-muted-foreground">{CAT_LABEL[k] ?? k}</div>
-                    <div className="flex-1 bg-muted rounded-full h-2">
-                      <div className={['h-2 rounded-full', scoreBarClass(v)].join(' ')} style={{ width: `${v}%` }} />
-                    </div>
-                    <div className={['w-12 text-right text-sm font-bold', scoreColorClass(v)].join(' ')}>{v}</div>
+              <Card>
+                <Card.Content className="p-6 text-center">
+                  <div className={['text-5xl font-bold', scoreColorClass(report.score ?? 0)].join(' ')}>{report.score}</div>
+                  <div className="text-sm text-muted-foreground mt-1">/ 100</div>
+                  <div className={['text-sm font-semibold mt-2', scoreColorClass(report.score ?? 0)].join(' ')}>
+                    {(report.score ?? 0) >= 85 ? '优秀' : (report.score ?? 0) >= 70 ? '良好' : '需改进'}
                   </div>
-                ))}
+                </Card.Content>
+              </Card>
+              <Card className="md:col-span-2">
+                <Card.Content className="p-6 space-y-3">
+                  {Object.entries(report.category_scores ?? {}).map(([k, v]) => (
+                    <div key={k} className="flex items-center gap-3">
+                      <div className="w-20 text-sm text-muted-foreground shrink-0">{CAT_LABEL[k] ?? k}</div>
+                      <div className="flex-1 bg-muted rounded-full h-2">
+                        <div className={['h-2 rounded-full', scoreBarClass(v)].join(' ')} style={{ width: `${v}%` }} />
+                      </div>
+                      <div className={['w-10 text-right text-sm font-bold', scoreColorClass(v)].join(' ')}>{v}</div>
+                    </div>
+                  ))}
+                </Card.Content>
               </Card>
             </div>
 
             {/* Context Analysis */}
             {report.context_analysis && (
-              <Card className="p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <TrendingUp className="size-5 text-primary" />
-                  <h3 className="text-base font-semibold">上下文分析</h3>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div><div className="text-xs text-muted-foreground mb-1">变更类型</div><div className="text-sm font-medium">{report.context_analysis.changeType}</div></div>
-                  <div><div className="text-xs text-muted-foreground mb-1">风险等级</div><div className="text-sm font-medium">{report.context_analysis.riskLevel}</div></div>
-                  <div><div className="text-xs text-muted-foreground mb-1">破坏性变更</div><div className="text-sm font-medium">{report.context_analysis.breakingChanges ? '是' : '否'}</div></div>
-                  <div><div className="text-xs text-muted-foreground mb-1">影响模块</div><div className="text-sm font-medium">{report.context_analysis.affectedModules.length} 个</div></div>
-                </div>
-                <div className="mt-4">
-                  <div className="text-xs text-muted-foreground mb-1">业务影响</div>
-                  <div className="text-sm">{report.context_analysis.businessImpact}</div>
-                </div>
+              <Card>
+                <Card.Header>
+                  <Card.Title className="flex items-center gap-2">
+                    <TrendingUp className="size-4 text-primary" />
+                    上下文分析
+                  </Card.Title>
+                </Card.Header>
+                <Card.Content className="px-6 pb-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div><div className="text-xs text-muted-foreground mb-1">变更类型</div><div className="text-sm font-medium">{report.context_analysis.changeType}</div></div>
+                    <div><div className="text-xs text-muted-foreground mb-1">风险等级</div><div className="text-sm font-medium">{report.context_analysis.riskLevel}</div></div>
+                    <div><div className="text-xs text-muted-foreground mb-1">破坏性变更</div><div className="text-sm font-medium">{report.context_analysis.breakingChanges ? '是' : '否'}</div></div>
+                    <div><div className="text-xs text-muted-foreground mb-1">影响模块</div><div className="text-sm font-medium">{report.context_analysis.affectedModules.length} 个</div></div>
+                  </div>
+                  <div className="mt-4">
+                    <div className="text-xs text-muted-foreground mb-1">业务影响</div>
+                    <div className="text-sm">{report.context_analysis.businessImpact}</div>
+                  </div>
+                </Card.Content>
               </Card>
             )}
 
             {/* Commit Stats */}
-            <Card className="overflow-hidden">
-              <div className="px-6 py-4 flex gap-6 flex-wrap items-center border-b border-border/50">
-                <div className="text-sm"><span className="text-muted-foreground">变更文件: </span><strong>{report.total_files ?? 0}</strong></div>
-                <div className="text-sm text-green-600 font-semibold">+{report.total_additions ?? 0}</div>
-                <div className="text-sm text-red-600 font-semibold">-{report.total_deletions ?? 0}</div>
-                <div className="text-sm"><span className="text-muted-foreground">提交数: </span><strong>{report.commits?.length ?? 0}</strong></div>
-                <Button variant="ghost" size="sm" onPress={() => setCommitsExpanded(e => !e)} className="ml-auto gap-2">
-                  {commitsExpanded ? <><ChevronUp className="size-4" />隐藏提交</> : <><ChevronDown className="size-4" />显示提交</>}
-                </Button>
-              </div>
-              {commitsExpanded && (
-                <div className="divide-y divide-border">
-                  {report.commits.map(c => (
-                    <div key={c.sha} className="flex items-center gap-3 px-6 py-3">
-                      <code className="text-xs font-mono shrink-0 px-2 py-0.5 rounded bg-muted text-muted-foreground">{c.sha.slice(0, 7)}</code>
-                      <span className="flex-1 text-sm truncate">{c.message}</span>
-                      <span className="text-xs text-muted-foreground shrink-0">{c.author}</span>
-                      <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.date)}</span>
-                      {report.projects?.repo && (
-                        <a href={`https://github.com/${report.projects.repo}/commit/${c.sha}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground shrink-0">
-                          <Github className="size-4" />
-                        </a>
-                      )}
-                    </div>
-                  ))}
+            <Card>
+              <Card.Content className="p-0">
+                <div className="px-6 py-4 flex gap-6 flex-wrap items-center">
+                  <div className="text-sm"><span className="text-muted-foreground">变更文件: </span><strong>{report.total_files ?? 0}</strong></div>
+                  <div className="text-sm text-green-600 font-semibold">+{report.total_additions ?? 0}</div>
+                  <div className="text-sm text-red-600 font-semibold">-{report.total_deletions ?? 0}</div>
+                  <div className="text-sm"><span className="text-muted-foreground">提交数: </span><strong>{report.commits?.length ?? 0}</strong></div>
+                  <Button variant="ghost" size="sm" onPress={() => setCommitsExpanded(e => !e)} className="ml-auto gap-2">
+                    {commitsExpanded ? <><ChevronUp className="size-4" />隐藏提交</> : <><ChevronDown className="size-4" />显示提交</>}
+                  </Button>
                 </div>
-              )}
+                {commitsExpanded && (
+                  <>
+                    <Separator />
+                    <div>
+                      {report.commits.map((c, idx) => (
+                        <div key={c.sha}>
+                          <div className="flex items-center gap-3 px-6 py-3">
+                            <code className="text-xs font-mono shrink-0 px-2 py-0.5 rounded bg-muted text-muted-foreground">{c.sha.slice(0, 7)}</code>
+                            <span className="flex-1 text-sm truncate">{c.message}</span>
+                            <span className="text-xs text-muted-foreground shrink-0">{c.author}</span>
+                            <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.date)}</span>
+                            {report.projects?.repo && (
+                              <a href={`https://github.com/${report.projects.repo}/commit/${c.sha}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground shrink-0">
+                                <Github className="size-4" />
+                              </a>
+                            )}
+                          </div>
+                          {idx < report.commits.length - 1 && <Separator />}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </Card.Content>
             </Card>
 
             {/* Tabs */}
-            <Card className="overflow-hidden">
-              <div className="flex border-b border-border">
-                {TABS.map(tab => {
-                  const Icon = tab.icon;
-                  const active = activeTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={['flex-1 px-4 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2',
-                        active ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground hover:text-foreground'].join(' ')}
-                    >
-                      <Icon className="size-4" />{tab.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="p-6">
-                {/* Issues Tab */}
-                {activeTab === 'issues' && (
-                  <div className="space-y-4">
+            <Card>
+              <Card.Content className="p-0">
+                <Tabs defaultSelectedKey="issues">
+                  <Tabs.ListContainer className="border-b border-border px-2">
+                    <Tabs.List>
+                      <Tabs.Tab id="issues">
+                        <Code2 className="size-4 mr-1.5" />
+                        问题列表 ({allIssues.length})
+                      </Tabs.Tab>
+                      <Tabs.Tab id="metrics">
+                        <BarChart3 className="size-4 mr-1.5" />
+                        质量指标
+                      </Tabs.Tab>
+                      {report.security_findings?.length ? (
+                        <Tabs.Tab id="security">
+                          <Shield className="size-4 mr-1.5" />
+                          安全发现 ({report.security_findings.length})
+                        </Tabs.Tab>
+                      ) : null}
+                      {report.performance_findings?.length ? (
+                        <Tabs.Tab id="performance">
+                          <Zap className="size-4 mr-1.5" />
+                          性能发现 ({report.performance_findings.length})
+                        </Tabs.Tab>
+                      ) : null}
+                      {report.ai_suggestions?.length ? (
+                        <Tabs.Tab id="suggestions">
+                          <Lightbulb className="size-4 mr-1.5" />
+                          AI 建议 ({report.ai_suggestions.length})
+                        </Tabs.Tab>
+                      ) : null}
+                    </Tabs.List>
+                  </Tabs.ListContainer>
+
+                  {/* Issues Panel */}
+                  <Tabs.Panel id="issues" className="p-6 space-y-4">
                     <div className="flex items-center gap-3 flex-wrap">
                       <div className="flex items-center gap-2">
                         <Chip size="sm" color="danger" variant="soft">{criticalCount} 严重</Chip>
@@ -363,16 +384,16 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                     {filteredIssues.length === 0 ? (
                       <div className="text-center py-12 text-muted-foreground">没有匹配当前筛选条件的问题</div>
                     ) : (
-                      filteredIssues.map((issue, idx) => (
-                        <EnhancedIssueCard key={issue.file + '-' + issue.line + '-' + idx} issue={issue} onChat={() => openChat(issue.file)} />
-                      ))
+                      <div className="space-y-3">
+                        {filteredIssues.map((issue, idx) => (
+                          <EnhancedIssueCard key={issue.file + '-' + issue.line + '-' + idx} issue={issue} onChat={() => openChat(issue.file)} />
+                        ))}
+                      </div>
                     )}
-                  </div>
-                )}
+                  </Tabs.Panel>
 
-                {/* Metrics Tab */}
-                {activeTab === 'metrics' && (
-                  <div className="space-y-6">
+                  {/* Metrics Panel */}
+                  <Tabs.Panel id="metrics" className="p-6 space-y-6">
                     {report.complexity_metrics && (
                       <div>
                         <h4 className="text-sm font-semibold mb-3 flex items-center gap-2"><FileCode className="size-4" />代码复杂度</h4>
@@ -384,9 +405,11 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                             { label: '最长函数行数', value: report.complexity_metrics.maxFunctionLength },
                             { label: '函数总数', value: report.complexity_metrics.totalFunctions },
                           ].map(m => (
-                            <Card key={m.label} variant="secondary" className="p-4">
-                              <div className="text-2xl font-bold">{m.value}</div>
-                              <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                            <Card key={m.label} variant="secondary">
+                              <Card.Content className="p-4">
+                                <div className="text-2xl font-bold">{m.value}</div>
+                                <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                              </Card.Content>
                             </Card>
                           ))}
                         </div>
@@ -401,16 +424,18 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                             { label: '重复块数', value: report.duplication_metrics.duplicatedBlocks },
                             { label: '重复率', value: report.duplication_metrics.duplicationRate + '%' },
                           ].map(m => (
-                            <Card key={m.label} variant="secondary" className="p-4">
-                              <div className="text-2xl font-bold">{m.value}</div>
-                              <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                            <Card key={m.label} variant="secondary">
+                              <Card.Content className="p-4">
+                                <div className="text-2xl font-bold">{m.value}</div>
+                                <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                              </Card.Content>
                             </Card>
                           ))}
                         </div>
                         {report.duplication_metrics.duplicatedFiles.length > 0 && (
                           <div className="mt-3">
                             <div className="text-xs text-muted-foreground mb-2">重复文件:</div>
-                            <div className="space-y-1">{report.duplication_metrics.duplicatedFiles.map(f => (<code key={f} className="block text-xs bg-muted px-2 py-1 rounded">{f}</code>))}</div>
+                            <div className="space-y-1">{report.duplication_metrics.duplicatedFiles.map(f => <code key={f} className="block text-xs bg-muted px-2 py-1 rounded">{f}</code>)}</div>
                           </div>
                         )}
                       </div>
@@ -423,17 +448,19 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                             { label: '依赖总数', value: report.dependency_metrics.totalDependencies },
                             { label: '过时依赖', value: report.dependency_metrics.outdatedDependencies },
                           ].map(m => (
-                            <Card key={m.label} variant="secondary" className="p-4">
-                              <div className="text-2xl font-bold">{m.value}</div>
-                              <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                            <Card key={m.label} variant="secondary">
+                              <Card.Content className="p-4">
+                                <div className="text-2xl font-bold">{m.value}</div>
+                                <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                              </Card.Content>
                             </Card>
                           ))}
                         </div>
                         {report.dependency_metrics.circularDependencies.length > 0 && (
-                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">循环依赖:</div><div className="space-y-1">{report.dependency_metrics.circularDependencies.map((d, i) => (<code key={i} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>))}</div></div>
+                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">循环依赖:</div><div className="space-y-1">{report.dependency_metrics.circularDependencies.map((d, i) => <code key={i} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
                         )}
                         {report.dependency_metrics.unusedDependencies.length > 0 && (
-                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">未使用依赖:</div><div className="space-y-1">{report.dependency_metrics.unusedDependencies.map(d => (<code key={d} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>))}</div></div>
+                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">未使用依赖:</div><div className="space-y-1">{report.dependency_metrics.unusedDependencies.map(d => <code key={d} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
                         )}
                       </div>
                     )}
@@ -442,91 +469,103 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
                         <h4 className="text-sm font-semibold mb-3">复杂代码解释</h4>
                         <div className="space-y-3">
                           {report.code_explanations.map((exp, i) => (
-                            <Card key={i} variant="secondary" className="p-4">
-                              <code className="text-xs font-mono bg-background px-2 py-1 rounded">{exp.file}{exp.line ? ':' + exp.line : ''}</code>
-                              <div className="mt-2 text-xs text-muted-foreground">复杂度: {exp.complexity}</div>
-                              <div className="mt-2 text-sm">{exp.explanation}</div>
-                              <div className="mt-2 text-sm text-primary">💡 {exp.recommendation}</div>
+                            <Card key={i} variant="secondary">
+                              <Card.Content className="p-4">
+                                <code className="text-xs font-mono bg-background px-2 py-1 rounded">{exp.file}{exp.line ? ':' + exp.line : ''}</code>
+                                <div className="mt-2 text-xs text-muted-foreground">复杂度: {exp.complexity}</div>
+                                <div className="mt-2 text-sm">{exp.explanation}</div>
+                                <div className="mt-2 text-sm text-primary">💡 {exp.recommendation}</div>
+                              </Card.Content>
                             </Card>
                           ))}
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
+                  </Tabs.Panel>
 
-                {/* Security Tab */}
-                {activeTab === 'security' && report.security_findings && (
-                  <div className="space-y-3">
-                    {report.security_findings.map((finding, i) => (
-                      <Card key={i} className="p-4 border-red-200 dark:border-red-900">
-                        <div className="flex items-start gap-3">
-                          <Shield className="size-5 text-red-600 shrink-0 mt-0.5" />
-                          <div className="flex-1 space-y-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-semibold">{finding.type}</span>
-                              <Chip size="sm" color={finding.severity === 'critical' ? 'danger' : 'warning'} variant="soft">
-                                {finding.severity}
-                              </Chip>
-                              {finding.cwe && <span className="text-xs text-muted-foreground">{finding.cwe}</span>}
+                  {/* Security Panel */}
+                  {report.security_findings?.length ? (
+                    <Tabs.Panel id="security" className="p-6 space-y-3">
+                      {report.security_findings.map((finding, i) => (
+                        <Card key={i}>
+                          <Card.Content className="p-4">
+                            <div className="flex items-start gap-3">
+                              <Shield className="size-5 text-danger shrink-0 mt-0.5" />
+                              <div className="flex-1 space-y-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-semibold">{finding.type}</span>
+                                  <Chip size="sm" color={finding.severity === 'critical' ? 'danger' : 'warning'} variant="soft">{finding.severity}</Chip>
+                                  {finding.cwe && <span className="text-xs text-muted-foreground">{finding.cwe}</span>}
+                                </div>
+                                <div className="text-sm">{finding.description}</div>
+                                <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ':' + finding.line : ''}</code>
+                              </div>
                             </div>
-                            <div className="text-sm">{finding.description}</div>
-                            <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ':' + finding.line : ''}</code>
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                )}
+                          </Card.Content>
+                        </Card>
+                      ))}
+                    </Tabs.Panel>
+                  ) : null}
 
-                {/* Performance Tab */}
-                {activeTab === 'performance' && report.performance_findings && (
-                  <div className="space-y-3">
-                    {report.performance_findings.map((finding, i) => (
-                      <Card key={i} className="p-4 border-yellow-200 dark:border-yellow-900">
-                        <div className="flex items-start gap-3">
-                          <Zap className="size-5 text-yellow-600 shrink-0 mt-0.5" />
-                          <div className="flex-1 space-y-2">
-                            <div className="font-semibold">{finding.type}</div>
-                            <div className="text-sm">{finding.description}</div>
-                            <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ':' + finding.line : ''}</code>
-                            <div className="text-xs text-muted-foreground">影响: {finding.impact}</div>
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-
-                {/* Suggestions Tab */}
-                {activeTab === 'suggestions' && report.ai_suggestions && (
-                  <div className="space-y-3">
-                    {report.ai_suggestions.sort((a, b) => b.priority - a.priority).map((sug, i) => (
-                      <Card key={i} className="p-4 border-primary/20">
-                        <div className="flex items-start gap-3">
-                          <Lightbulb className="size-5 text-primary shrink-0 mt-0.5" />
-                          <div className="flex-1 space-y-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold">{sug.title}</span>
-                              <Chip size="sm" color="accent" variant="soft">P{sug.priority}</Chip>
-                              <span className="text-xs text-muted-foreground">{sug.type}</span>
+                  {/* Performance Panel */}
+                  {report.performance_findings?.length ? (
+                    <Tabs.Panel id="performance" className="p-6 space-y-3">
+                      {report.performance_findings.map((finding, i) => (
+                        <Card key={i}>
+                          <Card.Content className="p-4">
+                            <div className="flex items-start gap-3">
+                              <Zap className="size-5 text-warning shrink-0 mt-0.5" />
+                              <div className="flex-1 space-y-2">
+                                <div className="font-semibold">{finding.type}</div>
+                                <div className="text-sm">{finding.description}</div>
+                                <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ':' + finding.line : ''}</code>
+                                <div className="text-xs text-muted-foreground">影响: {finding.impact}</div>
+                              </div>
                             </div>
-                            <div className="text-sm">{sug.description}</div>
-                            <div className="text-xs text-muted-foreground">预期影响: {sug.estimatedImpact}</div>
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </div>
+                          </Card.Content>
+                        </Card>
+                      ))}
+                    </Tabs.Panel>
+                  ) : null}
+
+                  {/* Suggestions Panel */}
+                  {report.ai_suggestions?.length ? (
+                    <Tabs.Panel id="suggestions" className="p-6 space-y-3">
+                      {report.ai_suggestions.sort((a, b) => b.priority - a.priority).map((sug, i) => (
+                        <Card key={i}>
+                          <Card.Content className="p-4">
+                            <div className="flex items-start gap-3">
+                              <Lightbulb className="size-5 text-primary shrink-0 mt-0.5" />
+                              <div className="flex-1 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold">{sug.title}</span>
+                                  <Chip size="sm" color="accent" variant="soft">P{sug.priority}</Chip>
+                                  <span className="text-xs text-muted-foreground">{sug.type}</span>
+                                </div>
+                                <div className="text-sm">{sug.description}</div>
+                                <div className="text-xs text-muted-foreground">预期影响: {sug.estimatedImpact}</div>
+                              </div>
+                            </div>
+                          </Card.Content>
+                        </Card>
+                      ))}
+                    </Tabs.Panel>
+                  ) : null}
+                </Tabs>
+              </Card.Content>
             </Card>
 
             {/* AI Summary */}
-            <Card className="p-6">
-              <h3 className="text-base font-semibold mb-3">AI 总结</h3>
-              <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{report.summary}</div>
-            </Card>
+            {report.summary && (
+              <Card>
+                <Card.Header>
+                  <Card.Title>AI 总结</Card.Title>
+                </Card.Header>
+                <Card.Content className="px-6 pb-6">
+                  <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{report.summary}</div>
+                </Card.Content>
+              </Card>
+            )}
           </div>
         </div>
       )}
@@ -536,7 +575,7 @@ export default function EnhancedReportDetailClient({ initialReport }: { initialR
         <Modal.Backdrop isDismissable>
           <Modal.Container size="lg">
             <Modal.Dialog className="h-[600px] flex flex-col">
-              <Modal.Header className="px-6 py-4 border-b border-border">
+              <Modal.Header>
                 <Modal.Heading>AI 代码审查员</Modal.Heading>
               </Modal.Header>
               <Modal.Body className="flex-1 min-h-0 p-0">

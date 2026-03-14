@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, ChevronRight, Trash2 } from 'lucide-react';
+import { FileText, Trash2 } from 'lucide-react';
 import { Button, Select, ListBox, Chip, Spinner } from '@heroui/react';
 import { toast } from 'sonner';
 
@@ -26,14 +26,9 @@ const CAT_LABEL: Record<string, string> = {
 };
 
 function scoreColor(s: number) {
-  if (s >= 85) return 'text-green-600';
-  if (s >= 70) return 'text-yellow-600';
-  return 'text-red-600';
-}
-function scoreBg(s: number) {
-  if (s >= 85) return 'bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900';
-  if (s >= 70) return 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/20 dark:border-yellow-900';
-  return 'bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-900';
+  if (s >= 85) return 'text-success';
+  if (s >= 70) return 'text-warning';
+  return 'text-danger';
 }
 
 const STATUS_ITEMS = [
@@ -84,65 +79,70 @@ export default function ReportsClient({ initialReports }: { initialReports: Repo
   ], [projectNames]);
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex flex-col gap-4 px-8 py-5 border-b border-border bg-card">
+      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
         <div className="flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-bold tracking-tight">报告</h2>
-              <span className="inline-flex items-center justify-center rounded-full bg-primary/10 px-2.5 py-0.5 text-sm font-semibold text-primary">
-                {filtered.length}
-              </span>
-            </div>
-            <p className="text-sm text-muted-foreground mt-0.5">查看代码审查报告和质量评分</p>
+            <h1 className="text-xl font-semibold">报告</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">代码审查报告与质量评分</p>
           </div>
+          <span className="text-sm text-muted-foreground">{filtered.length} 条记录</span>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <Select selectedKey={statusFilter} onSelectionChange={(key) => setStatusFilter(key as string)} className="w-[160px]">
+      </div>
+
+      {/* Toolbar */}
+      <div className="px-6 py-3 border-b border-border bg-background shrink-0 flex items-center gap-3 flex-wrap">
+        <Select selectedKey={statusFilter} onSelectionChange={(key) => setStatusFilter(key as string)} className="w-[140px]">
+          <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
+          <Select.Popover>
+            <ListBox items={STATUS_ITEMS}>
+              {(item) => <ListBox.Item id={item.id}>{item.label}</ListBox.Item>}
+            </ListBox>
+          </Select.Popover>
+        </Select>
+        {projectNames.length > 1 && (
+          <Select selectedKey={projectFilter} onSelectionChange={(key) => setProjectFilter(key as string)} className="w-[180px]">
             <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
             <Select.Popover>
-              <ListBox items={STATUS_ITEMS}>
+              <ListBox items={projectItems}>
                 {(item) => <ListBox.Item id={item.id}>{item.label}</ListBox.Item>}
               </ListBox>
             </Select.Popover>
           </Select>
-          {projectNames.length > 1 && (
-            <Select selectedKey={projectFilter} onSelectionChange={(key) => setProjectFilter(key as string)} className="w-[200px]">
-              <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
-              <Select.Popover>
-                <ListBox items={projectItems}>
-                  {(item) => <ListBox.Item id={item.id}>{item.label}</ListBox.Item>}
-                </ListBox>
-              </Select.Popover>
-            </Select>
-          )}
-          {(statusFilter !== 'all' || projectFilter !== 'all') && (
-            <Button variant="outline" size="sm" onPress={() => { setStatusFilter('all'); setProjectFilter('all'); }}>
-              清除筛选
-            </Button>
-          )}
-        </div>
+        )}
+        {(statusFilter !== 'all' || projectFilter !== 'all') && (
+          <Button variant="ghost" size="sm" onPress={() => { setStatusFilter('all'); setProjectFilter('all'); }}>
+            清除筛选
+          </Button>
+        )}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto px-8 py-6">
+      <div className="flex-1 overflow-auto">
         {reports.length === 0 ? (
-          <div className="flex h-[450px] items-center justify-center rounded-xl border border-dashed border-border">
-            <div className="flex flex-col items-center text-center gap-3">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                <FileText className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-semibold">暂无报告</h3>
-              <p className="text-sm text-muted-foreground">从任意项目发起代码审查</p>
+          <div className="flex flex-col items-start gap-3 px-6 py-20">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              <FileText className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium">还没有报告</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">从项目页面发起代码审查后，报告会显示在这里</p>
             </div>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex h-[450px] items-center justify-center rounded-xl border border-dashed border-border">
+          <div className="px-6 py-20">
             <p className="text-sm text-muted-foreground">没有匹配当前筛选条件的报告</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div>
+            {/* Table header */}
+            <div className="grid grid-cols-[64px_1fr_160px_auto] items-center px-4 py-2 border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground gap-4">
+              <div>评分</div>
+              <div>项目 / 时间</div>
+              <div>分类得分</div>
+              <div className="w-8" />
+            </div>
             {filtered.map(report => {
               const st = STATUS_CHIP[report.status] ?? STATUS_CHIP.pending;
               const projectName = (() => {
@@ -152,49 +152,48 @@ export default function ReportsClient({ initialReports }: { initialReports: Repo
               return (
                 <div
                   key={report.id}
+                  className="grid grid-cols-[64px_1fr_160px_auto] items-center px-4 py-3 border-b border-border hover:bg-muted/30 transition-colors cursor-pointer gap-4"
                   onClick={() => router.push(`/reports/${report.id}`)}
-                  className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
                 >
                   {/* Score */}
-                  <div className={['flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-xl border', report.score != null ? scoreBg(report.score) : 'bg-muted border-border'].join(' ')}>
-                    <span className={['text-3xl font-bold leading-none', report.score != null ? scoreColor(report.score) : 'text-muted-foreground'].join(' ')}>
+                  <div className="flex flex-col items-start">
+                    <span className={['text-xl font-bold leading-none', report.score != null ? scoreColor(report.score) : 'text-muted-foreground'].join(' ')}>
                       {report.score ?? '—'}
                     </span>
-                    {report.score != null && <span className="mt-1 text-xs text-muted-foreground">/ 100</span>}
+                    {report.score != null && <span className="text-[10px] text-muted-foreground mt-0.5">/ 100</span>}
                   </div>
 
                   {/* Info */}
-                  <div className="flex-1 space-y-1.5 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-base font-semibold leading-none">{projectName ?? '未知'}</p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{projectName ?? '未知项目'}</span>
                       <Chip size="sm" color={st.color} variant="soft">{st.label}</Chip>
                     </div>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {(report.commits as unknown[])?.length ?? 0} 个提交 · {new Date(report.created_at).toLocaleString('zh-CN')}
                     </p>
                   </div>
 
                   {/* Category scores */}
-                  {report.category_scores && (
-                    <div className="flex gap-5 shrink-0">
-                      {Object.entries(report.category_scores).map(([k, v]) => (
-                        <div key={k} className="text-center">
-                          <div className={['text-base font-bold', scoreColor(v)].join(' ')}>{v}</div>
-                          <div className="mt-0.5 text-xs text-muted-foreground">{CAT_LABEL[k] ?? k}</div>
+                  {report.category_scores ? (
+                    <div className="flex gap-3">
+                      {Object.entries(report.category_scores).slice(0, 3).map(([k, v]) => (
+                        <div key={k}>
+                          <div className={['text-xs font-semibold', scoreColor(v)].join(' ')}>{v}</div>
+                          <div className="text-[10px] text-muted-foreground">{CAT_LABEL[k] ?? k}</div>
                         </div>
                       ))}
                     </div>
-                  )}
+                  ) : <div />}
 
+                  {/* Delete */}
                   <Button
                     isIconOnly variant="ghost" size="sm"
                     isDisabled={deletingId === report.id}
                     onPress={(e) => handleDelete(report.id, e as unknown as React.MouseEvent)}
                   >
-                    {deletingId === report.id ? <Spinner size="sm" /> : <Trash2 className="h-4 w-4" />}
+                    {deletingId === report.id ? <Spinner size="sm" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </Button>
-
-                  <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
                 </div>
               );
             })}
