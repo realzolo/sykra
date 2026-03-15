@@ -1,4 +1,4 @@
-package internal
+package store
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"spec-axis/runner/internal/domain"
 )
 
 type Store struct {
@@ -65,7 +67,7 @@ type ReportAnalysisUpdate struct {
 	ModelVersion         string
 }
 
-func NewStore(ctx context.Context, url string) (*Store, error) {
+func New(ctx context.Context, url string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		return nil, err
@@ -221,7 +223,7 @@ func (s *Store) UpdateProjectLastAnalyzedAt(ctx context.Context, projectID strin
 	return err
 }
 
-func (s *Store) ReplaceReportIssues(ctx context.Context, reportID string, issues []ReviewIssue) error {
+func (s *Store) ReplaceReportIssues(ctx context.Context, reportID string, issues []domain.ReviewIssue) error {
 	_, err := s.pool.Exec(ctx, `delete from report_issues where report_id=$1`, reportID)
 	if err != nil {
 		return err
@@ -287,15 +289,6 @@ func (s *Store) ReplaceReportIssues(ctx context.Context, reportID string, issues
 		}
 	}
 	return nil
-}
-
-func isValidSeverity(value string) bool {
-	switch value {
-	case "critical", "high", "medium", "low", "info":
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *Store) GetIntegrationByID(ctx context.Context, integrationID string) (*IntegrationRow, error) {
@@ -367,4 +360,13 @@ func (s *Store) RecordAudit(ctx context.Context, action string, entityType strin
 		return fmt.Errorf("audit insert failed: %w", err)
 	}
 	return nil
+}
+
+func isValidSeverity(value string) bool {
+	switch value {
+	case "critical", "high", "medium", "low", "info":
+		return true
+	default:
+		return false
+	}
 }

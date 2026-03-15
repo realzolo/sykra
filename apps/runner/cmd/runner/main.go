@@ -11,23 +11,28 @@ import (
 
 	"github.com/hibiken/asynq"
 
-	"spec-axis/runner/internal"
+	"spec-axis/runner/internal/config"
+	"spec-axis/runner/internal/events"
+	"spec-axis/runner/internal/httpapi"
+	"spec-axis/runner/internal/pipeline"
+	"spec-axis/runner/internal/queue"
+	"spec-axis/runner/internal/store"
 )
 
 func main() {
-	cfg, err := internal.LoadConfig()
+	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config error: %v", err)
 	}
 
 	ctx := context.Background()
-	store, err := internal.NewStore(ctx, cfg.DatabaseURL)
+	st, err := store.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("db error: %v", err)
 	}
-	defer store.Close()
+	defer st.Close()
 
-	publisher, err := internal.NewPublisher(cfg.NatsURL)
+	publisher, err := events.NewPublisher(cfg.NatsURL)
 	if err != nil {
 		log.Fatalf("nats error: %v", err)
 	}
@@ -37,19 +42,33 @@ func main() {
 		}
 	}()
 
-	redisOpt, err := internal.ParseRedisURL(cfg.RedisURL)
+	redisOpt, err := queue.ParseRedisURL(cfg.RedisURL)
 	if err != nil {
 		log.Fatalf("redis error: %v", err)
 	}
 
-	queueWeights := map[string]int{cfg.Queue: 1}
+	queueWeights := map[string]int{
+		cfg.Queue:        1,
+		cfg.PipelineQueue: 1,
+	}
 	server := asynq.NewServer(redisOpt, asynq.Config{
 		Concurrency: cfg.Concurrency,
 		Queues:      queueWeights,
 	})
 
+	storage := pipeline.NewLocalStorage(cfg.DataDir)
+	executors := pipeline.NewExecutorRegistry()
+	executors.Register("shell", &pipeline.ShellExecutor{})
+	engine := &pipeline.Engine{
+		Store:       st,
+		Executors:   executors,
+		Storage:     storage,
+		Concurrency: cfg.PipelineConcurrency,
+	}
+
 	mux := asynq.NewServeMux()
-	mux.HandleFunc(internal.TaskTypeAnalyze, internal.HandleAnalyzeTask(store, publisher, cfg.AnalyzeTimeout))
+	mux.HandleFunc(queue.TaskTypeAnalyze, queue.HandleAnalyzeTask(st, publisher, cfg.AnalyzeTimeout))
+	mux.HandleFunc(queue.TaskTypePipelineRun, queue.HandlePipelineRunTask(engine))
 
 	go func() {
 		if err := server.Run(mux); err != nil {
@@ -60,10 +79,28 @@ func main() {
 	client := asynq.NewClient(redisOpt)
 	defer client.Close()
 
+	pipelineService := &pipeline.Service{
+		Store:      st,
+		Queue:      client,
+		QueueName:  cfg.PipelineQueue,
+		RunTimeout: cfg.PipelineRunTimeout,
+		Storage:    storage,
+	}
+
 	httpServer := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: internal.NewHTTPServer(cfg, client).Handler(),
+		Handler: httpapi.New(cfg, client, pipelineService).Handler(),
 	}
+
+	go func() {
+		logRetention := time.Duration(cfg.LogRetentionDays) * 24 * time.Hour
+		artifactRetention := time.Duration(cfg.ArtifactRetentionDays) * 24 * time.Hour
+		storage.Cleanup(logRetention, artifactRetention)
+		ticker := time.NewTicker(24 * time.Hour)
+		for range ticker.C {
+			storage.Cleanup(logRetention, artifactRetention)
+		}
+	}()
 
 	go func() {
 		log.Printf("runner listening on :%s", cfg.Port)

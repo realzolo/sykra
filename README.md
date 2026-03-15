@@ -1,6 +1,6 @@
 # spec-axis
 
-An AI-powered code review platform built with Next.js 16 + React 19 + TypeScript. It integrates GitHub/GitLab repository management, commit-based analysis, configurable AI models (Claude, GPT-4, etc.), custom rule sets, and quality scoring. The UI follows a Supabase Dashboard-style white theme using HeroUI v3 (beta) and Tailwind CSS v4. The backend runs analysis in a Go runner via a Redis-backed queue and streams updates via SSE (NATS optional). The repo is a monorepo with `apps/studio` (Next.js console) and `apps/runner` (Go runner).
+An AI-powered code review + CI/CD pipeline platform built with Next.js 16 + React 19 + TypeScript. It integrates GitHub/GitLab repository management, commit-based analysis, configurable AI models (Claude, GPT-4, etc.), custom rule sets, quality scoring, and a drag-and-drop pipeline DAG builder. The UI follows a Supabase Dashboard-style white theme using HeroUI v3 (beta) and Tailwind CSS v4. The backend runs analysis and pipeline jobs in a Go runner via a Redis-backed queue and streams updates via SSE (NATS optional). The repo is a monorepo with `apps/studio` (Next.js console) and `apps/runner` (Go runner).
 
 ## ✨ Features
 
@@ -9,6 +9,8 @@ An AI-powered code review platform built with Next.js 16 + React 19 + TypeScript
 - **Smart Task Queue**: Go runner with Redis-backed queue and SSE updates (NATS optional)
 - **Configurable Rule Sets**: Custom code quality rules per project
 - **Quality Scoring**: Detailed reports with severity-based metrics
+- **Pipeline DAG Builder**: Drag-and-drop jobs, stages, and shell steps
+- **Local Logs & Artifacts**: Run logs and artifacts stored on the runner node
 - **Multi-Tenant**: Complete user isolation with secure integration storage
 - **Modern UI**: Supabase Dashboard-style interface with HeroUI v3 components
 
@@ -20,6 +22,7 @@ An AI-powered code review platform built with Next.js 16 + React 19 + TypeScript
 - pnpm
 - Supabase project
 - Go 1.22 (runner)
+- golang-migrate (DB migrations)
 - Redis (queue)
 - NATS (optional, report status events)
 
@@ -65,11 +68,17 @@ DATABASE_URL=postgres://...
 REDIS_URL=redis://...
 RUNNER_TOKEN=your_runner_token
 ENCRYPTION_KEY=<same as studio>
+PIPELINE_QUEUE=pipelines
+PIPELINE_CONCURRENCY=4
+PIPELINE_RUN_TIMEOUT=2h
+RUNNER_DATA_DIR=data
+PIPELINE_LOG_RETENTION_DAYS=30
+PIPELINE_ARTIFACT_RETENTION_DAYS=30
 ```
 
 5. **Run database migrations**:
 
-Open Supabase SQL Editor and run the migration files in order:
+Core schema (Supabase SQL editor, run in order):
 ```sql
 -- Run these in sequence from supabase/migrations/
 001_initial_schema.sql
@@ -78,6 +87,12 @@ Open Supabase SQL Editor and run the migration files in order:
 004_task_queue_and_monitoring.sql
 005_fix_snapshot_severity.sql
 006_user_integrations.sql
+```
+
+Pipeline schema (golang-migrate):
+```bash
+cd apps/runner
+migrate -path ./migrations -database "$DATABASE_URL" up
 ```
 
 6. **Start development server**:
@@ -142,6 +157,12 @@ DATABASE_URL=postgres://...
 REDIS_URL=redis://...
 NATS_URL=nats://localhost:4222
 ENCRYPTION_KEY=<same as studio>
+PIPELINE_QUEUE=pipelines
+PIPELINE_CONCURRENCY=4
+PIPELINE_RUN_TIMEOUT=2h
+RUNNER_DATA_DIR=data
+PIPELINE_LOG_RETENTION_DAYS=30
+PIPELINE_ARTIFACT_RETENTION_DAYS=30
 ```
 
 **Note**: VCS (GitHub/GitLab) and AI (Claude/GPT-4) integrations are configured through the web UI at **Settings > Integrations**, not via environment variables. See [Quick Setup Guide](./docs/quick-setup-guide.md) for details.
@@ -170,6 +191,13 @@ Project-specific integration > User default integration > Error (must configure)
 **Supported Providers**:
 - **VCS**: GitHub, GitLab, Generic Git
 - **AI**: OpenAI-compatible APIs (Anthropic Claude, OpenAI GPT-4, DeepSeek, etc.)
+
+### Pipeline Engine
+
+- **Studio** provides a drag-and-drop DAG builder for stages, jobs, and shell steps.
+- **Runner** executes pipeline runs via Redis queue with job-level concurrency.
+- **Events** are appended to `run_events` for polling/streaming.
+- **Logs & artifacts** are stored locally under `RUNNER_DATA_DIR`.
 
 ### Security
 
@@ -217,6 +245,8 @@ spec-axis/
 │   ├── studio/                # Next.js console
 │   │   └── src/               # App Router, components, services, libs
 │   └── runner/                # Go runner service
+│       ├── internal/pipeline  # Pipeline engine + executors
+│       └── migrations         # golang-migrate SQL files
 ├── packages/
 │   └── contracts/             # Shared API/contracts (future)
 ├── docs/                     # Documentation

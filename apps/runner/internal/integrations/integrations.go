@@ -1,8 +1,8 @@
-package internal
+package integrations
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +11,10 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"spec-axis/runner/internal/crypto"
+	"spec-axis/runner/internal/domain"
+	"spec-axis/runner/internal/store"
 )
 
 type VCSClient interface {
@@ -18,7 +22,7 @@ type VCSClient interface {
 }
 
 type AIClient interface {
-	Analyze(prompt string, code string, timeout time.Duration) (ReviewResult, error)
+	Analyze(prompt string, code string, timeout time.Duration) (domain.ReviewResult, error)
 	Model() string
 }
 
@@ -36,13 +40,13 @@ type AIConfig struct {
 	APIKey      string
 }
 
-func ResolveVCSClient(ctx context.Context, store *Store, project *Project) (VCSClient, error) {
-	integration, err := resolveIntegration(ctx, store, project, "vcs")
+func ResolveVCSClient(ctx context.Context, st *store.Store, project *store.Project) (VCSClient, error) {
+	integration, err := resolveIntegration(ctx, st, project, "vcs")
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := DecryptSecret(integration.VaultSecretName)
+	token, err := crypto.DecryptSecret(integration.VaultSecretName)
 	if err != nil {
 		return nil, err
 	}
@@ -65,13 +69,13 @@ func ResolveVCSClient(ctx context.Context, store *Store, project *Project) (VCSC
 	}
 }
 
-func ResolveAIClient(ctx context.Context, store *Store, project *Project) (AIClient, error) {
-	integration, err := resolveIntegration(ctx, store, project, "ai")
+func ResolveAIClient(ctx context.Context, st *store.Store, project *store.Project) (AIClient, error) {
+	integration, err := resolveIntegration(ctx, st, project, "ai")
 	if err != nil {
 		return nil, err
 	}
 
-	apiKey, err := DecryptSecret(integration.VaultSecretName)
+	apiKey, err := crypto.DecryptSecret(integration.VaultSecretName)
 	if err != nil {
 		return nil, err
 	}
@@ -95,17 +99,17 @@ func ResolveAIClient(ctx context.Context, store *Store, project *Project) (AICli
 	}
 }
 
-func resolveIntegration(ctx context.Context, store *Store, project *Project, integrationType string) (*IntegrationRow, error) {
-	var integration *IntegrationRow
+func resolveIntegration(ctx context.Context, st *store.Store, project *store.Project, integrationType string) (*store.IntegrationRow, error) {
+	var integration *store.IntegrationRow
 	var err error
 
 	if integrationType == "vcs" && project.VCSIntegrationID != nil {
-		integration, err = store.GetIntegrationByID(ctx, *project.VCSIntegrationID)
+		integration, err = st.GetIntegrationByID(ctx, *project.VCSIntegrationID)
 		if err != nil {
 			return nil, err
 		}
 	} else if integrationType == "ai" && project.AIIntegrationID != nil {
-		integration, err = store.GetIntegrationByID(ctx, *project.AIIntegrationID)
+		integration, err = st.GetIntegrationByID(ctx, *project.AIIntegrationID)
 		if err != nil {
 			return nil, err
 		}
@@ -118,7 +122,7 @@ func resolveIntegration(ctx context.Context, store *Store, project *Project, int
 		return integration, nil
 	}
 
-	integration, err = store.GetDefaultIntegration(ctx, project.OrgID, integrationType)
+	integration, err = st.GetDefaultIntegration(ctx, project.OrgID, integrationType)
 	if err != nil {
 		return nil, err
 	}
@@ -340,9 +344,9 @@ func (c *OpenAICompatibleClient) Model() string {
 	return c.config.ModelName
 }
 
-func (c *OpenAICompatibleClient) Analyze(prompt string, code string, timeout time.Duration) (ReviewResult, error) {
+func (c *OpenAICompatibleClient) Analyze(prompt string, code string, timeout time.Duration) (domain.ReviewResult, error) {
 	if strings.TrimSpace(c.config.BaseURL) == "" {
-		return ReviewResult{}, fmt.Errorf("AI baseUrl is required")
+		return domain.ReviewResult{}, fmt.Errorf("AI baseUrl is required")
 	}
 	if strings.Contains(strings.ToLower(c.config.BaseURL), "anthropic.com") {
 		return c.analyzeAnthropic(prompt, code, timeout)
@@ -350,7 +354,7 @@ func (c *OpenAICompatibleClient) Analyze(prompt string, code string, timeout tim
 	return c.analyzeOpenAI(prompt, code, timeout)
 }
 
-func (c *OpenAICompatibleClient) analyzeAnthropic(prompt string, code string, timeout time.Duration) (ReviewResult, error) {
+func (c *OpenAICompatibleClient) analyzeAnthropic(prompt string, code string, timeout time.Duration) (domain.ReviewResult, error) {
 	fullPrompt := buildClientPrompt(prompt, code, true)
 	body := map[string]any{
 		"model":       c.config.ModelName,
@@ -369,7 +373,7 @@ func (c *OpenAICompatibleClient) analyzeAnthropic(prompt string, code string, ti
 	}
 	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return ReviewResult{}, err
+		return domain.ReviewResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.config.APIKey)
@@ -378,33 +382,33 @@ func (c *OpenAICompatibleClient) analyzeAnthropic(prompt string, code string, ti
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return ReviewResult{}, err
+		return domain.ReviewResult{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ReviewResult{}, fmt.Errorf("anthropic error: %s", resp.Status)
+		return domain.ReviewResult{}, fmt.Errorf("anthropic error: %s", resp.Status)
 	}
 
 	raw, err := readAll(resp)
 	if err != nil {
-		return ReviewResult{}, err
+		return domain.ReviewResult{}, err
 	}
 
 	var parsed map[string]any
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return ReviewResult{}, err
+		return domain.ReviewResult{}, err
 	}
 
 	content, _ := parsed["content"].([]any)
 	if len(content) == 0 {
-		return ReviewResult{}, fmt.Errorf("anthropic response missing content")
+		return domain.ReviewResult{}, fmt.Errorf("anthropic response missing content")
 	}
 	first := content[0].(map[string]any)
 	text, _ := first["text"].(string)
 	return parseReviewResult(text)
 }
 
-func (c *OpenAICompatibleClient) analyzeOpenAI(prompt string, code string, timeout time.Duration) (ReviewResult, error) {
+func (c *OpenAICompatibleClient) analyzeOpenAI(prompt string, code string, timeout time.Duration) (domain.ReviewResult, error) {
 	fullPrompt := buildClientPrompt(prompt, code, false)
 	body := map[string]any{
 		"model": c.config.ModelName,
@@ -420,7 +424,7 @@ func (c *OpenAICompatibleClient) analyzeOpenAI(prompt string, code string, timeo
 	endpoint := base + "/chat/completions"
 	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return ReviewResult{}, err
+		return domain.ReviewResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.config.APIKey != "" {
@@ -430,25 +434,25 @@ func (c *OpenAICompatibleClient) analyzeOpenAI(prompt string, code string, timeo
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return ReviewResult{}, err
+		return domain.ReviewResult{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ReviewResult{}, fmt.Errorf("openai-compatible error: %s", resp.Status)
+		return domain.ReviewResult{}, fmt.Errorf("openai-compatible error: %s", resp.Status)
 	}
 
 	raw, err := readAll(resp)
 	if err != nil {
-		return ReviewResult{}, err
+		return domain.ReviewResult{}, err
 	}
 
 	var parsed map[string]any
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return ReviewResult{}, err
+		return domain.ReviewResult{}, err
 	}
 	choices, _ := parsed["choices"].([]any)
 	if len(choices) == 0 {
-		return ReviewResult{}, fmt.Errorf("openai response missing choices")
+		return domain.ReviewResult{}, fmt.Errorf("openai response missing choices")
 	}
 	first := choices[0].(map[string]any)
 	message, _ := first["message"].(map[string]any)
@@ -467,10 +471,10 @@ func buildClientPrompt(prompt string, code string, strictJSON bool) string {
 	return fullPrompt + "\n\nPlease provide your analysis in JSON format."
 }
 
-func parseReviewResult(content string) (ReviewResult, error) {
+func parseReviewResult(content string) (domain.ReviewResult, error) {
 	extracted := extractJSON(content)
 	if extracted == "" {
-		return ReviewResult{
+		return domain.ReviewResult{
 			Summary: content,
 			Score:   70,
 		}, nil
@@ -478,10 +482,10 @@ func parseReviewResult(content string) (ReviewResult, error) {
 
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(extracted), &raw); err != nil {
-		return ReviewResult{}, err
+		return domain.ReviewResult{}, err
 	}
 
-	result := ReviewResult{
+	result := domain.ReviewResult{
 		CategoryScores: map[string]float64{},
 	}
 
@@ -519,8 +523,8 @@ func parseReviewResult(content string) (ReviewResult, error) {
 	return result, nil
 }
 
-func parseIssue(raw map[string]any) ReviewIssue {
-	issue := ReviewIssue{}
+func parseIssue(raw map[string]any) domain.ReviewIssue {
+	issue := domain.ReviewIssue{}
 	if v, ok := raw["file"].(string); ok {
 		issue.File = v
 	}

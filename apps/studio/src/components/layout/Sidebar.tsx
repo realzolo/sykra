@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   Code2,
+  GitBranch,
   FolderOpen,
   FileText,
   Shield,
@@ -64,6 +65,7 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
 
   const navItems = [
     { base: '/projects', href: withOrgPrefix(pathname, '/projects'), label: dict.nav.projects, icon: FolderOpen, countKey: 'projects' as const },
+    { base: '/pipelines', href: withOrgPrefix(pathname, '/pipelines'), label: dict.nav.pipelines, icon: GitBranch, countKey: null },
     { base: '/reports',  href: withOrgPrefix(pathname, '/reports'),  label: dict.nav.reports,  icon: FileText,   countKey: 'reports' as const },
     { base: '/rules',    href: withOrgPrefix(pathname, '/rules'),    label: dict.nav.rules,    icon: Shield,     countKey: null },
     { base: '/settings', href: withOrgPrefix(pathname, '/settings'), label: dict.nav.settings,  icon: Settings,   countKey: null },

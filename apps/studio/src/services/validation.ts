@@ -53,6 +53,56 @@ export const createRuleSchema = z.object({
   sort_order: z.number().int().default(0),
 });
 
+const pipelineStepSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  type: z.literal('shell'),
+  script: z.string().min(1),
+  env: z.record(z.string()).optional(),
+  workingDir: z.string().optional(),
+  timeoutSeconds: z.number().int().positive().optional(),
+  continueOnError: z.boolean().optional(),
+  artifacts: z.array(z.string()).optional(),
+});
+
+const pipelineJobSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  needs: z.array(z.string()).optional(),
+  steps: z.array(pipelineStepSchema).min(1),
+  timeoutSeconds: z.number().int().positive().optional(),
+  env: z.record(z.string()).optional(),
+  workingDir: z.string().optional(),
+});
+
+const pipelineStageSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  jobIds: z.array(z.string()).min(1),
+});
+
+export const pipelineConfigSchema = z.object({
+  version: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  variables: z.record(z.string()).optional(),
+  stages: z.array(pipelineStageSchema),
+  jobs: z.array(pipelineJobSchema).min(1),
+});
+
+export const createPipelineSchema = z.object({
+  projectId: projectIdSchema,
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  config: pipelineConfigSchema,
+});
+
+export const updatePipelineSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+  config: pipelineConfigSchema,
+});
+
 /**
  * Validate request payload
  */

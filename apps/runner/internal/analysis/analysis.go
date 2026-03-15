@@ -1,19 +1,26 @@
-package internal
+package analysis
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
+
+	"spec-axis/runner/internal/domain"
+	"spec-axis/runner/internal/events"
+	"spec-axis/runner/internal/integrations"
+	"spec-axis/runner/internal/store"
 )
 
 func RunAnalyzeTask(
 	ctx context.Context,
-	store *Store,
-	publisher *Publisher,
-	payload AnalyzeRequest,
+	st *store.Store,
+	publisher *events.Publisher,
+	payload domain.AnalyzeRequest,
 	timeout time.Duration,
 ) error {
 	if payload.ReportID == "" || payload.ProjectID == "" {
@@ -23,7 +30,7 @@ func RunAnalyzeTask(
 		return fmt.Errorf("missing repo or commit hashes")
 	}
 
-	report, err := store.GetReport(ctx, payload.ReportID)
+	report, err := st.GetReport(ctx, payload.ReportID)
 	if err != nil {
 		return err
 	}
@@ -31,19 +38,19 @@ func RunAnalyzeTask(
 		return fmt.Errorf("report project mismatch")
 	}
 
-	project, err := store.GetProject(ctx, payload.ProjectID)
+	project, err := st.GetProject(ctx, payload.ProjectID)
 	if err != nil {
 		return err
 	}
 
-	if err := store.UpdateReportStatus(ctx, payload.ReportID, "analyzing", nil); err != nil {
+	if err := st.UpdateReportStatus(ctx, payload.ReportID, "analyzing", nil); err != nil {
 		return err
 	}
 	if publisher != nil {
 		publisher.ReportStatus(payload.ReportID, "analyzing", nil)
 	}
 
-	vcsClient, err := ResolveVCSClient(ctx, store, project)
+	vcsClient, err := integrations.ResolveVCSClient(ctx, st, project)
 	if err != nil {
 		return err
 	}
@@ -65,13 +72,13 @@ func RunAnalyzeTask(
 
 	stats := extractDiffStats(filtered)
 
-	aiClient, err := ResolveAIClient(ctx, store, project)
+	aiClient, err := integrations.ResolveAIClient(ctx, st, project)
 	if err != nil {
 		return err
 	}
 
 	start := time.Now()
-	var result ReviewResult
+	var result domain.ReviewResult
 	if payload.UseIncremental {
 		result, err = analyzeIncremental(payload, filtered, aiClient, timeout)
 	} else {
@@ -89,7 +96,7 @@ func RunAnalyzeTask(
 	issuesJSON, _ := json.Marshal(result.Issues)
 	categoryScoresJSON, _ := json.Marshal(result.CategoryScores)
 
-	update := ReportAnalysisUpdate{
+	update := store.ReportAnalysisUpdate{
 		Status:               "done",
 		Score:                result.Score,
 		CategoryScores:       categoryScoresJSON,
@@ -110,15 +117,15 @@ func RunAnalyzeTask(
 		ModelVersion:         aiClient.Model(),
 	}
 
-	if err := store.UpdateReportAnalysis(ctx, payload.ReportID, update); err != nil {
+	if err := st.UpdateReportAnalysis(ctx, payload.ReportID, update); err != nil {
 		return err
 	}
 
-	if err := store.ReplaceReportIssues(ctx, payload.ReportID, result.Issues); err != nil {
+	if err := st.ReplaceReportIssues(ctx, payload.ReportID, result.Issues); err != nil {
 		return err
 	}
 
-	_ = store.UpdateProjectLastAnalyzedAt(ctx, payload.ProjectID)
+	_ = st.UpdateProjectLastAnalyzedAt(ctx, payload.ProjectID)
 
 	if project.WebhookURL != nil && *project.WebhookURL != "" {
 		_ = postWebhook(*project.WebhookURL, payload.ProjectID, payload.ReportID, result.Score, project.QualityThreshold)
@@ -133,21 +140,21 @@ func RunAnalyzeTask(
 }
 
 func analyzeFull(
-	payload AnalyzeRequest,
+	payload domain.AnalyzeRequest,
 	diff string,
-	client AIClient,
+	client integrations.AIClient,
 	timeout time.Duration,
-) (ReviewResult, error) {
+) (domain.ReviewResult, error) {
 	prompt := buildAnalysisPrompt(payload.Rules, diff)
 	return client.Analyze(prompt, "", timeout)
 }
 
 func analyzeIncremental(
-	payload AnalyzeRequest,
+	payload domain.AnalyzeRequest,
 	diff string,
-	client AIClient,
+	client integrations.AIClient,
 	timeout time.Duration,
-) (ReviewResult, error) {
+) (domain.ReviewResult, error) {
 	previousIssues := extractPreviousIssues(payload.PreviousReport)
 	changedFiles := extractChangedFiles(diff)
 	filtered := filterIssuesByFiles(previousIssues, changedFiles)
@@ -155,7 +162,7 @@ func analyzeIncremental(
 	return client.Analyze(prompt, "", timeout)
 }
 
-func extractPreviousIssues(raw json.RawMessage) []ReviewIssue {
+func extractPreviousIssues(raw json.RawMessage) []domain.ReviewIssue {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
@@ -167,7 +174,7 @@ func extractPreviousIssues(raw json.RawMessage) []ReviewIssue {
 	if !ok {
 		return nil
 	}
-	issues := make([]ReviewIssue, 0, len(issuesRaw))
+	issues := make([]domain.ReviewIssue, 0, len(issuesRaw))
 	for _, item := range issuesRaw {
 		if issueMap, ok := item.(map[string]any); ok {
 			issues = append(issues, parseIssue(issueMap))
@@ -176,7 +183,50 @@ func extractPreviousIssues(raw json.RawMessage) []ReviewIssue {
 	return issues
 }
 
-func filterIssuesByFiles(issues []ReviewIssue, files []string) []ReviewIssue {
+func parseIssue(raw map[string]any) domain.ReviewIssue {
+	issue := domain.ReviewIssue{}
+	if v, ok := raw["file"].(string); ok {
+		issue.File = v
+	}
+	if v, ok := raw["line"].(float64); ok {
+		line := int(v)
+		issue.Line = &line
+	}
+	if v, ok := raw["severity"].(string); ok {
+		issue.Severity = v
+	}
+	if v, ok := raw["category"].(string); ok {
+		issue.Category = v
+	}
+	if v, ok := raw["rule"].(string); ok {
+		issue.Rule = v
+	}
+	if v, ok := raw["message"].(string); ok {
+		issue.Message = v
+	}
+	if v, ok := raw["suggestion"].(string); ok {
+		issue.Suggestion = &v
+	}
+	if v, ok := raw["codeSnippet"].(string); ok {
+		issue.CodeSnippet = &v
+	}
+	if v, ok := raw["fixPatch"].(string); ok {
+		issue.FixPatch = &v
+	}
+	if v, ok := raw["priority"].(float64); ok {
+		priority := int(v)
+		issue.Priority = &priority
+	}
+	if v, ok := raw["impactScope"].(string); ok {
+		issue.ImpactScope = &v
+	}
+	if v, ok := raw["estimatedEffort"].(string); ok {
+		issue.EstimatedEffort = &v
+	}
+	return issue
+}
+
+func filterIssuesByFiles(issues []domain.ReviewIssue, files []string) []domain.ReviewIssue {
 	if len(issues) == 0 || len(files) == 0 {
 		return issues
 	}
@@ -184,7 +234,7 @@ func filterIssuesByFiles(issues []ReviewIssue, files []string) []ReviewIssue {
 	for _, file := range files {
 		allowed[file] = true
 	}
-	filtered := make([]ReviewIssue, 0, len(issues))
+	filtered := make([]domain.ReviewIssue, 0, len(issues))
 	for _, issue := range issues {
 		if allowed[issue.File] {
 			filtered = append(filtered, issue)
@@ -193,7 +243,7 @@ func filterIssuesByFiles(issues []ReviewIssue, files []string) []ReviewIssue {
 	return filtered
 }
 
-func buildAnalysisPrompt(rules []Rule, diff string) string {
+func buildAnalysisPrompt(rules []domain.Rule, diff string) string {
 	diff = truncateDiff(diff, 150000)
 	detected := detectLanguagesInDiff(diff)
 	languageInfo := ""
@@ -209,11 +259,11 @@ func buildAnalysisPrompt(rules []Rule, diff string) string {
 		}
 	}
 
-	allRules := append([]Rule{}, rules...)
+	allRules := append([]domain.Rule{}, rules...)
 	for _, lang := range detected {
 		if config, ok := languageConfigs[lang]; ok {
 			for _, rule := range config.rules {
-				allRules = append(allRules, Rule{
+				allRules = append(allRules, domain.Rule{
 					Category: "style",
 					Name:     config.name + " - " + rule,
 					Prompt:   rule,
@@ -401,7 +451,7 @@ Return ONLY valid JSON (no markdown):
 All text fields must be in English.`, languageInfo, rulesText, diff)
 }
 
-func buildIncrementalPrompt(rules []Rule, diff string, previousIssues []ReviewIssue) string {
+func buildIncrementalPrompt(rules []domain.Rule, diff string, previousIssues []domain.ReviewIssue) string {
 	diff = truncateDiff(diff, 150000)
 	rulesText := buildRulesText(rules)
 	previousJSON := "None"
@@ -443,7 +493,7 @@ Return the standard ReviewResult JSON. In the issues array, include:
 All text fields must be in English.`, rulesText, diff, previousJSON)
 }
 
-func buildRulesText(rules []Rule) string {
+func buildRulesText(rules []domain.Rule) string {
 	lines := make([]string, 0, len(rules))
 	for i, r := range rules {
 		lines = append(lines, fmt.Sprintf("%d. [%s] %s: %s", i+1, strings.ToUpper(r.Category), r.Name, r.Prompt))
@@ -458,7 +508,7 @@ func truncateDiff(diff string, max int) string {
 	return diff[:max]
 }
 
-func getCommitsDiff(client VCSClient, repo string, hashes []string) (string, error) {
+func getCommitsDiff(client integrations.VCSClient, repo string, hashes []string) (string, error) {
 	var builder strings.Builder
 	for _, sha := range hashes {
 		diff, err := client.GetCommitDiff(repo, sha)
@@ -564,7 +614,7 @@ func globToRegex(pattern string) *regexp.Regexp {
 
 var diffFilePattern = regexp.MustCompile(`^diff --git a\/(.+?) b\/.+$`)
 
-func extractDiffStats(diff string) DiffStats {
+func extractDiffStats(diff string) domain.DiffStats {
 	files := map[string]struct{}{}
 	additions := 0
 	deletions := 0
@@ -587,7 +637,7 @@ func extractDiffStats(diff string) DiffStats {
 		}
 	}
 
-	return DiffStats{
+	return domain.DiffStats{
 		TotalFiles:     len(files),
 		TotalAdditions: additions,
 		TotalDeletions: deletions,
@@ -785,6 +835,19 @@ func postWebhook(webhookURL string, projectID string, reportID string, score int
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	}
 	raw, _ := json.Marshal(payload)
-	_, _ = httpPostJSON(webhookURL, raw)
+	resp, _ := httpPostJSON(webhookURL, raw)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	return nil
+}
+
+func httpPostJSON(url string, payload []byte) (*http.Response, error) {
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 15 * time.Second}
+	return client.Do(req)
 }

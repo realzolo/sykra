@@ -26,9 +26,9 @@ const dict = await getDictionary(locale);
 
 ## Project Overview
 
-AI code review platform: Next.js 16 + React 19 + TypeScript + HeroUI v3 (beta) + Tailwind CSS v4.
-Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring.
-Backend: Go runner executes analysis jobs via Redis queue; status updates can be published via NATS.
+AI code review + CI/CD platform: Next.js 16 + React 19 + TypeScript + HeroUI v3 (beta) + Tailwind CSS v4.
+Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring, and pipeline DAG builder.
+Backend: Go runner executes analysis jobs and pipeline runs via Redis queue; status updates can be published via NATS.
 Monorepo layout: `apps/studio` (Next.js), `apps/runner` (Go runner), `packages/*` (shared contracts).
 Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 
@@ -67,6 +67,7 @@ Supabase-style multi-tenant org system (Vercel-like UI). Each user has a **perso
 | Geist Font | 1.7.x | Geist Sans/Mono via `geist` package |
 | Radix UI Primitives | ^2.1.4 | `@radix-ui/react-primitive` (Radix Select/Popper dependency) |
 | CodeMirror | 6.x | Read-only codebase editor preview |
+| React Flow (XYFlow) | ^12.7 | Pipeline DAG builder |
 | Supabase | `@supabase/ssr ^0.9` | Database + auth |
 | Octokit | `^5.0.5` | GitHub API |
 | Anthropic SDK | `^0.78` | Claude AI, supports `ANTHROPIC_BASE_URL` |
@@ -194,6 +195,8 @@ apps/
           layout.tsx
           projects/             # ProjectsClient
             [id]/               # CommitsClient + EnhancedProjectDetail + Tabs
+          pipelines/            # PipelinesClient + DAG builder
+            [id]/               # PipelineDetailClient (builder + runs)
           reports/              # ReportsClient
             [id]/               # EnhancedReportDetailClient (primary), ReportDetailClient (legacy)
           rules/                # RulesClient
@@ -201,6 +204,8 @@ apps/
           settings/integrations/
         api/
           analyze/              # POST → enqueue runner task
+          pipelines/            # CRUD + runs (proxy to runner)
+          pipeline-runs/         # Run detail + logs (proxy to runner)
           tasks/run/            # Deprecated (runner handles tasks)
           commits/ projects/ reports/ rules/ stats/ github/ stream/
         layout.tsx providers.tsx globals.css
@@ -221,6 +226,8 @@ apps/
     middleware.ts               # Org path rewrite + redirect (Next.js middleware)
   runner/
     cmd/runner/                 # Go runner entrypoint
+    internal/pipeline/          # Pipeline engine, executors, storage, API
+    migrations/                 # golang-migrate SQL migrations
 packages/
   contracts/                    # Shared API/contracts (future)
 ```
@@ -245,6 +252,12 @@ DATABASE_URL=               # Postgres connection string
 REDIS_URL=                  # Redis queue
 NATS_URL=                   # Optional
 ENCRYPTION_KEY=             # Same key used by studio for decrypting secrets
+PIPELINE_QUEUE=             # Pipeline queue name
+PIPELINE_CONCURRENCY=       # Max concurrent pipeline jobs
+PIPELINE_RUN_TIMEOUT=       # Overall run timeout (e.g. 2h)
+RUNNER_DATA_DIR=            # Local logs/artifacts root
+PIPELINE_LOG_RETENTION_DAYS=
+PIPELINE_ARTIFACT_RETENTION_DAYS=
 ```
 Environment files live under `apps/studio` (e.g. `apps/studio/.env`).
 
@@ -262,6 +275,7 @@ pnpm build   # Console production build (TypeScript check)
 pnpm start   # Console production server
 pnpm lint    # Console ESLint
 cd apps/runner && go run ./cmd/runner   # Runner service
+cd apps/runner && migrate -path ./migrations -database "$DATABASE_URL" up   # DB migrations (golang-migrate)
 ```
 
 ## Dependency Build Scripts
@@ -275,6 +289,18 @@ If new install warnings appear, approve the dependency and update the allowlist.
 1. `POST /api/analyze` → returns `{ reportId }` immediately, enqueues runner task
 2. Runner: fetch diff by commit SHA → AI analysis → sync `report_issues` → update status
 3. Frontend: SSE on `/api/reports/[id]/stream` (NATS-backed if configured), fallback to polling every 2.5s
+
+## Pipeline Engine (CI/CD)
+
+- **Studio** ships a drag-and-drop DAG builder under `/pipelines` with stage/job/step configuration.
+- **Pipeline config** is versioned in `pipeline_versions` and linked from `pipelines.current_version_id`.
+- **Execution model**: jobs form a DAG via `needs`; steps run sequentially inside a job.
+- **Runner** executes **shell** steps only (for now) with per-step timeouts, retries, and status events.
+- **Events** are appended to `run_events` for UI polling and audit.
+- **Logs** and **artifacts** are stored locally under `RUNNER_DATA_DIR`:
+  - `logs/{run_id}/{job_key}/{step_key}.log`
+  - `artifacts/{run_id}/{job_key}/{step_key}/...`
+- **Migrations** live in `apps/runner/migrations` and are applied with `golang-migrate`.
 
 **GitHub webhook:** `/api/webhooks/github` supports `?project_id=...`. If a repo matches multiple projects, the endpoint returns 409 and requires `project_id`.
 
