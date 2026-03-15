@@ -199,7 +199,7 @@ export default function ReportsClient({ initialReports, dict }: { initialReports
           </div>
         ) : (
           <div className="border border-border rounded-xl overflow-hidden bg-card">
-            <div className="grid grid-cols-[64px_1fr_160px_auto] items-center px-4 py-2 border-b border-border bg-muted/40 text-[11px] font-medium text-muted-foreground gap-4">
+            <div className="grid grid-cols-[64px_1fr_160px_auto] items-center px-4 py-2 border-b border-border bg-muted/60 text-[11px] font-medium text-muted-foreground gap-4 sticky top-0 z-10 backdrop-blur">
               <div>{dict.reports.score}</div>
               <div>{dict.reports.projectAndTime}</div>
               <div>{dict.reports.categoryScores}</div>
@@ -214,7 +214,7 @@ export default function ReportsClient({ initialReports, dict }: { initialReports
               return (
                 <div
                   key={report.id}
-                  className="grid grid-cols-[64px_1fr_160px_auto] items-center px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer gap-4"
+                  className="grid grid-cols-[64px_1fr_160px_auto] items-center px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/30 transition-soft cursor-pointer gap-4"
                   onClick={() => router.push(`/reports/${report.id}`)}
                 >
                   <div className="flex flex-col items-start">

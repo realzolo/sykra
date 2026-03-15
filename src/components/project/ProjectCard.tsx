@@ -35,7 +35,7 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
   return (
     <TooltipProvider>
       {view === 'list' ? (
-        <div className="group flex items-center gap-4 px-4 py-3.5 hover:bg-muted/30 transition-colors">
+        <div className="group flex items-center gap-4 px-4 py-2.5 hover:bg-muted/30 transition-soft">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted shrink-0">
             <Github className="h-4 w-4 text-muted-foreground" />
           </div>
@@ -59,7 +59,7 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
             </div>
           )}
 
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-soft shrink-0">
             {confirmDelete ? (
               <>
                 <Button size="sm" variant="destructive" className="h-7 px-2.5 text-xs" onClick={() => onDelete(project.id)}>{dict.projects.confirmDelete}</Button>
@@ -94,7 +94,7 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
           <EditProjectModal project={project} open={showEdit} onClose={() => setShowEdit(false)} onUpdated={handleUpdated} dict={dict} />
         </div>
       ) : (
-        <div className="group rounded-xl border border-border bg-card p-4 hover:border-foreground/20 transition-colors">
+        <div className="group rounded-xl border border-border bg-card p-4 hover:border-foreground/20 transition-soft">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
@@ -122,7 +122,7 @@ export default function ProjectCard({ project: initialProject, onDelete, onUpdat
             ) : (
               <span className="text-xs text-muted-foreground">{dict.projects.ruleSetAttached}</span>
             )}
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-soft">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button size="icon" variant="ghost" onClick={() => setShowEdit(true)}>

@@ -51,6 +51,14 @@
     --radius-3: 14px;
     --radius-4: 20px;
 
+    --motion-fast: 140ms;
+    --motion-base: 200ms;
+    --motion-slow: 260ms;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+    --elevation-1: 0 1px 2px hsl(0 0% 0% / 0.16), 0 0 0 1px hsl(var(--border) / 0.6);
+    --elevation-2: 0 10px 28px hsl(0 0% 0% / 0.28), 0 0 0 1px hsl(var(--border) / 0.5);
+
     --auth-bg-1: var(--ds-accent-7);
     --auth-bg-2: 0 0% 100%;
     --auth-bg-3: var(--ds-background-1);
@@ -107,6 +115,9 @@
     --auth-surface: var(--ds-background-1);
     --auth-border: var(--ds-border-1);
     --auth-shadow: 0 12px 40px hsl(220 20% 20% / 0.12);
+
+    --elevation-1: 0 1px 2px hsl(220 20% 20% / 0.08), 0 0 0 1px hsl(var(--border) / 0.7);
+    --elevation-2: 0 12px 30px hsl(220 20% 20% / 0.16), 0 0 0 1px hsl(var(--border) / 0.6);
   }
 
   * {
@@ -165,6 +176,18 @@
   .bg-sidebar-muted { background-color: hsl(var(--sidebar-muted)); }
   .border-sidebar { border-color: hsl(var(--sidebar-border)); }
 
+  .transition-soft {
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      border-color var(--motion-fast) var(--ease-out),
+      color var(--motion-fast) var(--ease-out),
+      box-shadow var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out);
+  }
+
+  .shadow-elevation-1 { box-shadow: var(--elevation-1); }
+  .shadow-elevation-2 { box-shadow: var(--elevation-2); }
+
   .text-heading-72 { font-size: 72px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em; color: hsl(var(--foreground)); }
   .text-heading-64 { font-size: 64px; line-height: 1.06; font-weight: 600; letter-spacing: -0.03em; color: hsl(var(--foreground)); }
   .text-heading-56 { font-size: 56px; line-height: 1.08; font-weight: 600; letter-spacing: -0.025em; color: hsl(var(--foreground)); }
@@ -201,6 +224,30 @@
   [class*=" text-label-"] strong {
     color: hsl(var(--foreground));
     font-weight: 600;
+  }
+}
+
+@keyframes page-fade-slide {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: page-fade-slide var(--motion-base) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter {
+    animation: none;
+  }
+  .transition-soft {
+    transition: none;
   }
 }
 

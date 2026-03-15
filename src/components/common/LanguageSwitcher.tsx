@@ -13,9 +13,10 @@ import { useRouter } from 'next/navigation';
 
 interface LanguageSwitcherProps {
   currentLocale: Locale;
+  compact?: boolean;
 }
 
-export function LanguageSwitcher({ currentLocale }: LanguageSwitcherProps) {
+export function LanguageSwitcher({ currentLocale, compact = false }: LanguageSwitcherProps) {
   const router = useRouter();
 
   const handleLocaleChange = async (key: string) => {
@@ -37,11 +38,18 @@ export function LanguageSwitcher({ currentLocale }: LanguageSwitcherProps) {
 
   return (
     <Select value={currentLocale} onValueChange={(value) => handleLocaleChange(value)}>
-      <SelectTrigger className="h-8 w-40 text-xs">
-        <div className="flex items-center gap-1.5">
-          <Languages className="size-3.5" />
-          <SelectValue />
-        </div>
+      <SelectTrigger className={compact ? 'h-8 w-9 px-0 justify-center' : 'h-8 w-40 text-xs'}>
+        {compact ? (
+          <>
+            <Languages className="size-3.5" />
+            <span className="sr-only">{localeNames[currentLocale]}</span>
+          </>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <Languages className="size-3.5" />
+            <SelectValue />
+          </div>
+        )}
       </SelectTrigger>
       <SelectContent>
         {items.map((item) => (

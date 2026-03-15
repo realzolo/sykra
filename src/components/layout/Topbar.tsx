@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { ChevronDown, LayoutGrid, List as ListIcon, Plus, Search } from 'lucide-react';
+import { Command, LayoutGrid, List as ListIcon, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -46,6 +46,13 @@ export default function Topbar({ dict }: { dict: Dictionary }) {
     isSettings ? dict.settings.title :
     dict.dashboard.overview;
 
+  const eyebrow =
+    isProjects ? dict.nav.projects :
+    isReports ? dict.nav.reports :
+    isRules ? dict.nav.rules :
+    isSettings ? dict.nav.settings :
+    dict.dashboard.overview;
+
   const q = searchParams.get('q') ?? '';
   const view = searchParams.get('view') === 'list' ? 'list' : 'grid';
   const [search, setSearch] = useState(q);
@@ -55,23 +62,25 @@ export default function Topbar({ dict }: { dict: Dictionary }) {
   }, [q]);
 
   return (
-    <div className="border-b border-border bg-background shrink-0">
-      <div className="px-6 h-14 flex items-center gap-3">
-        {isProjects ? (
-          <button className="flex items-center gap-2 text-sm font-medium text-foreground">
-            {title}
-            <ChevronDown className="size-4 text-muted-foreground" />
-          </button>
-        ) : (
+    <div className="border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0">
+      <div className="px-6 h-12 flex items-center gap-4">
+        <div className="flex flex-col">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{eyebrow}</span>
           <div className="text-sm font-medium text-foreground">{title}</div>
-        )}
-        <div className="ml-auto text-xs text-muted-foreground">
-          {isProjects ? dict.projects.overview : ''}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="h-8 px-2 gap-2 text-xs" aria-label="Open command palette">
+            <Command className="size-3.5" />
+            <span className="text-muted-foreground">⌘K</span>
+          </Button>
+          {isProjects && (
+            <span className="text-xs text-muted-foreground">{dict.projects.overview}</span>
+          )}
         </div>
       </div>
 
       {isProjects && (
-        <div className="px-6 pb-4 flex items-center gap-3">
+        <div className="px-6 pb-3 flex items-center gap-3">
           <div className="relative flex-1 max-w-[520px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input
@@ -86,11 +95,11 @@ export default function Topbar({ dict }: { dict: Dictionary }) {
             />
           </div>
 
-          <div className="flex items-center gap-1 rounded-md border border-border bg-muted/40 p-1">
+          <div className="flex items-center gap-1 rounded-md border border-border bg-muted/40 p-1 transition-soft">
             <button
               onClick={() => updateQuery({ view: 'grid' })}
               className={[
-                'h-7 w-7 rounded-md flex items-center justify-center',
+                'h-7 w-7 rounded-md flex items-center justify-center transition-soft',
                 view === 'grid' ? 'bg-background text-foreground' : 'text-muted-foreground hover:text-foreground',
               ].join(' ')}
             >
@@ -99,7 +108,7 @@ export default function Topbar({ dict }: { dict: Dictionary }) {
             <button
               onClick={() => updateQuery({ view: 'list' })}
               className={[
-                'h-7 w-7 rounded-md flex items-center justify-center',
+                'h-7 w-7 rounded-md flex items-center justify-center transition-soft',
                 view === 'list' ? 'bg-background text-foreground' : 'text-muted-foreground hover:text-foreground',
               ].join(' ')}
             >
@@ -109,7 +118,7 @@ export default function Topbar({ dict }: { dict: Dictionary }) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button className="gap-1.5">
+              <Button className="gap-1.5 h-8">
                 <Plus className="h-4 w-4" />
                 {dict.projects.addProject}
               </Button>

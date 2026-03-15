@@ -114,7 +114,7 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
           </div>
         ) : (
           <div className="border border-border rounded-lg overflow-hidden bg-card">
-            <div className="flex items-center px-4 py-2 border-b border-border bg-muted/40 text-[11px] font-medium text-muted-foreground gap-4">
+            <div className="flex items-center px-4 py-2 border-b border-border bg-muted/60 text-[11px] font-medium text-muted-foreground gap-4">
               <div className="w-8 shrink-0" />
               <div className="flex-1">{dict.common.name}</div>
               <div className="w-24 text-right">{dict.rules.rulesCount.replace('{{count}}', '')}</div>
@@ -126,7 +126,7 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
               return (
                 <div
                   key={rs.id}
-                  className="flex items-center gap-4 px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                  className="flex items-center gap-4 px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/30 transition-soft cursor-pointer"
                   onClick={() => router.push(`/rules/${rs.id}`)}
                 >
                   <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted shrink-0">
