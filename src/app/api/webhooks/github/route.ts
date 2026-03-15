@@ -56,6 +56,9 @@ export async function POST(request: NextRequest) {
   if (!project) {
     return NextResponse.json({ ok: true });
   }
+  if (!project.org_id) {
+    return NextResponse.json({ error: 'Project is not associated with an organization' }, { status: 400 });
+  }
 
   if (!project.ruleset_id) {
     return NextResponse.json({ ok: true });
@@ -77,7 +80,7 @@ export async function POST(request: NextRequest) {
     const commits = await buildReportCommits(project.repo, [headSha], project.id);
     const report = await createReport({
       project_id: project.id,
-      org_id: project.org_id ?? null,
+      org_id: project.org_id,
       ruleset_snapshot: rules,
       commits,
     });

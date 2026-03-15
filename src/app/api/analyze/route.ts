@@ -42,6 +42,9 @@ export async function POST(request: NextRequest) {
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
+    if (!project.org_id) {
+      return NextResponse.json({ error: 'Project is not associated with an organization' }, { status: 400 });
+    }
 
     if (!project.ruleset_id) {
       return NextResponse.json({ error: 'Project has no rule set configured' }, { status: 400 });
@@ -80,7 +83,7 @@ export async function POST(request: NextRequest) {
     const report = await withRetry(() =>
       createReport({
         project_id: projectId,
-        org_id: project.org_id ?? null,
+        org_id: project.org_id,
         ruleset_snapshot: rules,
         commits: selectedCommits,
       })

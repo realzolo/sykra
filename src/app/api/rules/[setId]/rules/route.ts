@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   if (!ruleSet.is_global) {
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
-    if (ruleSet.org_id && ruleSet.org_id !== orgId) {
+    if (!ruleSet.org_id || ruleSet.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const role = await getOrgMemberRole(orgId, user.id);
@@ -81,7 +81,7 @@ export async function DELETE(request: NextRequest) {
   }
   if (!ruleSet.is_global) {
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
-    if (ruleSet.org_id && ruleSet.org_id !== orgId) {
+    if (!ruleSet.org_id || ruleSet.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const role = await getOrgMemberRole(orgId, user.id);

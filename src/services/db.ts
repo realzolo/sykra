@@ -3,11 +3,15 @@ import { createAdminClient } from '@/lib/supabase/server';
 const db = () => createAdminClient();
 
 // ── Projects ──────────────────────────────────────────────
-export async function getProjects(orgId?: string) {
-  let query = db().from('projects').select('*').order('created_at', { ascending: false });
-  if (orgId) {
-    query = query.eq('org_id', orgId);
+export async function getProjects(orgId: string) {
+  if (!orgId) {
+    throw new Error('orgId is required');
   }
+  const query = db()
+    .from('projects')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false });
   const { data, error } = await query;
   if (error) throw error;
   return data;
@@ -19,8 +23,12 @@ export async function getProjectById(id: string) {
   return data;
 }
 
-export async function getProjectByRepo(repo: string) {
-  const { data, error } = await db().from('projects').select('*').eq('repo', repo).single();
+export async function getProjectByRepo(repo: string, orgId?: string) {
+  let query = db().from('projects').select('*').eq('repo', repo);
+  if (orgId) {
+    query = query.eq('org_id', orgId);
+  }
+  const { data, error } = await query.single();
   if (error) throw error;
   return data;
 }
@@ -32,7 +40,7 @@ export async function createProject(payload: {
   default_branch?: string;
   ruleset_id?: string;
   user_id: string;
-  org_id?: string;
+  org_id: string;
   vcs_integration_id: string;
   ai_integration_id: string;
 }) {
@@ -57,16 +65,15 @@ export async function deleteProject(id: string) {
 }
 
 // ── Rule Sets ─────────────────────────────────────────────
-export async function getRuleSets(orgId?: string) {
-  let query = db()
+export async function getRuleSets(orgId: string) {
+  if (!orgId) {
+    throw new Error('orgId is required');
+  }
+  const query = db()
     .from('rule_sets')
     .select('*, rules(*)')
+    .or(`is_global.eq.true,org_id.eq.${orgId}`)
     .order('created_at', { ascending: false });
-  if (orgId) {
-    query = query.or(`is_global.eq.true,org_id.eq.${orgId}`);
-  } else {
-    query = query.eq('is_global', true);
-  }
   const { data, error } = await query;
   if (error) throw error;
   return data;
@@ -82,7 +89,7 @@ export async function getRuleSetById(id: string) {
   return data;
 }
 
-export async function createRuleSet(payload: { name: string; description?: string; org_id?: string }) {
+export async function createRuleSet(payload: { name: string; description?: string; org_id: string }) {
   const { data, error } = await db().from('rule_sets').insert(payload).select().single();
   if (error) throw error;
   return data;
@@ -123,7 +130,7 @@ export async function deleteRule(id: string) {
 // ── Reports ───────────────────────────────────────────────
 export async function createReport(payload: {
   project_id: string;
-  org_id?: string | null;
+  org_id: string;
   ruleset_snapshot: object[];
   commits: object[];
 }) {
@@ -146,15 +153,16 @@ export async function deleteReport(id: string) {
   if (error) throw error;
 }
 
-export async function getReports(orgId?: string) {
-  let query = db()
+export async function getReports(orgId: string) {
+  if (!orgId) {
+    throw new Error('orgId is required');
+  }
+  const query = db()
     .from('reports')
     .select('id, status, score, category_scores, commits, created_at, projects(name, repo)')
     .order('created_at', { ascending: false })
+    .eq('org_id', orgId)
     .limit(50);
-  if (orgId) {
-    query = query.eq('org_id', orgId);
-  }
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];

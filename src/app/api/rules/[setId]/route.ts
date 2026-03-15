@@ -22,7 +22,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   if (!data.is_global) {
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
-    if (data.org_id && data.org_id !== orgId) {
+    if (!data.org_id || data.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
   }

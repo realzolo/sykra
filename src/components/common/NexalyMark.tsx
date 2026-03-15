@@ -5,7 +5,7 @@ type NexalyMarkProps = {
   title?: string;
 };
 
-export default function NexalyMark({ className, title = 'Nexaly' }: NexalyMarkProps) {
+export default function NexalyMark({ className, title = 'Axon' }: NexalyMarkProps) {
   return (
     <svg
       viewBox="0 0 64 64"

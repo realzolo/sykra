@@ -31,7 +31,7 @@ export default async function Home() {
                 <NexalyMark className="h-6 w-6" />
               </div>
               <div className="flex flex-col">
-                <span className="text-label-14">Nexaly</span>
+                <span className="text-label-14">Axon</span>
               </div>
             </Link>
 
@@ -147,7 +147,7 @@ export default async function Home() {
         </main>
 
         <footer className="mx-auto w-full max-w-6xl px-6 pb-12 text-copy-12">
-          © {year} Nexaly. All rights reserved.
+          © {year} Axon. All rights reserved.
         </footer>
       </div>
     </div>

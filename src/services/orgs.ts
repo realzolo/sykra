@@ -155,13 +155,13 @@ export async function requireProjectAccess(projectId: string, userId: string) {
     throw new Error('Project not found');
   }
 
-  if (data.org_id) {
-    await requireOrgAccess(data.org_id, userId);
-  } else if (data.user_id && data.user_id !== userId) {
+  if (!data.org_id) {
     throw new Error('Forbidden');
   }
 
-  return data as Record<string, any>;
+  await requireOrgAccess(data.org_id, userId);
+
+  return data as Record<string, any> & { org_id: string };
 }
 
 export async function requireReportAccess(reportId: string, userId: string) {
@@ -176,11 +176,11 @@ export async function requireReportAccess(reportId: string, userId: string) {
     throw new Error('Report not found');
   }
 
-  if (data.org_id) {
-    await requireOrgAccess(data.org_id, userId);
-  } else if (data.user_id && data.user_id !== userId) {
+  if (!data.org_id) {
     throw new Error('Forbidden');
   }
 
-  return data as Record<string, any>;
+  await requireOrgAccess(data.org_id, userId);
+
+  return data as Record<string, any> & { org_id: string };
 }

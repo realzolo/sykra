@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
+import { getActiveOrgId } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,11 +17,13 @@ export async function GET(request: NextRequest) {
   if (!user) return unauthorized();
 
   const supabase = await createClient();
+  const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
 
   // Get all reports
   const { data: reports } = await supabase
     .from('reports')
     .select('*')
+    .eq('org_id', orgId)
     .order('created_at', { ascending: false });
 
   if (!reports || reports.length === 0) {

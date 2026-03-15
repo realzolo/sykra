@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export const metadata = {
-  title: 'Terms of Service | Nexaly',
+  title: 'Terms of Service | Axon',
 };
 
 const lastUpdated = 'March 15, 2026';
@@ -22,7 +22,7 @@ export default function TermsPage() {
             <CardHeader className="space-y-2">
               <CardTitle className="text-heading-20">Terms of Service</CardTitle>
               <CardDescription className="text-copy-14 text-muted-foreground">
-                These Terms of Service ("Terms") govern your access to and use of Nexaly and its related services (the
+                These Terms of Service ("Terms") govern your access to and use of Axon and its related services (the
                 "Service").
               </CardDescription>
             </CardHeader>
@@ -60,7 +60,7 @@ export default function TermsPage() {
                 <h2 className="text-label-16">4. Your Content and License</h2>
                 <p className="text-copy-14 text-muted-foreground">
                   You retain ownership of the code, data, and materials you submit or connect to the Service. You grant
-                  Nexaly a limited license to host, process, analyze, and display your content solely to provide and
+                  Axon a limited license to host, process, analyze, and display your content solely to provide and
                   improve the Service.
                 </p>
               </section>
@@ -69,7 +69,7 @@ export default function TermsPage() {
                 <h2 className="text-label-16">5. Third-Party Services</h2>
                 <p className="text-copy-14 text-muted-foreground">
                   The Service may integrate with third-party services such as GitHub, GitLab, or identity providers.
-                  Your use of those services is governed by their terms and policies, and Nexaly is not responsible for
+                  Your use of those services is governed by their terms and policies, and Axon is not responsible for
                   third-party services.
                 </p>
               </section>
@@ -93,7 +93,7 @@ export default function TermsPage() {
               <section className="space-y-2">
                 <h2 className="text-label-16">8. Disclaimers</h2>
                 <p className="text-copy-14 text-muted-foreground">
-                  The Service is provided "as is" and "as available." To the maximum extent permitted by law, Nexaly
+                  The Service is provided "as is" and "as available." To the maximum extent permitted by law, Axon
                   disclaims all warranties, express or implied, including warranties of merchantability, fitness for a
                   particular purpose, and non-infringement.
                 </p>
@@ -102,7 +102,7 @@ export default function TermsPage() {
               <section className="space-y-2">
                 <h2 className="text-label-16">9. Limitation of Liability</h2>
                 <p className="text-copy-14 text-muted-foreground">
-                  To the maximum extent permitted by law, Nexaly will not be liable for any indirect, incidental,
+                  To the maximum extent permitted by law, Axon will not be liable for any indirect, incidental,
                   special, consequential, or punitive damages, or any loss of profits, data, or goodwill, arising from
                   or related to your use of the Service.
                 </p>
@@ -111,7 +111,7 @@ export default function TermsPage() {
               <section className="space-y-2">
                 <h2 className="text-label-16">10. Indemnification</h2>
                 <p className="text-copy-14 text-muted-foreground">
-                  You agree to defend, indemnify, and hold harmless Nexaly from and against claims, liabilities,
+                  You agree to defend, indemnify, and hold harmless Axon from and against claims, liabilities,
                   damages, losses, and expenses arising out of your use of the Service or violation of these Terms.
                 </p>
               </section>
@@ -119,7 +119,7 @@ export default function TermsPage() {
               <section className="space-y-2">
                 <h2 className="text-label-16">11. Governing Law</h2>
                 <p className="text-copy-14 text-muted-foreground">
-                  These Terms are governed by the laws of the jurisdiction where Nexaly is established, without regard
+                  These Terms are governed by the laws of the jurisdiction where Axon is established, without regard
                   to conflict of laws principles.
                 </p>
               </section>

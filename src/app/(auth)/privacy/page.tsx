@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export const metadata = {
-  title: 'Privacy Policy | Nexaly',
+  title: 'Privacy Policy | Axon',
 };
 
 const lastUpdated = 'March 15, 2026';
@@ -22,7 +22,7 @@ export default function PrivacyPage() {
             <CardHeader className="space-y-2">
               <CardTitle className="text-heading-20">Privacy Policy</CardTitle>
               <CardDescription className="text-copy-14 text-muted-foreground">
-                This Privacy Policy explains how Nexaly collects, uses, and shares information when you use the
+                This Privacy Policy explains how Axon collects, uses, and shares information when you use the
                 Service.
               </CardDescription>
             </CardHeader>
@@ -57,7 +57,7 @@ export default function PrivacyPage() {
                     With third-party AI providers you configure, when required to process code analysis requests.
                   </li>
                   <li>With third-party integrations you connect, such as GitHub or GitLab.</li>
-                  <li>To comply with law or protect the rights, safety, and security of Nexaly and users.</li>
+                  <li>To comply with law or protect the rights, safety, and security of Axon and users.</li>
                 </ul>
               </section>
 
