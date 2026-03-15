@@ -122,18 +122,18 @@ export default function ProjectsClient({ initialProjects, dict }: { initialProje
               <p className="text-sm text-muted-foreground">{dict.projects.noMatchingProjects.replace('{{search}}', search)}</p>
             </div>
           ) : (
-            <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
-              <div className="space-y-4">
-                <div className="rounded-xl border border-border bg-card p-4">
-                  <div className="text-xs text-muted-foreground mb-2">{dict.projects.usage}</div>
+            <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
+              <div className="space-y-6">
+                <div className="rounded-xl border border-border bg-card p-4 shadow-elevation-1">
+                  <div className="text-[12px] text-muted-foreground uppercase tracking-wide mb-2">{dict.projects.usage}</div>
                   <DashboardStats dict={dict} />
                 </div>
-                <div className="rounded-xl border border-border bg-card p-4">
-                  <div className="text-xs text-muted-foreground mb-2">{dict.projects.alerts}</div>
+                <div className="rounded-xl border border-border bg-card p-4 shadow-elevation-1">
+                  <div className="text-[12px] text-muted-foreground uppercase tracking-wide mb-2">{dict.projects.alerts}</div>
                   <div className="text-sm text-muted-foreground">
                     {dict.projects.alertsDescription}
                   </div>
-                  <Button variant="outline" className="mt-3 h-8 text-xs">
+                  <Button variant="outline" className="mt-3 h-8 text-sm">
                     {dict.projects.upgradePlan}
                   </Button>
                 </div>
@@ -141,8 +141,8 @@ export default function ProjectsClient({ initialProjects, dict }: { initialProje
 
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <div className="text-sm font-semibold">{dict.projects.title}</div>
-                  <div className="text-xs text-muted-foreground">{t(dict.projects.projectsCount, { count: filtered.length })}</div>
+                  <div className="text-sm font-medium">{dict.projects.title}</div>
+                  <div className="text-sm text-muted-foreground">{t(dict.projects.projectsCount, { count: filtered.length })}</div>
                 </div>
                 {view === 'grid' ? (
                   <div className="grid gap-4 md:grid-cols-2">

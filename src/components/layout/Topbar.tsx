@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Command, LayoutGrid, List as ListIcon, Plus, Search } from 'lucide-react';
+import { ChevronDown, LayoutGrid, List as ListIcon, MoreHorizontal, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -46,12 +46,6 @@ export default function Topbar({ dict }: { dict: Dictionary }) {
     isSettings ? dict.settings.title :
     dict.dashboard.overview;
 
-  const eyebrow =
-    isProjects ? dict.nav.projects :
-    isReports ? dict.nav.reports :
-    isRules ? dict.nav.rules :
-    isSettings ? dict.nav.settings :
-    dict.dashboard.overview;
 
   const q = searchParams.get('q') ?? '';
   const view = searchParams.get('view') === 'list' ? 'list' : 'grid';
@@ -64,24 +58,27 @@ export default function Topbar({ dict }: { dict: Dictionary }) {
   return (
     <div className="border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0">
       <div className="px-6 h-12 flex items-center gap-4">
-        <div className="flex flex-col">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{eyebrow}</span>
+        {isProjects ? (
+          <button className="flex items-center gap-2 text-sm font-medium text-foreground transition-soft hover:text-foreground/80">
+            {dict.projects.allProjects}
+            <ChevronDown className="size-3.5 text-muted-foreground" />
+          </button>
+        ) : (
           <div className="text-sm font-medium text-foreground">{title}</div>
+        )}
+
+        <div className="mx-auto text-sm text-muted-foreground">
+          {isProjects ? dict.projects.overview : ''}
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="h-8 px-2 gap-2 text-xs" aria-label="Open command palette">
-            <Command className="size-3.5" />
-            <span className="text-muted-foreground">⌘K</span>
-          </Button>
-          {isProjects && (
-            <span className="text-xs text-muted-foreground">{dict.projects.overview}</span>
-          )}
-        </div>
+
+        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Open page menu">
+          <MoreHorizontal className="size-4 text-muted-foreground" />
+        </Button>
       </div>
 
       {isProjects && (
         <div className="px-6 pb-3 flex items-center gap-3">
-          <div className="relative flex-1 max-w-[520px]">
+          <div className="relative flex-1 max-w-[600px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input
               placeholder={dict.projects.searchProjects}
@@ -91,7 +88,7 @@ export default function Topbar({ dict }: { dict: Dictionary }) {
                 setSearch(value);
                 updateQuery({ q: value || null });
               }}
-              className="pl-9 h-8 bg-muted/40"
+              className="pl-9 h-8 bg-muted/40 text-sm"
             />
           </div>
 
@@ -118,7 +115,7 @@ export default function Topbar({ dict }: { dict: Dictionary }) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button className="gap-1.5 h-8">
+              <Button className="gap-1.5 h-8 text-sm">
                 <Plus className="h-4 w-4" />
                 {dict.projects.addProject}
               </Button>

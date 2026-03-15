@@ -147,10 +147,10 @@ export default function ReportsClient({ initialReports, dict }: { initialReports
       <div className="max-w-[1200px] mx-auto w-full px-6 py-6 space-y-4">
         <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-lg font-semibold">{dict.reports.title}</h1>
+            <h1 className="text-base font-semibold">{dict.reports.title}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">{dict.reports.description}</p>
           </div>
-          <span className="text-xs text-muted-foreground">{filtered.length} {dict.reports.issues}</span>
+          <span className="text-sm text-muted-foreground">{filtered.length} {dict.reports.issues}</span>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -177,7 +177,7 @@ export default function ReportsClient({ initialReports, dict }: { initialReports
             </Select>
           )}
           {(statusFilter !== 'all' || projectFilter !== 'all') && (
-            <Button variant="ghost" size="sm" onClick={() => { setStatusFilter('all'); setProjectFilter('all'); }}>
+            <Button variant="ghost" size="sm" onClick={() => { setStatusFilter('all'); setProjectFilter('all'); }} className="text-sm">
               {dict.reports.clearFilters}
             </Button>
           )}
@@ -199,7 +199,7 @@ export default function ReportsClient({ initialReports, dict }: { initialReports
           </div>
         ) : (
           <div className="border border-border rounded-xl overflow-hidden bg-card">
-            <div className="grid grid-cols-[64px_1fr_160px_auto] items-center px-4 py-2 border-b border-border bg-muted/60 text-[11px] font-medium text-muted-foreground gap-4 sticky top-0 z-10 backdrop-blur">
+            <div className="grid grid-cols-[64px_1fr_160px_auto] items-center px-4 py-2 border-b border-border bg-muted/60 text-xs font-medium text-muted-foreground gap-4 sticky top-0 z-10 backdrop-blur">
               <div>{dict.reports.score}</div>
               <div>{dict.reports.projectAndTime}</div>
               <div>{dict.reports.categoryScores}</div>
@@ -218,7 +218,7 @@ export default function ReportsClient({ initialReports, dict }: { initialReports
                   onClick={() => router.push(`/reports/${report.id}`)}
                 >
                   <div className="flex flex-col items-start">
-                    <span className={['text-lg font-semibold leading-none', report.score != null ? scoreColor(report.score) : 'text-muted-foreground'].join(' ')}>
+                    <span className={['text-base font-semibold leading-none', report.score != null ? scoreColor(report.score) : 'text-muted-foreground'].join(' ')}>
                       {report.score ?? '—'}
                     </span>
                     {report.score != null && <span className="text-[10px] text-muted-foreground mt-0.5">/ 100</span>}

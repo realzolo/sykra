@@ -188,6 +188,23 @@
   .shadow-elevation-1 { box-shadow: var(--elevation-1); }
   .shadow-elevation-2 { box-shadow: var(--elevation-2); }
 
+  .keycap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 6px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--background));
+    color: hsl(var(--muted-foreground));
+    font-size: 10px;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
   .text-heading-72 { font-size: 72px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em; color: hsl(var(--foreground)); }
   .text-heading-64 { font-size: 64px; line-height: 1.06; font-weight: 600; letter-spacing: -0.03em; color: hsl(var(--foreground)); }
   .text-heading-56 { font-size: 56px; line-height: 1.08; font-weight: 600; letter-spacing: -0.025em; color: hsl(var(--foreground)); }

@@ -144,6 +144,9 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
   }, [dragging]);
 
   const activeOrg = orgs.find((org) => org.id === activeOrgId) ?? orgs[0];
+  const orgLabel = activeOrg?.name ?? dict.nav.workspaceDefault;
+  const orgInitial = orgLabel.slice(0, 1).toUpperCase();
+  const orgSubLabel = activeOrg?.is_personal ? dict.nav.workspaceDefault : (activeOrg?.slug ?? dict.nav.planDefault);
 
   async function setActiveOrg(orgId: string) {
     if (orgId === activeOrgId) return;
@@ -205,22 +208,29 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
         {compact ? (
           orgMenu(
             <Button variant="ghost" size="icon" className="h-8 w-8">
-              <Code2 className="size-4" />
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[12px] font-semibold text-foreground">
+                {orgInitial}
+              </span>
             </Button>
           )
         ) : (
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="w-7 h-7 rounded-md bg-foreground/10 flex items-center justify-center shrink-0">
-              <Code2 className="text-foreground size-4" />
+            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0 text-[12px] font-semibold">
+              {orgInitial}
             </div>
             {orgMenu(
               <button className="flex items-center gap-2 text-left w-full transition-soft hover:text-foreground">
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-medium leading-none truncate">
-                    {activeOrg?.name ?? dict.nav.workspaceDefault}
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-medium leading-none truncate">
+                      {orgLabel}
+                    </div>
+                    <Badge variant="muted" size="sm" className="text-[12px] px-1.5">
+                      {dict.nav.planDefault}
+                    </Badge>
                   </div>
-                  <div className="text-[11px] text-muted-foreground mt-1 truncate">
-                    {activeOrg?.is_personal ? 'Personal' : activeOrg?.slug ?? dict.nav.planDefault}
+                  <div className="text-[12px] text-muted-foreground mt-1 truncate">
+                    {orgSubLabel}
                   </div>
                 </div>
                 <ChevronDown className="size-4 text-muted-foreground shrink-0" />
@@ -249,8 +259,9 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <Input
               placeholder={dict.nav.searchPlaceholder}
-              className="h-8 pl-8 bg-muted/40 border-border text-xs"
+              className="h-8 pl-8 pr-12 bg-muted/40 border-border text-sm"
             />
+            <span className="keycap absolute right-2 top-1/2 -translate-y-1/2">F</span>
           </div>
         )}
       </div>
@@ -265,7 +276,7 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
               key={item.href}
               href={item.href}
               className={[
-                'group relative flex items-center gap-2.5 h-8 px-2.5 rounded-md text-[13px] w-full transition-soft',
+                'group relative flex items-center gap-2.5 h-8 px-2.5 rounded-md text-sm w-full transition-soft',
                 compact ? 'justify-center' : '',
                 active
                   ? 'bg-sidebar-muted text-foreground shadow-elevation-1'
@@ -280,7 +291,7 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
                   active ? 'bg-foreground/80' : 'bg-transparent',
                 ].join(' ')}
               />
-              <Icon className="size-4 shrink-0" />
+              <Icon className="size-3.5 shrink-0" />
               {!compact && <span className="flex-1 text-left truncate">{item.label}</span>}
               {!compact && count != null && count > 0 && (
                 <Badge variant={active ? 'secondary' : 'muted'} size="sm">{count}</Badge>
@@ -295,15 +306,15 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
 
       <div className="p-3 border-t border-sidebar shrink-0 space-y-2">
         <div className={['flex items-center', compact ? 'justify-center' : 'justify-between px-1'].join(' ')}>
-          {!compact && <span className="text-xs text-muted-foreground">{dict.settings.language}</span>}
+          {!compact && <span className="text-[12px] text-muted-foreground">{dict.settings.language}</span>}
           <LanguageSwitcher currentLocale={locale} compact={compact} />
         </div>
         <div className={['flex items-center', compact ? 'justify-center' : 'justify-between px-1'].join(' ')}>
-          {!compact && <span className="text-xs text-muted-foreground">{dict.settings.theme}</span>}
+          {!compact && <span className="text-[12px] text-muted-foreground">{dict.settings.theme}</span>}
           <ThemeToggle />
         </div>
-        <Button variant="ghost" onClick={handleSignOut} className={['w-full gap-2 h-9 text-sm', compact ? 'justify-center px-0' : 'justify-start'].join(' ')}>
-          <LogOut className="size-4" />
+        <Button variant="ghost" onClick={handleSignOut} className={['w-full gap-2 h-8 text-sm', compact ? 'justify-center px-0' : 'justify-start'].join(' ')}>
+          <LogOut className="size-3.5" />
           {!compact && dict.nav.logout}
         </Button>
       </div>

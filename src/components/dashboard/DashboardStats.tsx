@@ -38,7 +38,7 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
         {[...Array(4)].map((_, i) => (
           <div key={i} className="space-y-2">
             <div className="h-3 w-20 bg-muted rounded animate-pulse" />
-            <div className="h-5 w-12 bg-muted rounded animate-pulse" />
+            <div className="h-4 w-12 bg-muted rounded animate-pulse" />
           </div>
         ))}
       </div>
@@ -53,13 +53,13 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
     <div className="grid grid-cols-2 gap-3">
       <div>
         <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.totalReports}</div>
-        <div className="text-lg font-semibold">{stats.totalReports}</div>
+        <div className="text-base font-semibold">{stats.totalReports}</div>
       </div>
 
       <div>
         <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.averageScore}</div>
         <div className="flex items-baseline gap-1.5">
-          <span className={['text-lg font-semibold', scoreColor(stats.averageScore)].join(' ')}>{stats.averageScore}</span>
+          <span className={['text-base font-semibold', scoreColor(stats.averageScore)].join(' ')}>{stats.averageScore}</span>
           <span className="text-xs text-muted-foreground">/ 100</span>
           {stats.trendValue !== 0 && (
             <span className={['text-xs font-medium flex items-center gap-0.5', stats.recentTrend === 'up' ? 'text-success' : 'text-danger'].join(' ')}>
@@ -71,7 +71,7 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
 
       <div>
         <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.totalIssues}</div>
-        <div className="text-lg font-semibold">{stats.totalIssues}</div>
+        <div className="text-base font-semibold">{stats.totalIssues}</div>
         {stats.criticalIssues > 0 && (
           <div className="text-xs text-danger mt-0.5 flex items-center gap-1">
             <AlertTriangle className="size-3" />{stats.criticalIssues} {dict.dashboard.critical}
@@ -82,7 +82,7 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
       <div>
         <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.pending}</div>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-lg font-semibold">{stats.pendingReports}</span>
+          <span className="text-base font-semibold">{stats.pendingReports}</span>
           {stats.pendingReports === 0 && (
             <span className="text-xs text-success flex items-center gap-0.5">
               <CheckCircle className="size-3" />{dict.dashboard.allCompleted}
