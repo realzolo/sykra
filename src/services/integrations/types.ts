@@ -15,6 +15,7 @@ export type Provider = VCSProvider | AIProvider;
 export interface Integration {
   id: string;
   user_id: string;
+  org_id: string;
   type: IntegrationType;
   provider: Provider;
   name: string;

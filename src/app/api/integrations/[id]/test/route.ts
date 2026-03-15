@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getIntegration, createVCSClient, createAIClient } from '@/services/integrations';
 import { readSecret } from '@/lib/vault';
+import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,8 +22,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get integration (with user_id filter for security)
-    const integration = await getIntegration(id, user.id);
+    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+    const role = await getOrgMemberRole(orgId, user.id);
+    if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Get integration (with org_id filter for security)
+    const integration = await getIntegration(id, orgId);
 
     // Read secret from vault
     const secret = await readSecret(integration.vault_secret_name);

@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { getRuleSets, createRuleSet } from '@/services/db';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
-import { getActiveOrgId } from '@/services/orgs';
+import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 
 const rateLimiter = createRateLimiter(RATE_LIMITS.general);
 
@@ -31,6 +31,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 });
   }
   const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+  const role = await getOrgMemberRole(orgId, user.id);
+  if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
   const data = await createRuleSet({ ...body, org_id: orgId });
   return NextResponse.json(data);
 }

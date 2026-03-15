@@ -5,6 +5,7 @@ import { requireUser, unauthorized } from '@/services/auth';
 import { createAdminClient } from '@/lib/supabase/server';
 import { createVCSClient } from '@/services/integrations';
 import { readSecret } from '@/lib/vault';
+import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 
 const rateLimiter = createRateLimiter(RATE_LIMITS.general);
 
@@ -18,13 +19,19 @@ export async function GET(request: NextRequest) {
   if (!user) return unauthorized();
 
   try {
+    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+    const role = await getOrgMemberRole(orgId, user.id);
+    if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const supabase = createAdminClient();
 
-    // Get user's default VCS integration
+    // Get org's default VCS integration
     const { data: integration, error } = await supabase
       .from('user_integrations')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('org_id', orgId)
       .eq('type', 'vcs')
       .eq('is_default', true)
       .single();

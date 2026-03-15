@@ -6,6 +6,7 @@ import { logger } from '@/services/logger';
 export type OrgRole = 'owner' | 'admin' | 'reviewer' | 'member';
 export type OrgStatus = 'active' | 'invited' | 'suspended';
 export const ORG_COOKIE = 'org_id';
+export const ORG_ADMIN_ROLES: OrgRole[] = ['owner', 'admin'];
 
 export interface Organization {
   id: string;
@@ -129,6 +130,10 @@ export async function getOrgMemberRole(orgId: string, userId: string): Promise<O
 
   if (error || !data) return null;
   return (data as { role: OrgRole }).role ?? null;
+}
+
+export function isRoleAllowed(role: OrgRole | null, allowed: OrgRole[]): boolean {
+  return !!role && allowed.includes(role);
 }
 
 export async function requireOrgAccess(orgId: string, userId: string): Promise<void> {

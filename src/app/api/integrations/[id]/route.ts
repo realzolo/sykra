@@ -10,6 +10,7 @@ import {
   deleteIntegration,
   type UpdateIntegrationInput,
 } from '@/services/integrations';
+import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +35,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (secret !== undefined) input.secret = secret;
     if (isDefault !== undefined) input.isDefault = isDefault;
 
-    const integration = await updateIntegration(id, user.id, input);
+    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+    const role = await getOrgMemberRole(orgId, user.id);
+    if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const integration = await updateIntegration(id, orgId, input);
 
     // Remove sensitive data
     const sanitized = {
@@ -70,7 +77,13 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    await deleteIntegration(id, user.id);
+    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+    const role = await getOrgMemberRole(orgId, user.id);
+    if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    await deleteIntegration(id, orgId);
 
     return NextResponse.json({ success: true });
   } catch (error) {

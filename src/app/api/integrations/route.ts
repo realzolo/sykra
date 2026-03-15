@@ -6,10 +6,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
-  getUserIntegrations,
+  getOrgIntegrations,
   createIntegration,
   type CreateIntegrationInput,
 } from '@/services/integrations';
+import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') as 'vcs' | 'ai' | null;
 
-    const integrations = await getUserIntegrations(user.id, type || undefined);
+    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+    const role = await getOrgMemberRole(orgId, user.id);
+    if (!role) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const integrations = await getOrgIntegrations(orgId, type || undefined);
 
     // Remove sensitive data before sending to client
     const sanitized = integrations.map((int) => ({
@@ -78,8 +85,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid type. Must be vcs or ai' }, { status: 400 });
     }
 
+    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+    const role = await getOrgMemberRole(orgId, user.id);
+    if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const input: CreateIntegrationInput = {
       userId: user.id,
+      orgId,
       type,
       provider,
       name,

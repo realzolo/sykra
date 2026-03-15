@@ -14,6 +14,10 @@ export default async function LoginPage() {
 
   const locale = await getLocale();
   const dict = await getDictionary(locale);
+  const legalLinks = {
+    terms: '/terms',
+    privacy: '/privacy',
+  };
 
-  return <LoginClient dict={dict} locale={locale} />;
+  return <LoginClient dict={dict} locale={locale} legalLinks={legalLinks} />;
 }

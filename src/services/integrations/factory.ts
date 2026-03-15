@@ -57,7 +57,7 @@ export function createAIClient(integration: Integration, apiKey: string): AIClie
 
 /**
  * Resolve VCS integration for a project
- * Priority: Project-specific > User default > Environment variable fallback
+ * Priority: Project-specific > Org default
  */
 export async function resolveVCSIntegration(projectId: string): Promise<{
   integration: Integration | null;
@@ -68,7 +68,7 @@ export async function resolveVCSIntegration(projectId: string): Promise<{
   // Get project
   const { data: project, error: projectError } = await supabase
     .from('projects')
-    .select('vcs_integration_id, user_id')
+    .select('vcs_integration_id, org_id')
     .eq('id', projectId)
     .single();
 
@@ -85,25 +85,30 @@ export async function resolveVCSIntegration(projectId: string): Promise<{
       .single();
 
     if (!error && integration) {
+      if (project.org_id && integration.org_id !== project.org_id) {
+        throw new Error('Integration does not belong to this organization');
+      }
       const token = await readSecret(integration.vault_secret_name);
       const client = createVCSClient(integration as Integration, token);
       return { integration: integration as Integration, client };
     }
   }
 
-  // 2. Try user default integration
-  const { data: defaultIntegration, error: defaultError } = await supabase
-    .from('user_integrations')
-    .select('*')
-    .eq('user_id', project.user_id)
-    .eq('type', 'vcs')
-    .eq('is_default', true)
-    .single();
+  // 2. Try org default integration
+  if (project.org_id) {
+    const { data: defaultIntegration, error: defaultError } = await supabase
+      .from('user_integrations')
+      .select('*')
+      .eq('org_id', project.org_id)
+      .eq('type', 'vcs')
+      .eq('is_default', true)
+      .single();
 
-  if (!defaultError && defaultIntegration) {
-    const token = await readSecret(defaultIntegration.vault_secret_name);
-    const client = createVCSClient(defaultIntegration as Integration, token);
-    return { integration: defaultIntegration as Integration, client };
+    if (!defaultError && defaultIntegration) {
+      const token = await readSecret(defaultIntegration.vault_secret_name);
+      const client = createVCSClient(defaultIntegration as Integration, token);
+      return { integration: defaultIntegration as Integration, client };
+    }
   }
 
   // 3. No integration found - user must configure one
@@ -114,7 +119,7 @@ export async function resolveVCSIntegration(projectId: string): Promise<{
 
 /**
  * Resolve AI integration for a project
- * Priority: Project-specific > User default > Environment variable fallback
+ * Priority: Project-specific > Org default
  */
 export async function resolveAIIntegration(projectId: string): Promise<{
   integration: Integration | null;
@@ -125,7 +130,7 @@ export async function resolveAIIntegration(projectId: string): Promise<{
   // Get project
   const { data: project, error: projectError } = await supabase
     .from('projects')
-    .select('ai_integration_id, user_id')
+    .select('ai_integration_id, org_id')
     .eq('id', projectId)
     .single();
 
@@ -142,25 +147,30 @@ export async function resolveAIIntegration(projectId: string): Promise<{
       .single();
 
     if (!error && integration) {
+      if (project.org_id && integration.org_id !== project.org_id) {
+        throw new Error('Integration does not belong to this organization');
+      }
       const apiKey = await readSecret(integration.vault_secret_name);
       const client = createAIClient(integration as Integration, apiKey);
       return { integration: integration as Integration, client };
     }
   }
 
-  // 2. Try user default integration
-  const { data: defaultIntegration, error: defaultError } = await supabase
-    .from('user_integrations')
-    .select('*')
-    .eq('user_id', project.user_id)
-    .eq('type', 'ai')
-    .eq('is_default', true)
-    .single();
+  // 2. Try org default integration
+  if (project.org_id) {
+    const { data: defaultIntegration, error: defaultError } = await supabase
+      .from('user_integrations')
+      .select('*')
+      .eq('org_id', project.org_id)
+      .eq('type', 'ai')
+      .eq('is_default', true)
+      .single();
 
-  if (!defaultError && defaultIntegration) {
-    const apiKey = await readSecret(defaultIntegration.vault_secret_name);
-    const client = createAIClient(defaultIntegration as Integration, apiKey);
-    return { integration: defaultIntegration as Integration, client };
+    if (!defaultError && defaultIntegration) {
+      const apiKey = await readSecret(defaultIntegration.vault_secret_name);
+      const client = createAIClient(defaultIntegration as Integration, apiKey);
+      return { integration: defaultIntegration as Integration, client };
+    }
   }
 
   // 3. No integration found - user must configure one
@@ -170,15 +180,15 @@ export async function resolveAIIntegration(projectId: string): Promise<{
 }
 
 /**
- * Get all integrations for a user
+ * Get all integrations for an organization
  */
-export async function getUserIntegrations(
-  userId: string,
+export async function getOrgIntegrations(
+  orgId: string,
   type?: 'vcs' | 'ai'
 ): Promise<Integration[]> {
   const supabase = createAdminClient();
 
-  let query = supabase.from('user_integrations').select('*').eq('user_id', userId);
+  let query = supabase.from('user_integrations').select('*').eq('org_id', orgId);
 
   if (type) {
     query = query.eq('type', type);
@@ -196,7 +206,7 @@ export async function getUserIntegrations(
 /**
  * Get a specific integration by ID
  */
-export async function getIntegration(integrationId: string, userId?: string): Promise<Integration> {
+export async function getIntegration(integrationId: string, orgId?: string): Promise<Integration> {
   const supabase = createAdminClient();
 
   let query = supabase
@@ -204,8 +214,8 @@ export async function getIntegration(integrationId: string, userId?: string): Pr
     .select('*')
     .eq('id', integrationId);
 
-  if (userId) {
-    query = query.eq('user_id', userId);
+  if (orgId) {
+    query = query.eq('org_id', orgId);
   }
 
   const { data, error } = await query.single();

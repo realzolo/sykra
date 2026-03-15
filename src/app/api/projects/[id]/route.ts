@@ -7,7 +7,7 @@ import { withRetry, formatErrorResponse } from '@/services/retry';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
-import { requireProjectAccess } from '@/services/orgs';
+import { getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requireProjectAccess } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,7 +64,13 @@ export async function PUT(
 
     logger.setContext({ projectId });
 
-    await withRetry(() => requireProjectAccess(projectId, user.id));
+    const project = await withRetry(() => requireProjectAccess(projectId, user.id));
+    if (project.org_id) {
+      const role = await getOrgMemberRole(project.org_id, user.id);
+      if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
 
     const data = await withRetry(() =>
       updateProject(projectId, { name, description, ruleset_id: ruleset_id || null })
@@ -109,7 +115,13 @@ export async function DELETE(
 
     logger.setContext({ projectId });
 
-    await withRetry(() => requireProjectAccess(projectId, user.id));
+    const project = await withRetry(() => requireProjectAccess(projectId, user.id));
+    if (project.org_id) {
+      const role = await getOrgMemberRole(project.org_id, user.id);
+      if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
     await withRetry(() => deleteProject(projectId));
 
     // Audit log

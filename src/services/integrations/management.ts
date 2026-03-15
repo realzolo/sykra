@@ -3,11 +3,12 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/server';
-import { storeSecret, updateSecret, deleteSecret, generateSecretName } from '@/lib/vault';
+import { storeSecret, updateSecret, deleteSecret } from '@/lib/vault';
 import type { Integration, IntegrationType, Provider } from './types';
 
 export interface CreateIntegrationInput {
   userId: string;
+  orgId: string;
   type: IntegrationType;
   provider: Provider;
   name: string;
@@ -38,6 +39,7 @@ export async function createIntegration(input: CreateIntegrationInput): Promise<
       .from('user_integrations')
       .insert({
         user_id: input.userId,
+        org_id: input.orgId,
         type: input.type,
         provider: input.provider,
         name: input.name,
@@ -63,7 +65,7 @@ export async function createIntegration(input: CreateIntegrationInput): Promise<
  */
 export async function updateIntegration(
   integrationId: string,
-  userId: string,
+  orgId: string,
   input: UpdateIntegrationInput
 ): Promise<Integration> {
   const supabase = createAdminClient();
@@ -73,7 +75,7 @@ export async function updateIntegration(
     .from('user_integrations')
     .select('*')
     .eq('id', integrationId)
-    .eq('user_id', userId)
+    .eq('org_id', orgId)
     .single();
 
   if (getError || !existing) {
@@ -97,7 +99,7 @@ export async function updateIntegration(
     .from('user_integrations')
     .update(updateData)
     .eq('id', integrationId)
-    .eq('user_id', userId)
+    .eq('org_id', orgId)
     .select()
     .single();
 
@@ -111,7 +113,7 @@ export async function updateIntegration(
 /**
  * Delete an integration
  */
-export async function deleteIntegration(integrationId: string, userId: string): Promise<void> {
+export async function deleteIntegration(integrationId: string, orgId: string): Promise<void> {
   const supabase = createAdminClient();
 
   // Get integration
@@ -119,7 +121,7 @@ export async function deleteIntegration(integrationId: string, userId: string): 
     .from('user_integrations')
     .select('*')
     .eq('id', integrationId)
-    .eq('user_id', userId)
+    .eq('org_id', orgId)
     .single();
 
   if (getError || !integration) {
@@ -146,7 +148,7 @@ export async function deleteIntegration(integrationId: string, userId: string): 
     .from('user_integrations')
     .delete()
     .eq('id', integrationId)
-    .eq('user_id', userId);
+    .eq('org_id', orgId);
 
   if (deleteError) {
     throw new Error(`Failed to delete integration: ${deleteError.message}`);
@@ -166,7 +168,7 @@ export async function deleteIntegration(integrationId: string, userId: string): 
  */
 export async function setDefaultIntegration(
   integrationId: string,
-  userId: string
+  orgId: string
 ): Promise<void> {
   const supabase = createAdminClient();
 
@@ -175,7 +177,7 @@ export async function setDefaultIntegration(
     .from('user_integrations')
     .select('*')
     .eq('id', integrationId)
-    .eq('user_id', userId)
+    .eq('org_id', orgId)
     .single();
 
   if (getError || !integration) {
@@ -187,7 +189,7 @@ export async function setDefaultIntegration(
     .from('user_integrations')
     .update({ is_default: true })
     .eq('id', integrationId)
-    .eq('user_id', userId);
+    .eq('org_id', orgId);
 
   if (error) {
     throw new Error(`Failed to set default integration: ${error.message}`);

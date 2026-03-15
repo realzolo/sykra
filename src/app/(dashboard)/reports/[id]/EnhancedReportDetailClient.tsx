@@ -214,6 +214,10 @@ export default function EnhancedReportDetailClient({
   }
 
   async function handleRetry() {
+    if (!report) {
+      toast.error(dict.reportDetail.retryFailed);
+      return;
+    }
     const commitShas = report.commits.map(c => c.sha);
     if (!commitShas.length) { toast.error(dict.reportDetail.noCommitsToRetry); return; }
     setRetrying(true);

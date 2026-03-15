@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,9 +19,13 @@ import type { Locale } from '@/i18n/config';
 interface LoginClientProps {
   dict: Dictionary;
   locale: Locale;
+  legalLinks: {
+    terms: string;
+    privacy: string;
+  };
 }
 
-export default function LoginClient({ dict, locale }: LoginClientProps) {
+export default function LoginClient({ dict, locale, legalLinks }: LoginClientProps) {
   const router = useRouter();
   const emailRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<'login' | 'signup'>('login');
@@ -324,8 +329,24 @@ export default function LoginClient({ dict, locale }: LoginClientProps) {
                 </button>
               </div>
 
-              <div className="text-center text-copy-12 leading-relaxed">
-                {dict.auth.termsNotice}
+              <div className="text-center text-copy-12 leading-relaxed text-muted-foreground">
+                {dict.auth.termsNotice.split(/(\{terms\}|\{privacy\})/g).map((segment, index) => {
+                  if (segment === '{terms}') {
+                    return (
+                      <Link key={`terms-${index}`} href={legalLinks.terms} className="text-foreground hover:underline">
+                        {dict.auth.termsOfService}
+                      </Link>
+                    );
+                  }
+                  if (segment === '{privacy}') {
+                    return (
+                      <Link key={`privacy-${index}`} href={legalLinks.privacy} className="text-foreground hover:underline">
+                        {dict.auth.privacyPolicy}
+                      </Link>
+                    );
+                  }
+                  return <span key={`text-${index}`}>{segment}</span>;
+                })}
               </div>
             </div>
           </Card>

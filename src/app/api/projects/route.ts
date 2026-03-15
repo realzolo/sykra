@@ -11,7 +11,7 @@ import { requireUser, unauthorized } from '@/services/auth';
 import { createAdminClient } from '@/lib/supabase/server';
 import { createVCSClient } from '@/services/integrations';
 import { readSecret } from '@/lib/vault';
-import { getActiveOrgId } from '@/services/orgs';
+import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +52,10 @@ export async function POST(request: NextRequest) {
     const validated = createProjectSchema.parse(body);
     const { name, repo, description, default_branch, ruleset_id } = validated;
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+    const role = await getOrgMemberRole(orgId, user.id);
+    if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     logger.setContext({ repo });
 
@@ -61,7 +65,7 @@ export async function POST(request: NextRequest) {
     const { data: vcsIntegration, error: vcsError } = await supabase
       .from('user_integrations')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('org_id', orgId)
       .eq('type', 'vcs')
       .eq('is_default', true)
       .single();
@@ -77,7 +81,7 @@ export async function POST(request: NextRequest) {
     const { data: aiIntegration, error: aiError } = await supabase
       .from('user_integrations')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('org_id', orgId)
       .eq('type', 'ai')
       .eq('is_default', true)
       .single();

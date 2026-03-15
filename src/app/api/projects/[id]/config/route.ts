@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
-import { requireProjectAccess } from '@/services/orgs';
+import { getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requireProjectAccess } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +56,13 @@ export async function PATCH(
   const body = await request.json();
   const { ignorePatterns, qualityThreshold, autoAnalyze, webhookUrl } = body;
 
-  await requireProjectAccess(id, user.id);
+  const project = await requireProjectAccess(id, user.id);
+  if (project.org_id) {
+    const role = await getOrgMemberRole(project.org_id, user.id);
+    if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+  }
   const supabase = createAdminClient();
 
   const updateData: Record<string, unknown> = {};

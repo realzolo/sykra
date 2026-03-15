@@ -228,6 +228,7 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - All API routes require login; task endpoints accept `x-task-token`
 - `report_issues.status`: `open | fixed | ignored | false_positive | planned`
 - `/api/projects/[id]/trends` returns array directly (no `data` wrapper)
+- Public pages accessible without login: `/`, `/terms`, `/privacy`
 
 ## FAQ
 

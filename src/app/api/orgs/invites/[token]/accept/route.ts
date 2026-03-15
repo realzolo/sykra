@@ -37,6 +37,12 @@ export async function POST(
     return NextResponse.json({ error: 'Invite already accepted' }, { status: 409 });
   }
 
+  const inviteEmail = String(invite.email || '').toLowerCase();
+  const userEmail = String(user.email || '').toLowerCase();
+  if (!inviteEmail || !userEmail || inviteEmail !== userEmail) {
+    return NextResponse.json({ error: 'Invite email does not match your account' }, { status: 403 });
+  }
+
   if (new Date(invite.expires_at).getTime() < Date.now()) {
     return NextResponse.json({ error: 'Invite expired' }, { status: 410 });
   }
