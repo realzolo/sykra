@@ -1,6 +1,5 @@
 import Sidebar from '@/components/layout/Sidebar';
 import Topbar from '@/components/layout/Topbar';
-import OnboardingCheck from '@/components/settings/OnboardingCheck';
 import PageTransition from '@/components/layout/PageTransition';
 import { getLocale } from '@/lib/locale';
 import { getDictionary } from '@/i18n';
@@ -16,7 +15,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <Topbar dict={dict} />
         <PageTransition>{children}</PageTransition>
       </main>
-      <OnboardingCheck />
     </div>
   );
 }

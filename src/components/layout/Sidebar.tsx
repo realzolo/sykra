@@ -215,11 +215,11 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
           )
         ) : (
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0 text-[12px] font-semibold">
+            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0 text-[12px] font-semibold select-none">
               {orgInitial}
             </div>
             {orgMenu(
-              <button className="flex items-center gap-2 text-left w-full transition-soft hover:text-foreground">
+              <button className="flex items-center gap-2 text-left w-full transition-soft hover:text-foreground outline-none select-none">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-medium leading-none truncate">
@@ -228,9 +228,6 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
                     <Badge variant="muted" size="sm" className="text-[12px] px-1.5">
                       {dict.nav.planDefault}
                     </Badge>
-                  </div>
-                  <div className="text-[12px] text-muted-foreground mt-1 truncate">
-                    {orgSubLabel}
                   </div>
                 </div>
                 <ChevronDown className="size-4 text-muted-foreground shrink-0" />
