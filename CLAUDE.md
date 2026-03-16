@@ -229,7 +229,6 @@ apps/
   runner/
     cmd/runner/                 # Go runner entrypoint
     internal/pipeline/          # Pipeline engine, executors, storage, API
-    migrations/                 # golang-migrate SQL migrations
 packages/
   contracts/                    # Shared API/contracts (future)
 ```
@@ -276,7 +275,6 @@ pnpm lint    # Console ESLint
 pnpm codebase:cleanup   # Cleanup stale workspaces (uses TASK_RUNNER_TOKEN; optional STUDIO_BASE_URL)
 psql "$DATABASE_URL" -f docs/db/init.sql   # Initialize schema (fresh DB)
 cd apps/runner && go run ./cmd/runner   # Runner service
-cd apps/runner && migrate -path ./migrations -database "$DATABASE_URL" up   # DB migrations (golang-migrate)
 ```
 
 `pnpm codebase:cleanup` uses `TASK_RUNNER_TOKEN` and optional `STUDIO_BASE_URL` (default `http://localhost:8109`).
@@ -303,7 +301,6 @@ If new install warnings appear, approve the dependency and update the allowlist.
 - **Logs** and **artifacts** are stored locally under `RUNNER_DATA_DIR`:
   - `logs/{run_id}/{job_key}/{step_key}.log`
   - `artifacts/{run_id}/{job_key}/{step_key}/...`
-- **Migrations** live in `apps/runner/migrations` and are applied with `golang-migrate`.
 
 **GitHub webhook:** `/api/webhooks/github` supports `?project_id=...`. If a repo matches multiple projects, the endpoint returns 409 and requires `project_id`.
 

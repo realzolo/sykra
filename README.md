@@ -22,7 +22,6 @@ An AI-powered code review + CI/CD pipeline platform built with Next.js 16 + Reac
 - pnpm
 - PostgreSQL 14+
 - Go 1.22 (runner)
-- golang-migrate (DB migrations)
 - Redis (queue)
 
 ### Installation
@@ -79,8 +78,6 @@ Run the unified init script (core + pipeline tables):
 ```bash
 psql "$DATABASE_URL" -f docs/db/init.sql
 ```
-
-For future upgrades, use migrations (golang-migrate) against the same database.
 
 6. **Start development server**:
 ```bash
@@ -226,7 +223,7 @@ spec-axis/
 │   │   └── src/               # App Router, components, services, libs
 │   └── runner/                # Go runner service
 │       ├── internal/pipeline  # Pipeline engine + executors
-│       └── migrations         # golang-migrate SQL files
+│       └── cmd/               # Runner entrypoint
 ├── packages/
 │   └── contracts/             # Shared API/contracts (future)
 ├── docs/                     # Documentation
@@ -244,7 +241,7 @@ Deploy to Vercel with one click. The analysis API is configured for 300s timeout
 ### Production Checklist
 
 - [ ] Generate production encryption key
-- [ ] Run all database migrations
+- [ ] Initialize database schema (`docs/db/init.sql`)
 - [ ] Configure environment variables
 - [ ] Test in staging environment first
 - [ ] Set up monitoring and alerts
