@@ -27,10 +27,7 @@ export function middleware(request: NextRequest) {
     const parts = pathname.split('/').filter(Boolean);
     const orgId = parts[1];
     if (orgId && ORG_ID_RE.test(orgId)) {
-      const restPath = `/${parts.slice(2).join('/')}`;
-      const nextUrl = request.nextUrl.clone();
-      nextUrl.pathname = restPath === '/' ? '/' : restPath;
-      const response = NextResponse.rewrite(nextUrl);
+      const response = NextResponse.next();
       response.cookies.set(ORG_COOKIE, orgId, {
         path: '/',
         maxAge: 60 * 60 * 24 * 30,

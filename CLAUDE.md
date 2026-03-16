@@ -49,7 +49,8 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 
 **URL routing:**
 - Dashboard URLs must include org prefix: `/o/:orgId/...`
-- `middleware.ts` rewrites `/o/:orgId/...` to the internal route and keeps cookie in sync
+- `/o/:orgId/...` routes are real wrappers that mirror the dashboard pages
+- `middleware.ts` keeps the `org_id` cookie in sync when an `/o/:orgId/...` path is requested
 - If a user hits `/projects` (or other dashboard path) and has `org_id`, middleware redirects to `/o/:orgId/...`
 
 **Frontend helpers:**
@@ -204,6 +205,7 @@ apps/
             [id]/               # RuleSetDetailClient
           settings/integrations/
           settings/security/
+        o/[orgId]/              # Org-prefixed wrappers for dashboard routes
         api/
           analyze/              # POST → enqueue runner task
           pipelines/            # CRUD + runs (proxy to runner)
@@ -225,7 +227,7 @@ apps/
       lib/useOrgRole.ts         # client hook for org role + admin gating
       services/db.ts github.ts claude.ts taskQueue.ts analyzeTask.ts ...
       proxy.ts                  # Legacy auth middleware (unused)
-    middleware.ts               # Org path rewrite + redirect (Next.js middleware)
+    middleware.ts               # Org cookie sync + dashboard redirect (Next.js middleware)
   runner/
     cmd/runner/                 # Go runner entrypoint
     internal/pipeline/          # Pipeline engine, executors, storage, API
