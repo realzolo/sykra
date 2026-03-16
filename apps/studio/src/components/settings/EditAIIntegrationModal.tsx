@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 
@@ -21,12 +22,54 @@ interface Props {
   onSuccess: () => void;
 }
 
+interface ProviderConfig {
+  name: string;
+  description: string;
+  fields: Array<{
+    key: string;
+    label: string;
+    type: string;
+    required: boolean;
+    placeholder?: string;
+    help?: string;
+    options?: string[];
+  }>;
+  docs?: string;
+}
+
 export default function EditAIIntegrationModal({ integration, onClose, onSuccess }: Props) {
+  const [providerConfig, setProviderConfig] = useState<ProviderConfig | null>(null);
   const [name, setName] = useState(integration.name);
   const [config, setConfig] = useState<Record<string, any>>(integration.config);
   const [secret, setSecret] = useState('');
   const [isDefault, setIsDefault] = useState(integration.is_default);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadProviderConfig();
+  }, []);
+
+  async function loadProviderConfig() {
+    try {
+      const res = await fetch('/api/integrations/providers');
+      const data = await res.json();
+      const cfg = data.ai?.[integration.provider];
+      if (cfg) setProviderConfig(cfg);
+    } catch {
+      // non-fatal: fall back to basic fields
+    }
+  }
+
+  function setConfigValue(key: string, value: string | number | undefined) {
+    setConfig((prev) => {
+      if (value === undefined) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: value };
+    });
+  }
 
   async function handleSubmit() {
     if (!name.trim()) {
@@ -42,9 +85,7 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
     setLoading(true);
     try {
       const body: any = { name, config, isDefault };
-      if (secret) {
-        body.secret = secret;
-      }
+      if (secret) body.secret = secret;
 
       const res = await fetch(`/api/integrations/${integration.id}`, {
         method: 'PUT',
@@ -67,6 +108,14 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
     }
   }
 
+  // Determine which fields to render: prefer dynamic provider config, fall back to hardcoded basics
+  const fields = providerConfig?.fields ?? [
+    { key: 'baseUrl', label: 'Base URL', type: 'text', required: true, placeholder: 'https://api.anthropic.com' },
+    { key: 'model', label: 'Model', type: 'text', required: true, placeholder: 'claude-sonnet-4-6' },
+    { key: 'maxTokens', label: 'Max Tokens (optional)', type: 'number', required: false, placeholder: '4096' },
+    { key: 'temperature', label: 'Temperature (optional)', type: 'number', required: false, placeholder: '0.7', help: 'Value between 0 and 1. Not supported by reasoning models.' },
+  ];
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-lg">
@@ -85,48 +134,56 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="My Claude API"
+              placeholder="My AI Integration"
             />
           </div>
 
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Base URL</label>
-            <Input
-              value={config.baseUrl || ''}
-              onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
-              placeholder="https://api.anthropic.com"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Model</label>
-            <Input
-              value={config.model || ''}
-              onChange={(e) => setConfig({ ...config, model: e.target.value })}
-              placeholder="claude-3-5-sonnet-20241022"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Max Tokens (optional)</label>
-            <Input
-              type="number"
-              value={config.maxTokens || ''}
-              onChange={(e) => setConfig({ ...config, maxTokens: parseInt(e.target.value) || undefined })}
-              placeholder="4096"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Temperature (optional)</label>
-            <Input
-              type="number"
-              step="0.1"
-              value={config.temperature || ''}
-              onChange={(e) => setConfig({ ...config, temperature: parseFloat(e.target.value) || undefined })}
-              placeholder="0.7"
-            />
-          </div>
+          {fields
+            .filter((f) => f.key !== 'apiKey')
+            .map((field) => (
+              <div key={field.key}>
+                <label className="text-sm font-medium mb-1.5 block">
+                  {field.label}
+                  {field.required && ' *'}
+                </label>
+                {field.type === 'select' && field.options ? (
+                  <Select
+                    value={config[field.key] || undefined}
+                    onValueChange={(value) => setConfigValue(field.key, value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={field.placeholder} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {field.options.map((opt) => (
+                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : field.type === 'number' ? (
+                  <Input
+                    type="number"
+                    step={field.key === 'temperature' ? '0.1' : '1'}
+                    placeholder={field.placeholder}
+                    value={config[field.key] ?? ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setConfigValue(field.key, Number.isNaN(v) ? undefined : v);
+                    }}
+                  />
+                ) : (
+                  <Input
+                    type={field.type}
+                    placeholder={field.placeholder}
+                    value={config[field.key] || ''}
+                    onChange={(e) => setConfigValue(field.key, e.target.value)}
+                  />
+                )}
+                {field.help && (
+                  <p className="text-xs text-muted-foreground mt-1">{field.help}</p>
+                )}
+              </div>
+            ))}
 
           <div>
             <label className="text-sm font-medium mb-1.5 block">

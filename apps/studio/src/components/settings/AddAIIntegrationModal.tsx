@@ -191,6 +191,21 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
                       ))}
                     </SelectContent>
                   </Select>
+                ) : field.type === 'number' ? (
+                  <Input
+                    type="number"
+                    step={field.key === 'temperature' ? '0.1' : '1'}
+                    placeholder={field.placeholder}
+                    value={config[field.key] ?? ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (Number.isNaN(v)) {
+                        setConfig((prev) => { const next = { ...prev }; delete next[field.key]; return next; });
+                      } else {
+                        setConfig((prev) => ({ ...prev, [field.key]: v }));
+                      }
+                    }}
+                  />
                 ) : (
                   <Input
                     type={field.type}

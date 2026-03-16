@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -21,12 +21,55 @@ interface Props {
   onSuccess: () => void;
 }
 
+interface FieldDef {
+  key: string;
+  label: string;
+  type: string;
+  required: boolean;
+  placeholder?: string;
+  help?: string;
+}
+
+// Fallback field definitions per provider if API call fails
+const FALLBACK_FIELDS: Record<string, FieldDef[]> = {
+  github: [
+    { key: 'baseUrl', label: 'Base URL (for Enterprise)', type: 'text', required: false, placeholder: 'https://github.company.com/api/v3', help: 'Leave empty for GitHub.com' },
+    { key: 'org', label: 'Default Organization', type: 'text', required: false, placeholder: 'my-org' },
+  ],
+  gitlab: [
+    { key: 'baseUrl', label: 'Base URL', type: 'text', required: true, placeholder: 'https://gitlab.com' },
+    { key: 'org', label: 'Default Group', type: 'text', required: false, placeholder: 'my-group' },
+  ],
+  git: [
+    { key: 'baseUrl', label: 'Base URL', type: 'text', required: true, placeholder: 'https://git.company.com' },
+  ],
+};
+
 export default function EditVCSIntegrationModal({ integration, onClose, onSuccess }: Props) {
+  const [fields, setFields] = useState<FieldDef[]>(FALLBACK_FIELDS[integration.provider] ?? []);
   const [name, setName] = useState(integration.name);
   const [config, setConfig] = useState<Record<string, string>>(integration.config);
   const [secret, setSecret] = useState('');
   const [isDefault, setIsDefault] = useState(integration.is_default);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadProviderFields();
+  }, []);
+
+  async function loadProviderFields() {
+    try {
+      const res = await fetch('/api/integrations/providers');
+      const data = await res.json();
+      const providerCfg = data.vcs?.[integration.provider];
+      if (providerCfg?.fields) {
+        // Exclude the token field — handled separately as the secret input
+        setFields(providerCfg.fields.filter((f: FieldDef) => f.key !== 'token'));
+      }
+    } catch {
+      // keep fallback fields already set
+    }
+  }
 
   async function handleSubmit() {
     if (!name.trim()) {
@@ -37,9 +80,7 @@ export default function EditVCSIntegrationModal({ integration, onClose, onSucces
     setLoading(true);
     try {
       const body: any = { name, config, isDefault };
-      if (secret) {
-        body.secret = secret;
-      }
+      if (secret) body.secret = secret;
 
       const res = await fetch(`/api/integrations/${integration.id}`, {
         method: 'PUT',
@@ -84,30 +125,23 @@ export default function EditVCSIntegrationModal({ integration, onClose, onSucces
             />
           </div>
 
-          {integration.provider === 'github' && (
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Base URL (optional)</label>
+          {fields.map((field) => (
+            <div key={field.key}>
+              <label className="text-sm font-medium mb-1.5 block">
+                {field.label}
+                {field.required && ' *'}
+              </label>
               <Input
-                value={config.baseUrl || ''}
-                onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
-                placeholder="https://api.github.com"
+                type={field.type}
+                placeholder={field.placeholder}
+                value={config[field.key] || ''}
+                onChange={(e) => setConfig((prev) => ({ ...prev, [field.key]: e.target.value }))}
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Leave empty for GitHub.com, or use GitHub Enterprise URL
-              </p>
+              {field.help && (
+                <p className="text-xs text-muted-foreground mt-1">{field.help}</p>
+              )}
             </div>
-          )}
-
-          {integration.provider === 'gitlab' && (
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Base URL</label>
-              <Input
-                value={config.baseUrl || ''}
-                onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
-                placeholder="https://gitlab.com"
-              />
-            </div>
-          )}
+          ))}
 
           <div>
             <label className="text-sm font-medium mb-1.5 block">

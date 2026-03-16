@@ -134,30 +134,179 @@ export async function GET() {
             type: 'number',
             required: false,
             placeholder: '0.7',
-            help: 'Value between 0 and 1',
+            help: 'Value between 0 and 1. Not applicable to reasoning models (o1, o3, o4-mini, etc.).',
           },
         ],
-        docs: 'https://docs.anthropic.com/en/api/getting-started',
+        docs: null,  // no single docs URL — provider-specific (e.g. platform.openai.com, console.anthropic.com)
         presets: [
+          // Anthropic
           {
-            name: 'Anthropic Claude',
+            name: 'Claude Opus 4.6',
+            config: {
+              baseUrl: 'https://api.anthropic.com',
+              model: 'claude-opus-4-6',
+            },
+          },
+          {
+            name: 'Claude Sonnet 4.6',
             config: {
               baseUrl: 'https://api.anthropic.com',
               model: 'claude-sonnet-4-6',
             },
           },
           {
-            name: 'OpenAI GPT-4',
+            name: 'Claude Haiku 4.5',
+            config: {
+              baseUrl: 'https://api.anthropic.com',
+              model: 'claude-haiku-4-5-20251001',
+            },
+          },
+          // OpenAI — GPT
+          {
+            name: 'GPT-4.1',
             config: {
               baseUrl: 'https://api.openai.com/v1',
-              model: 'gpt-4-turbo',
+              model: 'gpt-4.1',
             },
           },
           {
-            name: 'DeepSeek',
+            name: 'GPT-4.1 mini',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'gpt-4.1-mini',
+            },
+          },
+          {
+            name: 'GPT-4o',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'gpt-4o',
+            },
+          },
+          {
+            name: 'GPT-4o mini',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'gpt-4o-mini',
+            },
+          },
+          // OpenAI — reasoning
+          {
+            name: 'o3',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'o3',
+            },
+          },
+          {
+            name: 'o4-mini',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'o4-mini',
+            },
+          },
+          {
+            name: 'o3-mini',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'o3-mini',
+            },
+          },
+          // OpenAI — Codex
+          {
+            name: 'Codex mini (codex-mini-latest)',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'codex-mini-latest',
+            },
+          },
+          // Google Gemini
+          {
+            name: 'Gemini 2.5 Pro',
+            config: {
+              baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+              model: 'gemini-2.5-pro-preview-05-06',
+            },
+          },
+          {
+            name: 'Gemini 2.5 Flash',
+            config: {
+              baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+              model: 'gemini-2.5-flash-preview-04-17',
+            },
+          },
+          {
+            name: 'Gemini 2.0 Flash',
+            config: {
+              baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+              model: 'gemini-2.0-flash',
+            },
+          },
+          // DeepSeek
+          {
+            name: 'DeepSeek V3',
             config: {
               baseUrl: 'https://api.deepseek.com/v1',
               model: 'deepseek-chat',
+            },
+          },
+          {
+            name: 'DeepSeek R1',
+            config: {
+              baseUrl: 'https://api.deepseek.com/v1',
+              model: 'deepseek-reasoner',
+            },
+          },
+          // Mistral
+          {
+            name: 'Mistral Large',
+            config: {
+              baseUrl: 'https://api.mistral.ai/v1',
+              model: 'mistral-large-latest',
+            },
+          },
+          {
+            name: 'Mistral Small',
+            config: {
+              baseUrl: 'https://api.mistral.ai/v1',
+              model: 'mistral-small-latest',
+            },
+          },
+          {
+            name: 'Codestral',
+            config: {
+              baseUrl: 'https://codestral.mistral.ai/v1',
+              model: 'codestral-latest',
+            },
+          },
+          // Meta Llama (via Groq)
+          {
+            name: 'Llama 4 Scout (Groq)',
+            config: {
+              baseUrl: 'https://api.groq.com/openai/v1',
+              model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+            },
+          },
+          {
+            name: 'Llama 3.3 70B (Groq)',
+            config: {
+              baseUrl: 'https://api.groq.com/openai/v1',
+              model: 'llama-3.3-70b-versatile',
+            },
+          },
+          // xAI Grok
+          {
+            name: 'Grok 3',
+            config: {
+              baseUrl: 'https://api.x.ai/v1',
+              model: 'grok-3',
+            },
+          },
+          {
+            name: 'Grok 3 mini',
+            config: {
+              baseUrl: 'https://api.x.ai/v1',
+              model: 'grok-3-mini',
             },
           },
         ],

@@ -6,6 +6,7 @@ import { measurePerformance, performanceMonitor } from './performance';
 import { syncReportIssues } from './issues';
 import { logger } from './logger';
 import { exec } from '@/lib/db';
+import { resolveAIIntegration } from './integrations';
 
 type AnalyzePayload = {
   reportId: string;
@@ -54,6 +55,10 @@ export async function runAnalyzeTask(projectId: string, payload: AnalyzePayload)
       return analyzeCode(filteredDiff, rules, projectId);
     });
 
+    // Resolve integration to get the actual model name used
+    const { integration: aiIntegration } = await resolveAIIntegration(projectId).catch(() => ({ integration: null }));
+    const modelVersion = aiIntegration?.config?.model ?? 'unknown';
+
     const issues = analysis.issues ?? [];
 
     await updateReport(reportId, {
@@ -74,7 +79,7 @@ export async function runAnalyzeTask(projectId: string, payload: AnalyzePayload)
       total_additions: diffStats.totalAdditions,
       total_deletions: diffStats.totalDeletions,
       analysis_duration_ms: performanceMonitor.getMetricStats(reportId, 'analyze_code')?.avg ?? null,
-      model_version: 'claude-sonnet-4-6',
+      model_version: modelVersion,
       error_message: null,
     });
 

@@ -253,9 +253,21 @@ export class GenericGitClient implements VCSClient {
   }
 
   async testConnection(): Promise<boolean> {
-    // For generic Git, we can't test without a specific repository
-    // Return true if token is provided
-    return !!this.config.token;
+    // Attempt a lightweight authenticated request to the configured base URL.
+    // Fall back to token presence check if no base URL is configured.
+    if (!this.config.baseUrl) {
+      return !!this.config.token;
+    }
+    try {
+      const response = await fetch(`${this.config.baseUrl}`, {
+        headers: { Authorization: `Bearer ${this.config.token}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      // Accept any non-5xx response as "reachable"
+      return response.status < 500;
+    } catch {
+      return false;
+    }
   }
 
   async getRepositories(): Promise<Repository[]> {
