@@ -54,15 +54,15 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
   return (
     <div className="grid grid-cols-2 gap-3">
       <div>
-        <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.totalReports}</div>
+        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.dashboard.totalReports}</div>
         <div className="text-base font-semibold">{stats.totalReports}</div>
       </div>
 
       <div>
-        <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.averageScore}</div>
+        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.dashboard.averageScore}</div>
         <div className="flex items-baseline gap-1.5">
           <span className={['text-base font-semibold', scoreColor(stats.averageScore)].join(' ')}>{stats.averageScore}</span>
-          <span className="text-xs text-muted-foreground">/ 100</span>
+          <span className="text-[12px] text-[hsl(var(--ds-text-2))]">/ 100</span>
           {stats.trendValue !== 0 && (
             <span className={['text-xs font-medium flex items-center gap-0.5', stats.recentTrend === 'up' ? 'text-success' : 'text-danger'].join(' ')}>
               <TrendIcon className="size-3" />{Math.abs(stats.trendValue)}
@@ -72,7 +72,7 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
       </div>
 
       <div>
-        <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.totalIssues}</div>
+        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.dashboard.totalIssues}</div>
         <div className="text-base font-semibold">{stats.totalIssues}</div>
         {stats.criticalIssues > 0 && (
           <div className="text-xs text-danger mt-0.5 flex items-center gap-1">
@@ -82,7 +82,7 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
       </div>
 
       <div>
-        <div className="text-xs text-muted-foreground mb-1">{dict.dashboard.pending}</div>
+        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.dashboard.pending}</div>
         <div className="flex items-baseline gap-1.5">
           <span className="text-base font-semibold">{stats.pendingReports}</span>
           {stats.pendingReports === 0 && (
@@ -91,7 +91,7 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
             </span>
           )}
           {stats.pendingReports > 0 && (
-            <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+            <span className="text-[12px] text-[hsl(var(--ds-text-2))] flex items-center gap-0.5">
               <Clock className="size-3" />{dict.dashboard.inProgress}
             </span>
           )}

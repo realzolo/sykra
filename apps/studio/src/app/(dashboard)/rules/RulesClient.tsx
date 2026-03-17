@@ -80,17 +80,17 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
               <Skeleton className="h-4 w-32" />
               <Skeleton className="h-3 w-56" />
             </div>
-            <Skeleton className="h-8 w-32 rounded-md" />
+            <Skeleton className="h-8 w-32 rounded-[6px]" />
           </div>
-          <div className="border border-border rounded-lg overflow-hidden bg-card">
-            <div className="flex items-center px-4 py-2 border-b border-border bg-muted/60 gap-4">
+          <div className="border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden">
+            <div className="flex items-center px-4 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] gap-4">
               <Skeleton className="h-3 w-8" />
               <Skeleton className="h-3 w-32" />
               <Skeleton className="h-3 w-16 ml-auto" />
             </div>
             {Array.from({ length: 6 }).map((_, index) => (
-              <div key={`ruleset-skeleton-${index}`} className="flex items-center gap-4 px-4 py-3 border-b border-border last:border-0">
-                <Skeleton className="h-7 w-7 rounded-md" />
+              <div key={`ruleset-skeleton-${index}`} className="flex items-center gap-4 px-4 py-3 border-b border-[hsl(var(--ds-border-1))] last:border-0">
+                <Skeleton className="h-7 w-7 rounded-[6px]" />
                 <div className="flex-1 space-y-2">
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-3 w-64" />
@@ -107,7 +107,7 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
   if (loadError && ruleSets.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3">
-        <div className="text-sm text-muted-foreground">{dict.common.error}</div>
+        <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{dict.common.error}</div>
         <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
           {dict.common.refresh}
         </Button>
@@ -120,8 +120,8 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
       <div className="max-w-[1200px] mx-auto w-full px-6 py-6 space-y-4">
         <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-base font-semibold">{dict.rules.title}</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{dict.rules.description}</p>
+            <h1 className="text-[15px] font-semibold">{dict.rules.title}</h1>
+            <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">{dict.rules.description}</p>
           </div>
           {isAdmin && (
             <Button onClick={() => setDialogOpen(true)} size="sm" className="gap-1.5 text-sm">
@@ -133,12 +133,12 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
 
         {ruleSets.length === 0 ? (
           <div className="flex flex-col items-start gap-3 py-20">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-              <Shield className="h-5 w-5 text-muted-foreground" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-[hsl(var(--ds-surface-2))]">
+              <Shield className="h-5 w-5 text-[hsl(var(--ds-text-2))]" />
             </div>
             <div>
-              <h3 className="text-sm font-medium">{dict.rules.noRules}</h3>
-              <p className="text-sm text-muted-foreground mt-0.5">{dict.rules.noRulesDescription}</p>
+              <h3 className="text-[13px] font-medium">{dict.rules.noRules}</h3>
+              <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">{dict.rules.noRulesDescription}</p>
             </div>
             {isAdmin && (
               <Button onClick={() => setDialogOpen(true)} size="sm" className="gap-1.5 mt-1">
@@ -147,8 +147,8 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
             )}
           </div>
         ) : (
-          <div className="border border-border rounded-lg overflow-hidden bg-card">
-            <div className="flex items-center px-4 py-2 border-b border-border bg-muted/60 text-xs font-medium text-muted-foreground gap-4">
+          <div className="border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden">
+            <div className="flex items-center px-4 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[12px] font-medium text-[hsl(var(--ds-text-2))] gap-4">
               <div className="w-8 shrink-0" />
               <div className="flex-1">{dict.common.name}</div>
               <div className="w-24 text-right">{dict.rules.rulesCount.replace('{{count}}', '')}</div>
@@ -160,27 +160,27 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
               return (
                 <div
                   key={rs.id}
-                  className="flex items-center gap-4 px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/30 transition-soft cursor-pointer"
+                  className="flex items-center gap-4 px-4 py-2.5 border-b border-[hsl(var(--ds-border-1))] last:border-0 hover:bg-[hsl(var(--ds-surface-1))] transition-colors duration-100 cursor-pointer"
                   onClick={() => router.push(withOrgPrefix(pathname, `/rules/${rs.id}`))}
                 >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted shrink-0">
-                    <Shield className="size-4 text-muted-foreground" />
+                  <div className="flex h-7 w-7 items-center justify-center rounded-[6px] bg-[hsl(var(--ds-surface-2))] shrink-0">
+                    <Shield className="size-4 text-[hsl(var(--ds-text-2))]" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{rs.name}</span>
+                      <span className="text-[13px] font-medium">{rs.name}</span>
                       {rs.is_global && <Badge size="sm" variant="accent">{dict.rules.global}</Badge>}
                     </div>
                     {rs.description && (
-                      <div className="text-xs text-muted-foreground mt-0.5 truncate">{rs.description}</div>
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5 truncate">{rs.description}</div>
                     )}
                   </div>
                   <div className="w-24 text-right shrink-0">
-                    <span className="text-sm font-medium text-success">{enabled}</span>
-                    <span className="text-sm text-muted-foreground">/{total}</span>
-                    <div className="text-[10px] text-muted-foreground">{dict.rules.enabled}</div>
+                    <span className="text-[13px] font-medium text-success">{enabled}</span>
+                    <span className="text-[13px] text-[hsl(var(--ds-text-2))]">/{total}</span>
+                    <div className="text-[10px] text-[hsl(var(--ds-text-2))]">{dict.rules.enabled}</div>
                   </div>
-                  <ChevronRight className="size-4 text-muted-foreground shrink-0" />
+                  <ChevronRight className="size-4 text-[hsl(var(--ds-text-2))] shrink-0" />
                 </div>
               );
             })}
@@ -196,11 +196,11 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
             </DialogHeader>
             <form onSubmit={handleCreate} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium">{dict.common.name}</label>
+                <label className="text-[12px] font-medium">{dict.common.name}</label>
                 <Input value={name} onChange={e => setName(e.target.value)} placeholder={dict.rules.ruleSetNamePlaceholder} required />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium">{dict.rules.descriptionOptional}</label>
+                <label className="text-[12px] font-medium">{dict.rules.descriptionOptional}</label>
                 <Input value={description} onChange={e => setDescription(e.target.value)} placeholder={dict.rules.descriptionPlaceholder} />
               </div>
               <DialogFooter>

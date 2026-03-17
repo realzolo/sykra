@@ -136,7 +136,7 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">
                 Or configure manually below
               </p>
             </div>
@@ -221,7 +221,7 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
                   />
                 )}
                 {field.help && (
-                  <p className="text-xs text-muted-foreground mt-1">{field.help}</p>
+                  <p className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">{field.help}</p>
                 )}
               </div>
             ))}

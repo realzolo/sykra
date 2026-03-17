@@ -590,10 +590,10 @@ export default function CodebaseClient({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border bg-background px-6 py-3 space-y-3">
+      <div className="border-b border-[hsl(var(--ds-border-1))] bg-background px-6 py-3 space-y-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="text-xs font-medium text-muted-foreground">{dict.projects.branch}</div>
+            <div className="text-xs font-medium text-[hsl(var(--ds-text-2))]">{dict.projects.branch}</div>
             <Select value={branch} onValueChange={handleSelectBranch}>
               <SelectTrigger className="w-56">
                 <SelectValue />
@@ -634,15 +634,15 @@ export default function CodebaseClient({
               <RefreshCcw className="size-4" />
             </Button>
             {syncMessage && (
-              <span className="text-xs text-muted-foreground">{syncMessage}</span>
+              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{syncMessage}</span>
             )}
           </div>
-          <div className="text-xs text-muted-foreground">{project.repo}</div>
+          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{project.repo}</div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-[hsl(var(--ds-text-2))]">
           <button
             type="button"
-            className="text-xs text-muted-foreground hover:text-foreground"
+            className="text-[12px] text-[hsl(var(--ds-text-2))] hover:text-foreground"
             onClick={() => {
               setCurrentPath('');
               setFilePath(null);
@@ -663,7 +663,7 @@ export default function CodebaseClient({
               <button
                 key={nextPath}
                 className={cn(
-                  'text-xs text-muted-foreground hover:text-foreground',
+                  'text-[12px] text-[hsl(var(--ds-text-2))] hover:text-foreground',
                   !isClickable && 'cursor-default text-foreground',
                 )}
                 onClick={() => {
@@ -685,9 +685,9 @@ export default function CodebaseClient({
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
-        <div className="lg:w-80 border-r border-border bg-background/60 overflow-auto">
+        <div className="lg:w-80 border-r border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))/60] overflow-auto">
           <div className="px-4 py-3 flex items-center justify-between">
-            <div className="text-xs font-medium text-muted-foreground">{project.repo}</div>
+            <div className="text-xs font-medium text-[hsl(var(--ds-text-2))]">{project.repo}</div>
             <Button
               variant="ghost"
               size="sm"
@@ -703,7 +703,7 @@ export default function CodebaseClient({
 
           <div className="px-4 pb-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[hsl(var(--ds-text-2))]" />
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -715,7 +715,7 @@ export default function CodebaseClient({
 
           {currentPath && (
             <button
-              className="w-full px-4 py-2 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 flex items-center gap-2"
+              className="w-full px-4 py-2 text-left text-[12px] text-[hsl(var(--ds-text-2))] hover:text-foreground hover:bg-[hsl(var(--ds-surface-1))] flex items-center gap-2"
               onClick={() => {
                 setCurrentPath(parentPath);
                 setFilePath(null);
@@ -747,7 +747,7 @@ export default function CodebaseClient({
           )}
 
           {!treeLoading && !treeError && filteredEntries.length === 0 && (
-            <div className="px-4 py-6 text-xs text-muted-foreground">
+            <div className="px-4 py-6 text-[12px] text-[hsl(var(--ds-text-2))]">
               {search.trim()
                 ? dict.projects.codebaseNoMatches
                 : dict.projects.codebaseEmpty}
@@ -764,18 +764,18 @@ export default function CodebaseClient({
                     type="button"
                     onClick={() => handleSelectEntry(entry)}
                     className={cn(
-                      'w-full px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-muted/40',
-                      isActive && 'bg-muted/40 text-foreground'
+                      'w-full px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-[hsl(var(--ds-surface-1))]',
+                      isActive && 'bg-[hsl(var(--ds-surface-1))] text-foreground'
                     )}
                   >
                     {entry.type === 'tree' ? (
                       <Folder className="size-4 text-accent" />
                     ) : (
-                      <FileText className="size-4 text-muted-foreground" />
+                      <FileText className="size-4 text-[hsl(var(--ds-text-2))]" />
                     )}
                     <span className="truncate flex-1">{entry.name}</span>
                     {entry.type === 'blob' && entry.size != null && (
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-[10px] text-[hsl(var(--ds-text-2))]">
                         {formatBytes(entry.size)}
                       </span>
                     )}
@@ -787,12 +787,12 @@ export default function CodebaseClient({
         </div>
 
         <div className="flex-1 overflow-hidden flex flex-col bg-background">
-          <div className="px-6 py-4 border-b border-border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-xs text-muted-foreground truncate">
+          <div className="px-6 py-4 border-b border-[hsl(var(--ds-border-1))] flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))] truncate">
               {filePath ? filePath : dict.projects.codebaseSelectFile}
             </div>
             {filePath && (
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="flex items-center gap-3 text-[12px] text-[hsl(var(--ds-text-2))]">
                 {fileData && !fileData.isBinary && !fileData.truncated && (
                   <span>{dict.projects.codebaseLines.replace('{{count}}', String(lines.length))}</span>
                 )}
@@ -825,11 +825,11 @@ export default function CodebaseClient({
               )}
 
               {!fileLoading && !fileError && fileData && fileData.truncated && (
-                <div className="px-6 py-6 text-xs text-muted-foreground">{dict.projects.codebaseFileTooLarge}</div>
+                <div className="px-6 py-6 text-[12px] text-[hsl(var(--ds-text-2))]">{dict.projects.codebaseFileTooLarge}</div>
               )}
 
               {!fileLoading && !fileError && fileData && fileData.isBinary && (
-                <div className="px-6 py-6 text-xs text-muted-foreground">{dict.projects.codebaseBinaryFile}</div>
+                <div className="px-6 py-6 text-[12px] text-[hsl(var(--ds-text-2))]">{dict.projects.codebaseBinaryFile}</div>
               )}
 
               {!fileLoading && !fileError && shouldRenderFile && fileData && (
@@ -846,7 +846,7 @@ export default function CodebaseClient({
               )}
 
               {!fileLoading && !fileError && !fileData && (
-                <div className="px-6 py-6 text-xs text-muted-foreground">{dict.projects.codebaseSelectFile}</div>
+                <div className="px-6 py-6 text-[12px] text-[hsl(var(--ds-text-2))]">{dict.projects.codebaseSelectFile}</div>
               )}
 
               {draftSelection && typeof document !== 'undefined' && createPortal(
@@ -855,18 +855,18 @@ export default function CodebaseClient({
                   className="fixed z-50"
                   style={{ left: draftSelection.anchor.x, top: draftSelection.anchor.y, width: COMPOSER_WIDTH }}
                 >
-                  <div className="relative rounded-2xl border border-border bg-background/95 shadow-xl backdrop-blur">
+                  <div className="relative rounded-[12px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-background-2))]">
                     <button
                       type="button"
-                      className="absolute right-2 top-2 rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                      className="absolute right-2 top-2 rounded-[4px] p-1 text-[hsl(var(--ds-text-2))] hover:text-foreground hover:bg-[hsl(var(--ds-surface-1))]"
                       onClick={closeComposer}
                       aria-label={dict.common.close}
                     >
                       <X className="size-3.5" />
                     </button>
                     <div className="px-4 pt-5 pb-2 flex items-center gap-2">
-                      <Users className="size-3.5 text-muted-foreground" />
-                      <span className="text-[11px] text-muted-foreground">{dict.projects.codebaseAssignees}</span>
+                      <Users className="size-3.5 text-[hsl(var(--ds-text-2))]" />
+                      <span className="text-[11px] text-[hsl(var(--ds-text-2))]">{dict.projects.codebaseAssignees}</span>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]">
@@ -883,7 +883,7 @@ export default function CodebaseClient({
                             </div>
                           )}
                           {!membersLoading && activeMembers.length === 0 && (
-                            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                            <div className="px-2 py-1.5 text-[12px] text-[hsl(var(--ds-text-2))]">
                               {dict.projects.codebaseNoAssignees}
                             </div>
                           )}
@@ -907,14 +907,14 @@ export default function CodebaseClient({
                         {selectedAssignees.map((member) => (
                           <span
                             key={member.user_id}
-                            className="rounded-full bg-muted/70 px-2 py-0.5 text-[10px] text-muted-foreground"
+                            className="rounded-[4px] bg-[hsl(var(--ds-surface-2))] px-2 py-0.5 text-[10px] text-[hsl(var(--ds-text-2))]"
                           >
                             {member.email}
                           </span>
                         ))}
                       </div>
                     ) : (
-                      <div className="px-4 pb-2 text-[11px] text-muted-foreground">
+                      <div className="px-4 pb-2 text-[11px] text-[hsl(var(--ds-text-2))]">
                         {dict.projects.codebaseNoAssignees}
                       </div>
                     )}
@@ -936,7 +936,7 @@ export default function CodebaseClient({
                         }}
                       />
                     </div>
-                    <div className="flex items-center justify-between border-t border-border px-3 py-2 text-muted-foreground">
+                    <div className="flex items-center justify-between border-t border-[hsl(var(--ds-border-1))] px-3 py-2 text-[hsl(var(--ds-text-2))]">
                       <div className="flex items-center gap-3 text-[11px]">
                         <button type="button" className="hover:text-foreground" aria-label="Add">
                           <Plus className="size-4" />
@@ -959,7 +959,7 @@ export default function CodebaseClient({
                       </Button>
                     </div>
                   </div>
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-[hsl(var(--ds-text-2))]">
                     <span>{dict.projects.codebaseMarkdownHint}</span>
                     <Button
                       variant="ghost"
@@ -984,8 +984,8 @@ export default function CodebaseClient({
           </div>
 
           {filePath && (
-            <div className="border-t border-border bg-background/60">
-              <div className="px-6 py-3 text-xs text-muted-foreground flex items-center justify-between">
+            <div className="border-t border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))/60]">
+              <div className="px-6 py-3 text-[12px] text-[hsl(var(--ds-text-2))] flex items-center justify-between">
                 <span>
                   {dict.projects.codebaseCommentsCount.replace('{{count}}', String(comments.length))}
                 </span>
@@ -997,7 +997,7 @@ export default function CodebaseClient({
                 <div className="px-6 pb-6 space-y-3">
                   {Array.from({ length: 3 }).map((_, index) => (
                     <div key={`comment-skeleton-${index}`} className="flex gap-3">
-                      <Skeleton className="size-7 rounded-full" />
+                      <Skeleton className="size-7 rounded-[4px]" />
                       <div className="flex-1 space-y-2">
                         <Skeleton className="h-3 w-40" />
                         <Skeleton className="h-3 w-full" />
@@ -1009,7 +1009,7 @@ export default function CodebaseClient({
               )}
 
               {!commentsLoading && !commentError && comments.length === 0 && (
-                <div className="px-6 pb-6 text-xs text-muted-foreground">
+                <div className="px-6 pb-6 text-[12px] text-[hsl(var(--ds-text-2))]">
                   {dict.projects.codebaseNoComments}
                 </div>
               )}
@@ -1025,19 +1025,19 @@ export default function CodebaseClient({
                         key={comment.id}
                         className="flex gap-3 px-6 py-4"
                       >
-                        <div className="size-7 rounded-full bg-muted flex items-center justify-center text-[10px] font-medium text-muted-foreground">
+                        <div className="size-7 rounded-[4px] bg-muted flex items-center justify-center text-[10px] font-medium text-[hsl(var(--ds-text-2))]">
                           {initialsFromEmail(comment.author_email)}
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 text-xs">
                             <span className="font-medium text-foreground">{comment.author_email}</span>
-                            <span className="text-muted-foreground">{formatDate(comment.created_at)}</span>
-                            <span className="text-muted-foreground">
+                            <span className="text-[hsl(var(--ds-text-2))]">{formatDate(comment.created_at)}</span>
+                            <span className="text-[hsl(var(--ds-text-2))]">
                               {dict.projects.codebaseLine} {lineEnd}
                             </span>
                           </div>
                           {comment.selection_text && (
-                            <pre className="mt-2 rounded-md bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground whitespace-pre-wrap">
+                            <pre className="mt-2 rounded-md bg-[hsl(var(--ds-surface-1))] px-3 py-2 text-[11px] text-[hsl(var(--ds-text-2))] whitespace-pre-wrap">
                               {comment.selection_text}
                             </pre>
                           )}
@@ -1046,7 +1046,7 @@ export default function CodebaseClient({
                               {comment.assignees.map((assignee) => (
                                 <span
                                   key={`${comment.id}-${assignee.user_id}`}
-                                  className="rounded-full bg-muted/70 px-2 py-0.5 text-[10px] text-muted-foreground"
+                                  className="rounded-[4px] bg-[hsl(var(--ds-surface-2))] px-2 py-0.5 text-[10px] text-[hsl(var(--ds-text-2))]"
                                 >
                                   {assignee.email ?? assignee.user_id.slice(0, 8)}
                                 </span>

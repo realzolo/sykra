@@ -160,40 +160,40 @@ export default function RuleSetDetailClient({
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <div className="border-b border-border bg-background shrink-0">
+        <div className="border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] shrink-0">
           <div className="flex items-center gap-3 px-6 py-4 max-w-[1200px] mx-auto w-full">
-            <Skeleton className="h-8 w-8 rounded-md" />
+            <Skeleton className="h-8 w-8 rounded-[6px]" />
             <Skeleton className="h-4 w-4 rounded" />
             <div className="flex-1 space-y-2">
               <Skeleton className="h-4 w-48" />
               <Skeleton className="h-3 w-64" />
             </div>
             <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-8 w-28 rounded-md" />
+            <Skeleton className="h-8 w-28 rounded-[6px]" />
           </div>
         </div>
         <div className="flex-1 overflow-auto">
           <div className="max-w-[1200px] mx-auto w-full px-6 py-6 space-y-4">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div key={`rulecat-skeleton-${index}`} className="border border-border rounded-lg overflow-hidden bg-card">
-                <div className="flex items-center gap-2 px-6 py-2 border-b border-border bg-muted/40">
-                  <Skeleton className="h-4 w-20 rounded-full" />
+              <div key={`rulecat-skeleton-${index}`} className="border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden">
+                <div className="flex items-center gap-2 px-6 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))]">
+                  <Skeleton className="h-4 w-20 rounded-[4px]" />
                   <Skeleton className="h-3 w-14" />
                 </div>
                 {Array.from({ length: 2 }).map((_, ruleIndex) => (
-                  <div key={`rule-skeleton-${index}-${ruleIndex}`} className="flex items-start gap-3 px-6 py-4 border-b border-border last:border-0">
-                    <Skeleton className="h-5 w-10 rounded-full" />
+                  <div key={`rule-skeleton-${index}-${ruleIndex}`} className="flex items-start gap-3 px-6 py-4 border-b border-[hsl(var(--ds-border-1))] last:border-0">
+                    <Skeleton className="h-5 w-10 rounded-[4px]" />
                     <div className="flex-1 space-y-2">
                       <div className="flex items-center gap-2">
                         <Skeleton className="h-4 w-40" />
-                        <Skeleton className="h-4 w-16 rounded-full" />
+                        <Skeleton className="h-4 w-16 rounded-[4px]" />
                         <Skeleton className="h-3 w-12" />
                       </div>
                       <Skeleton className="h-10 w-full" />
                     </div>
                     <div className="flex gap-1">
-                      <Skeleton className="h-8 w-8 rounded-md" />
-                      <Skeleton className="h-8 w-8 rounded-md" />
+                      <Skeleton className="h-8 w-8 rounded-[6px]" />
+                      <Skeleton className="h-8 w-8 rounded-[6px]" />
                     </div>
                   </div>
                 ))}
@@ -208,7 +208,7 @@ export default function RuleSetDetailClient({
   if (!ruleSet || loadError) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3">
-        <div className="text-sm text-muted-foreground">{dict.common.error}</div>
+        <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{dict.common.error}</div>
         <Button
           variant="outline"
           size="sm"
@@ -223,7 +223,7 @@ export default function RuleSetDetailClient({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="border-b border-border bg-background shrink-0">
+      <div className="border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] shrink-0">
         <div className="flex items-center gap-3 px-6 py-4 max-w-[1200px] mx-auto w-full">
           <Button
             size="icon"
@@ -232,15 +232,15 @@ export default function RuleSetDetailClient({
           >
             <ArrowLeft className="size-4" />
           </Button>
-          <Shield className="size-4 text-muted-foreground shrink-0" />
+          <Shield className="size-4 text-[hsl(var(--ds-text-2))] shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-base font-semibold">{ruleSet.name}</span>
+              <span className="text-[13px] font-semibold">{ruleSet.name}</span>
               {ruleSet.is_global && <Badge size="sm" variant="accent">{dict.rules.global}</Badge>}
             </div>
-            {ruleSet.description && <div className="text-xs text-muted-foreground mt-0.5">{ruleSet.description}</div>}
+            {ruleSet.description && <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">{ruleSet.description}</div>}
           </div>
-          <span className="text-sm text-muted-foreground">
+          <span className="text-[13px] text-[hsl(var(--ds-text-2))]">
             <span className="text-success font-semibold">{enabledCount}</span>/{rules.length} {dict.rules.enabled}
           </span>
           {isAdmin && (
@@ -256,12 +256,12 @@ export default function RuleSetDetailClient({
       <div className="flex-1 overflow-auto">
         {rules.length === 0 ? (
           <div className="max-w-[1200px] mx-auto w-full flex flex-col items-start gap-3 px-6 py-20">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-              <Shield className="size-5 text-muted-foreground" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-[hsl(var(--ds-surface-2))]">
+              <Shield className="size-5 text-[hsl(var(--ds-text-2))]" />
             </div>
             <div>
-              <h3 className="text-sm font-medium">{dict.rules.noRulesInSet}</h3>
-              <p className="text-sm text-muted-foreground mt-0.5">{dict.rules.noRulesInSetDescription}</p>
+              <h3 className="text-[13px] font-medium">{dict.rules.noRulesInSet}</h3>
+              <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">{dict.rules.noRulesInSetDescription}</p>
             </div>
             {isAdmin && (
               <Button size="sm" onClick={openAdd} className="gap-1.5 mt-1">
@@ -276,14 +276,14 @@ export default function RuleSetDetailClient({
               if (catRules.length === 0) return null;
               const catLabel = dict.rules.category[cat as keyof typeof dict.rules.category] ?? cat;
               return (
-                <div key={cat} className="border border-border rounded-lg overflow-hidden bg-card">
+                <div key={cat} className="border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden">
                   {/* Category header */}
-                  <div className="flex items-center gap-2 px-6 py-2 border-b border-border bg-muted/40">
+                  <div className="flex items-center gap-2 px-6 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))]">
                     <Badge size="sm" variant={CAT_COLOR[cat]}>{catLabel}</Badge>
-                    <span className="text-xs text-muted-foreground">{dict.rules.rulesCount.replace('{{count}}', String(catRules.length))}</span>
+                    <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.rules.rulesCount.replace('{{count}}', String(catRules.length))}</span>
                   </div>
                   {catRules.map(rule => (
-                    <div key={rule.id} className={['flex items-start gap-3 px-6 py-3.5 border-b border-border last:border-0 hover:bg-muted/20 transition-colors', !rule.is_enabled ? 'opacity-50' : ''].join(' ')}>
+                    <div key={rule.id} className={['flex items-start gap-3 px-6 py-3.5 border-b border-[hsl(var(--ds-border-1))] last:border-0 hover:bg-[hsl(var(--ds-surface-1))] transition-colors duration-100', !rule.is_enabled ? 'opacity-50' : ''].join(' ')}>
                       <Switch
                         checked={rule.is_enabled}
                         disabled={!isAdmin || togglingId === rule.id}
@@ -292,11 +292,11 @@ export default function RuleSetDetailClient({
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                          <span className="text-sm font-medium">{rule.name}</span>
+                          <span className="text-[13px] font-medium">{rule.name}</span>
                           <Badge size="sm" variant={SEV_COLOR[rule.severity]}>{dict.rules.severity[rule.severity]}</Badge>
-                          <span className="text-xs text-muted-foreground">{dict.rules.weight} {rule.weight}</span>
+                          <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.rules.weight} {rule.weight}</span>
                         </div>
-                        <div className="text-xs text-muted-foreground leading-relaxed bg-muted rounded px-3 py-2 font-mono whitespace-pre-wrap">
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] leading-relaxed bg-[hsl(var(--ds-surface-1))] rounded-[6px] px-3 py-2 font-mono whitespace-pre-wrap">
                           {rule.prompt}
                         </div>
                       </div>
@@ -341,7 +341,7 @@ export default function RuleSetDetailClient({
             <form onSubmit={handleSaveRule} className="flex flex-col gap-4">
               <div className="flex gap-3">
                 <div className="flex flex-col gap-1.5 flex-1">
-                  <label className="text-sm font-medium">{dict.rules.categoryLabel}</label>
+                  <label className="text-[12px] font-medium">{dict.rules.categoryLabel}</label>
                   <Select value={fCategory} onValueChange={(value) => setFCategory(value)}>
                     <SelectTrigger>
                       <SelectValue />
@@ -354,7 +354,7 @@ export default function RuleSetDetailClient({
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1.5 w-[130px]">
-                  <label className="text-sm font-medium">{dict.rules.severityLabel}</label>
+                  <label className="text-[12px] font-medium">{dict.rules.severityLabel}</label>
                   <Select value={fSeverity} onValueChange={(value) => setFSeverity(value as 'error' | 'warning' | 'info')}>
                     <SelectTrigger>
                       <SelectValue />
@@ -368,16 +368,16 @@ export default function RuleSetDetailClient({
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium">{dict.rules.ruleNameLabel}</label>
+                <label className="text-[12px] font-medium">{dict.rules.ruleNameLabel}</label>
                 <Input value={fName} onChange={e => setFName(e.target.value)} placeholder={dict.rules.ruleNamePlaceholder} required />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium">{dict.rules.promptLabel}</label>
+                <label className="text-[12px] font-medium">{dict.rules.promptLabel}</label>
                 <Textarea value={fPrompt} onChange={e => setFPrompt(e.target.value)}
-                  placeholder={dict.rules.promptPlaceholder} required rows={4} className="font-mono text-sm" />
+                  placeholder={dict.rules.promptPlaceholder} required rows={4} className="font-mono text-[13px]" />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium">{dict.rules.weightLabel}</label>
+                <label className="text-[12px] font-medium">{dict.rules.weightLabel}</label>
                 <Input type="number" min={0} max={100} step={5} value={String(fWeight)}
                   onChange={e => setFWeight(Number(e.target.value))} className="w-[120px]" />
               </div>

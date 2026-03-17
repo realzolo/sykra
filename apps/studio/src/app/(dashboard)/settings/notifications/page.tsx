@@ -76,13 +76,13 @@ export default function NotificationsSettingsPage() {
 
           <div className="space-y-6">
             <div>
-              <div className="text-heading-24">Notifications</div>
-              <div className="text-copy-14 text-muted-foreground mt-1">
+              <div className="text-[15px] font-semibold">Notifications</div>
+              <div className="text-[13px] text-[hsl(var(--ds-text-2))] mt-1">
                 Configure how you want to be notified about pipeline runs and reports.
               </div>
             </div>
 
-            <Card className="shadow-elevation-1">
+            <Card>
               <CardContent className="p-5 space-y-4">
                 {loading && (
                   <div className="space-y-3">
@@ -96,8 +96,8 @@ export default function NotificationsSettingsPage() {
                   <>
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <div className="text-sm font-medium">Email notifications</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
+                        <div className="text-[13px] font-medium">Email notifications</div>
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                           Receive email updates when runs complete.
                         </div>
                       </div>
@@ -109,8 +109,8 @@ export default function NotificationsSettingsPage() {
 
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <div className="text-sm font-medium">Notify on completion</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
+                        <div className="text-[13px] font-medium">Notify on completion</div>
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                           Pipeline run completed (success or failure).
                         </div>
                       </div>
@@ -123,8 +123,8 @@ export default function NotificationsSettingsPage() {
 
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <div className="text-sm font-medium">Notify on critical issues</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
+                        <div className="text-[13px] font-medium">Notify on critical issues</div>
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                           Reports with critical/high issues.
                         </div>
                       </div>
@@ -136,8 +136,8 @@ export default function NotificationsSettingsPage() {
                     </div>
 
                     <div className="grid gap-2">
-                      <div className="text-sm font-medium">Score threshold</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-[13px] font-medium">Score threshold</div>
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
                         Only notify when the score is below this threshold (0-100). Leave empty to disable.
                       </div>
                       <Input
@@ -165,8 +165,8 @@ export default function NotificationsSettingsPage() {
                     </div>
 
                     <div className="grid gap-2">
-                      <div className="text-sm font-medium">Slack webhook (optional)</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-[13px] font-medium">Slack webhook (optional)</div>
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
                         Not implemented yet. Stored for future integrations.
                       </div>
                       <Input
@@ -179,8 +179,8 @@ export default function NotificationsSettingsPage() {
 
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <div className="text-sm font-medium">Daily digest</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
+                        <div className="text-[13px] font-medium">Daily digest</div>
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                           Not implemented yet.
                         </div>
                       </div>
@@ -193,8 +193,8 @@ export default function NotificationsSettingsPage() {
 
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <div className="text-sm font-medium">Weekly digest</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
+                        <div className="text-[13px] font-medium">Weekly digest</div>
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                           Not implemented yet.
                         </div>
                       </div>

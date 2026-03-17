@@ -138,7 +138,7 @@ export default function EditVCSIntegrationModal({ integration, onClose, onSucces
                 onChange={(e) => setConfig((prev) => ({ ...prev, [field.key]: e.target.value }))}
               />
               {field.help && (
-                <p className="text-xs text-muted-foreground mt-1">{field.help}</p>
+                <p className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">{field.help}</p>
               )}
             </div>
           ))}

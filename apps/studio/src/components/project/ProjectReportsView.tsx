@@ -96,7 +96,7 @@ export default function ProjectReportsView({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
+      <div className="px-6 py-4 border-b border-[hsl(var(--ds-border-1))] bg-background shrink-0">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-[16px] font-semibold text-foreground">{dict.reports.title}</div>
@@ -118,7 +118,7 @@ export default function ProjectReportsView({
       </div>
 
       {/* Column headers */}
-      <div className="flex items-center px-6 py-2 border-b border-border bg-[hsl(var(--ds-surface-1))] text-[11px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider gap-4 shrink-0">
+      <div className="flex items-center px-6 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[11px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider gap-4 shrink-0">
         <div className="flex-1">{dict.reports.commit}</div>
         <div className="w-20 text-center">{dict.reports.score}</div>
         <div className="w-24 text-center">{dict.common.status}</div>
@@ -131,21 +131,21 @@ export default function ProjectReportsView({
         {loading ? (
           <div className="flex flex-col gap-px">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex items-center px-6 py-3 gap-4 border-b border-border">
+              <div key={i} className="flex items-center px-6 py-3 gap-4 border-b border-[hsl(var(--ds-border-1))]">
                 <Skeleton className="h-4 flex-1" />
                 <Skeleton className="h-4 w-20" />
-                <Skeleton className="h-5 w-24 rounded-full" />
+                <Skeleton className="h-5 w-24 rounded-[4px]" />
                 <Skeleton className="h-4 w-36" />
               </div>
             ))}
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-start gap-3 px-6 py-20">
-            <div className="p-3 rounded-lg bg-muted">
-              <FileText className="size-5 text-muted-foreground" />
+            <div className="p-3 rounded-[8px] bg-muted">
+              <FileText className="size-5 text-[hsl(var(--ds-text-2))]" />
             </div>
             <div className="text-sm font-medium text-foreground">{dict.reports.noReports}</div>
-            <div className="text-sm text-muted-foreground">{dict.reports.noReportsDescription}</div>
+            <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{dict.reports.noReportsDescription}</div>
           </div>
         ) : (
           filtered.map(report => {
@@ -156,7 +156,7 @@ export default function ProjectReportsView({
             return (
               <div
                 key={report.id}
-                className="flex items-center px-6 py-3 gap-4 border-b border-border hover:bg-[hsl(var(--ds-surface-1))] cursor-pointer group transition-colors duration-100"
+                className="flex items-center px-6 py-3 gap-4 border-b border-[hsl(var(--ds-border-1))] hover:bg-[hsl(var(--ds-surface-1))] cursor-pointer group transition-colors duration-100"
                 onClick={() => router.push(withOrgPrefix(pathname, `/projects/${projectId}/reports/${report.id}`))}
               >
                 <div className="flex-1 min-w-0">
@@ -175,13 +175,13 @@ export default function ProjectReportsView({
                       {report.score}
                     </span>
                   ) : (
-                    <span className="text-sm text-muted-foreground">—</span>
+                    <span className="text-[13px] text-[hsl(var(--ds-text-2))]">—</span>
                   )}
                 </div>
                 <div className="w-24 flex justify-center">
                   <Badge variant={chip.variant} size="sm">{chip.label}</Badge>
                 </div>
-                <div className="w-36 text-xs text-muted-foreground">
+                <div className="w-36 text-[12px] text-[hsl(var(--ds-text-2))]">
                   {new Date(report.created_at).toLocaleString()}
                 </div>
                 <div className="w-8 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -193,7 +193,7 @@ export default function ProjectReportsView({
                     disabled={deleting === report.id}
                     aria-label={dict.common.delete}
                   >
-                    <Trash2 className="size-3.5 text-muted-foreground" />
+                    <Trash2 className="size-3.5 text-[hsl(var(--ds-text-2))]" />
                   </Button>
                 </div>
               </div>

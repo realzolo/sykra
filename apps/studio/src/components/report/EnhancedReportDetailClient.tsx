@@ -98,46 +98,46 @@ function formatDate(d: string, dict: Dictionary) {
 function ReportDetailSkeleton() {
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border shrink-0 bg-card">
+      <div className="border-b border-[hsl(var(--ds-border-1))] shrink-0 bg-[hsl(var(--ds-background-2))]">
         <div className="flex items-center gap-3 px-6 h-16 max-w-[1200px] mx-auto w-full">
-          <Skeleton className="h-8 w-8 rounded-md" />
+          <Skeleton className="h-8 w-8 rounded-[6px]" />
           <div className="flex-1 min-w-0 space-y-2">
             <Skeleton className="h-4 w-32" />
             <Skeleton className="h-3 w-48" />
           </div>
-          <Skeleton className="h-7 w-28 rounded-full" />
+          <Skeleton className="h-7 w-28 rounded-[4px]" />
         </div>
       </div>
       <div className="flex-1 overflow-auto">
         <div className="p-6 space-y-6 max-w-[1200px] mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="rounded-xl border border-border bg-card p-6 space-y-3">
+            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-6 space-y-3">
               <Skeleton className="h-10 w-24" />
               <Skeleton className="h-3 w-12" />
               <Skeleton className="h-4 w-28" />
             </div>
-            <div className="md:col-span-2 rounded-xl border border-border bg-card p-6 space-y-3">
+            <div className="md:col-span-2 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-6 space-y-3">
               {Array.from({ length: 4 }).map((_, index) => (
                 <div key={`score-skeleton-${index}`} className="flex items-center gap-3">
                   <Skeleton className="h-3 w-24" />
-                  <Skeleton className="h-2 w-full rounded-full" />
+                  <Skeleton className="h-2 w-full rounded-[4px]" />
                   <Skeleton className="h-3 w-10" />
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-card">
+          <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))]">
             <div className="px-6 py-4 flex gap-6 flex-wrap items-center">
               <Skeleton className="h-4 w-28" />
               <Skeleton className="h-4 w-16" />
               <Skeleton className="h-4 w-16" />
               <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-7 w-28 rounded-md ml-auto" />
+              <Skeleton className="h-7 w-28 rounded-[6px] ml-auto" />
             </div>
-            <div className="border-t border-border">
+            <div className="border-t border-[hsl(var(--ds-border-1))]">
               {Array.from({ length: 3 }).map((_, index) => (
-                <div key={`commit-row-skeleton-${index}`} className="flex items-center gap-3 px-6 py-3 border-b border-border last:border-0">
+                <div key={`commit-row-skeleton-${index}`} className="flex items-center gap-3 px-6 py-3 border-b border-[hsl(var(--ds-border-1))] last:border-0">
                   <Skeleton className="h-4 w-12" />
                   <Skeleton className="h-4 w-1/2" />
                   <Skeleton className="h-3 w-20 ml-auto" />
@@ -146,19 +146,19 @@ function ReportDetailSkeleton() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-card">
-            <div className="border-b border-border px-2 py-2">
+          <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))]">
+            <div className="border-b border-[hsl(var(--ds-border-1))] px-2 py-2">
               <div className="flex items-center gap-2 h-11">
-                <Skeleton className="h-6 w-24 rounded-full" />
-                <Skeleton className="h-6 w-24 rounded-full" />
-                <Skeleton className="h-6 w-28 rounded-full" />
+                <Skeleton className="h-6 w-24 rounded-[4px]" />
+                <Skeleton className="h-6 w-24 rounded-[4px]" />
+                <Skeleton className="h-6 w-28 rounded-[4px]" />
               </div>
             </div>
             <div className="p-6 space-y-3">
               {Array.from({ length: 4 }).map((_, index) => (
-                <div key={`issue-skeleton-${index}`} className="rounded-lg border border-border bg-muted/10 p-4 space-y-2">
+                <div key={`issue-skeleton-${index}`} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-muted/10 p-4 space-y-2">
                   <div className="flex items-center gap-2">
-                    <Skeleton className="h-4 w-16 rounded-full" />
+                    <Skeleton className="h-4 w-16 rounded-[4px]" />
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="h-3 w-16" />
                   </div>
@@ -169,7 +169,7 @@ function ReportDetailSkeleton() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-6 space-y-2">
+          <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-6 space-y-2">
             <Skeleton className="h-4 w-24" />
             <Skeleton className="h-3 w-full" />
             <Skeleton className="h-3 w-5/6" />
@@ -288,7 +288,7 @@ export default function EnhancedReportDetailClient({
   if (!report || loadError) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3">
-        <div className="text-sm text-muted-foreground">{dict.common.error}</div>
+        <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{dict.common.error}</div>
         <Button
           variant="outline"
           size="sm"
@@ -383,7 +383,7 @@ export default function EnhancedReportDetailClient({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="border-b border-border shrink-0 bg-card">
+      <div className="border-b border-[hsl(var(--ds-border-1))] shrink-0 bg-[hsl(var(--ds-background-2))]">
         <div className="flex items-center gap-3 px-6 h-16 max-w-[1200px] mx-auto w-full">
           <Link href={withOrgPrefix(pathname, `/projects/${report.project_id}/reports`)}>
             <Button size="icon" variant="ghost">
@@ -393,9 +393,9 @@ export default function EnhancedReportDetailClient({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold">{dict.reportDetail.title}</h2>
-              <code className="text-xs font-mono text-muted-foreground">#{report.id.slice(0, 8)}</code>
+              <code className="text-xs font-mono text-[hsl(var(--ds-text-2))]">#{report.id.slice(0, 8)}</code>
             </div>
-            <div className="text-xs text-muted-foreground truncate">{report.projects?.name}</div>
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))] truncate">{report.projects?.name}</div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {report.status === 'done' && (
@@ -427,9 +427,9 @@ export default function EnhancedReportDetailClient({
             <Skeleton className="h-3 w-80 mx-auto" />
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <Skeleton className="h-20 w-24 rounded-lg" />
-            <Skeleton className="h-20 w-24 rounded-lg" />
-            <Skeleton className="h-20 w-24 rounded-lg" />
+            <Skeleton className="h-20 w-24 rounded-[8px]" />
+            <Skeleton className="h-20 w-24 rounded-[8px]" />
+            <Skeleton className="h-20 w-24 rounded-[8px]" />
           </div>
         </div>
       )}
@@ -439,7 +439,7 @@ export default function EnhancedReportDetailClient({
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <AlertCircle className="size-12 text-danger" />
           <div className="text-sm font-semibold">{dict.reportDetail.analysisFailed}</div>
-          <div className="text-sm text-muted-foreground">{report.error_message}</div>
+          <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{report.error_message}</div>
           <Button disabled={retrying} onClick={handleRetry} className="mt-2 gap-2">
             <RefreshCw className="size-4" />{dict.reportDetail.reanalyze}
           </Button>
@@ -456,7 +456,7 @@ export default function EnhancedReportDetailClient({
               <Card>
                 <CardContent className="p-6 text-center">
                   <div className={['text-5xl font-bold', scoreColorClass(report.score ?? 0)].join(' ')}>{report.score}</div>
-                  <div className="text-sm text-muted-foreground mt-1">/ 100</div>
+                  <div className="text-[13px] text-[hsl(var(--ds-text-2))] mt-1">/ 100</div>
                   <div className={['text-sm font-semibold mt-2', scoreColorClass(report.score ?? 0)].join(' ')}>
                     {scoreLabel(report.score ?? 0)}
                   </div>
@@ -466,9 +466,9 @@ export default function EnhancedReportDetailClient({
                 <CardContent className="p-6 space-y-3">
                   {Object.entries(report.category_scores ?? {}).map(([k, v]) => (
                     <div key={k} className="flex items-center gap-3">
-                      <div className="w-20 text-sm text-muted-foreground shrink-0">{dict.reports.categories[k as keyof typeof dict.reports.categories] ?? k}</div>
-                      <div className="flex-1 bg-muted rounded-full h-2">
-                        <div className={['h-2 rounded-full', scoreBarClass(v)].join(' ')} style={{ width: `${v}%` }} />
+                      <div className="w-20 text-[13px] text-[hsl(var(--ds-text-2))] shrink-0">{dict.reports.categories[k as keyof typeof dict.reports.categories] ?? k}</div>
+                      <div className="flex-1 bg-muted rounded-[4px] h-2">
+                        <div className={['h-2 rounded-[4px]', scoreBarClass(v)].join(' ')} style={{ width: `${v}%` }} />
                       </div>
                       <div className={['w-10 text-right text-sm font-bold', scoreColorClass(v)].join(' ')}>{v}</div>
                     </div>
@@ -488,13 +488,13 @@ export default function EnhancedReportDetailClient({
                 </CardHeader>
                 <CardContent className="px-6 pb-6">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div><div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.changeType}</div><div className="text-sm font-medium">{report.context_analysis.changeType}</div></div>
-                    <div><div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.riskLevel}</div><div className="text-sm font-medium">{report.context_analysis.riskLevel}</div></div>
-                    <div><div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.breakingChanges}</div><div className="text-sm font-medium">{report.context_analysis.breakingChanges ? dict.reportDetail.yes : dict.reportDetail.no}</div></div>
-                    <div><div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.affectedModules}</div><div className="text-sm font-medium">{dict.reportDetail.modules.replace('{{count}}', String(report.context_analysis.affectedModules.length))}</div></div>
+                    <div><div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.reportDetail.changeType}</div><div className="text-sm font-medium">{report.context_analysis.changeType}</div></div>
+                    <div><div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.reportDetail.riskLevel}</div><div className="text-sm font-medium">{report.context_analysis.riskLevel}</div></div>
+                    <div><div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.reportDetail.breakingChanges}</div><div className="text-sm font-medium">{report.context_analysis.breakingChanges ? dict.reportDetail.yes : dict.reportDetail.no}</div></div>
+                    <div><div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.reportDetail.affectedModules}</div><div className="text-sm font-medium">{dict.reportDetail.modules.replace('{{count}}', String(report.context_analysis.affectedModules.length))}</div></div>
                   </div>
                   <div className="mt-4">
-                    <div className="text-xs text-muted-foreground mb-1">{dict.reportDetail.businessImpact}</div>
+                    <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.reportDetail.businessImpact}</div>
                     <div className="text-sm">{report.context_analysis.businessImpact}</div>
                   </div>
                 </CardContent>
@@ -505,10 +505,10 @@ export default function EnhancedReportDetailClient({
             <Card>
               <CardContent className="p-0">
                 <div className="px-6 py-4 flex gap-6 flex-wrap items-center">
-                  <div className="text-sm"><span className="text-muted-foreground">{dict.reportDetail.changedFiles}: </span><strong>{report.total_files ?? 0}</strong></div>
+                  <div className="text-sm"><span className="text-[hsl(var(--ds-text-2))]">{dict.reportDetail.changedFiles}: </span><strong>{report.total_files ?? 0}</strong></div>
                   <div className="text-sm text-success font-semibold">+{report.total_additions ?? 0}</div>
                   <div className="text-sm text-danger font-semibold">-{report.total_deletions ?? 0}</div>
-                  <div className="text-sm"><span className="text-muted-foreground">{dict.reportDetail.commits}: </span><strong>{report.commits?.length ?? 0}</strong></div>
+                  <div className="text-sm"><span className="text-[hsl(var(--ds-text-2))]">{dict.reportDetail.commits}: </span><strong>{report.commits?.length ?? 0}</strong></div>
                   <Button variant="ghost" size="sm" onClick={() => setCommitsExpanded(e => !e)} className="ml-auto gap-2">
                     {commitsExpanded ? <><ChevronUp className="size-4" />{dict.reportDetail.hideCommits}</> : <><ChevronDown className="size-4" />{dict.reportDetail.showCommits}</>}
                   </Button>
@@ -520,12 +520,12 @@ export default function EnhancedReportDetailClient({
                       {report.commits.map((c, idx) => (
                         <div key={c.sha}>
                           <div className="flex items-center gap-3 px-6 py-3">
-                            <code className="text-xs font-mono shrink-0 px-2 py-0.5 rounded bg-muted text-muted-foreground">{c.sha.slice(0, 7)}</code>
+                            <code className="text-xs font-mono shrink-0 px-2 py-0.5 rounded bg-muted text-[hsl(var(--ds-text-2))]">{c.sha.slice(0, 7)}</code>
                             <span className="flex-1 text-sm truncate">{c.message}</span>
-                            <span className="text-xs text-muted-foreground shrink-0">{c.author}</span>
-                            <span className="text-xs text-muted-foreground shrink-0">{formatDate(c.date, dict)}</span>
+                            <span className="text-[12px] text-[hsl(var(--ds-text-2))] shrink-0">{c.author}</span>
+                            <span className="text-[12px] text-[hsl(var(--ds-text-2))] shrink-0">{formatDate(c.date, dict)}</span>
                             {report.projects?.repo && (
-                              <a href={`https://github.com/${report.projects.repo}/commit/${c.sha}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground shrink-0">
+                              <a href={`https://github.com/${report.projects.repo}/commit/${c.sha}`} target="_blank" rel="noopener noreferrer" className="text-[hsl(var(--ds-text-2))] shrink-0">
                                 <Github className="size-4" />
                               </a>
                             )}
@@ -543,7 +543,7 @@ export default function EnhancedReportDetailClient({
             <Card>
               <CardContent className="p-0">
                 <Tabs defaultValue="issues">
-                  <div className="border-b border-border px-2">
+                  <div className="border-b border-[hsl(var(--ds-border-1))] px-2">
                     <TabsList className="bg-transparent h-11">
                       <TabsTrigger value="issues">
                         <Code2 className="size-4 mr-1.5" />
@@ -612,7 +612,7 @@ export default function EnhancedReportDetailClient({
                       </div>
                     </div>
                     {filteredIssues.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">{dict.reportDetail.noMatchingIssues}</div>
+                      <div className="text-center py-12 text-[hsl(var(--ds-text-2))]">{dict.reportDetail.noMatchingIssues}</div>
                     ) : (
                       <div className="space-y-3">
                         {filteredIssues.map((issue, idx) => (
@@ -640,10 +640,10 @@ export default function EnhancedReportDetailClient({
                             { label: dict.reportDetail.maxFunctionLength, value: report.complexity_metrics.maxFunctionLength },
                             { label: dict.reportDetail.totalFunctions, value: report.complexity_metrics.totalFunctions },
                           ].map(m => (
-                            <Card key={m.label} className="bg-muted/30">
+                            <Card key={m.label} className="bg-[hsl(var(--ds-surface-1))]">
                               <CardContent className="p-4">
                                 <div className="text-2xl font-bold">{m.value}</div>
-                                <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">{m.label}</div>
                               </CardContent>
                             </Card>
                           ))}
@@ -659,17 +659,17 @@ export default function EnhancedReportDetailClient({
                             { label: dict.reportDetail.duplicatedBlocks, value: report.duplication_metrics.duplicatedBlocks },
                             { label: dict.reportDetail.duplicationRate, value: report.duplication_metrics.duplicationRate + '%' },
                           ].map(m => (
-                            <Card key={m.label} className="bg-muted/30">
+                            <Card key={m.label} className="bg-[hsl(var(--ds-surface-1))]">
                               <CardContent className="p-4">
                                 <div className="text-2xl font-bold">{m.value}</div>
-                                <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">{m.label}</div>
                               </CardContent>
                             </Card>
                           ))}
                         </div>
                         {report.duplication_metrics.duplicatedFiles.length > 0 && (
                           <div className="mt-3">
-                            <div className="text-xs text-muted-foreground mb-2">{dict.reportDetail.duplicatedFiles}:</div>
+                            <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-2">{dict.reportDetail.duplicatedFiles}:</div>
                             <div className="space-y-1">{report.duplication_metrics.duplicatedFiles.map(f => <code key={f} className="block text-xs bg-muted px-2 py-1 rounded">{f}</code>)}</div>
                           </div>
                         )}
@@ -683,19 +683,19 @@ export default function EnhancedReportDetailClient({
                             { label: dict.reportDetail.totalDependencies, value: report.dependency_metrics.totalDependencies },
                             { label: dict.reportDetail.outdatedDependencies, value: report.dependency_metrics.outdatedDependencies },
                           ].map(m => (
-                            <Card key={m.label} className="bg-muted/30">
+                            <Card key={m.label} className="bg-[hsl(var(--ds-surface-1))]">
                               <CardContent className="p-4">
                                 <div className="text-2xl font-bold">{m.value}</div>
-                                <div className="text-xs text-muted-foreground mt-1">{m.label}</div>
+                                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">{m.label}</div>
                               </CardContent>
                             </Card>
                           ))}
                         </div>
                         {report.dependency_metrics.circularDependencies.length > 0 && (
-                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">{dict.reportDetail.circularDependencies}:</div><div className="space-y-1">{report.dependency_metrics.circularDependencies.map((d, i) => <code key={i} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
+                          <div className="mt-3"><div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-2">{dict.reportDetail.circularDependencies}:</div><div className="space-y-1">{report.dependency_metrics.circularDependencies.map((d, i) => <code key={i} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
                         )}
                         {report.dependency_metrics.unusedDependencies.length > 0 && (
-                          <div className="mt-3"><div className="text-xs text-muted-foreground mb-2">{dict.reportDetail.unusedDependencies}:</div><div className="space-y-1">{report.dependency_metrics.unusedDependencies.map(d => <code key={d} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
+                          <div className="mt-3"><div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-2">{dict.reportDetail.unusedDependencies}:</div><div className="space-y-1">{report.dependency_metrics.unusedDependencies.map(d => <code key={d} className="block text-xs bg-muted px-2 py-1 rounded">{d}</code>)}</div></div>
                         )}
                       </div>
                     )}
@@ -704,10 +704,10 @@ export default function EnhancedReportDetailClient({
                         <h4 className="text-sm font-semibold mb-3">{dict.reportDetail.complexCodeExplanations}</h4>
                         <div className="space-y-3">
                           {report.code_explanations.map((exp, i) => (
-                            <Card key={i} className="bg-muted/30">
+                            <Card key={i} className="bg-[hsl(var(--ds-surface-1))]">
                               <CardContent className="p-4">
                                 <code className="text-xs font-mono bg-background px-2 py-1 rounded">{exp.file}{exp.line ? ':' + exp.line : ''}</code>
-                                <div className="mt-2 text-xs text-muted-foreground">{dict.reportDetail.complexity}: {exp.complexity}</div>
+                                <div className="mt-2 text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.complexity}: {exp.complexity}</div>
                                 <div className="mt-2 text-sm">{exp.explanation}</div>
                                 <div className="mt-2 text-sm text-primary">💡 {exp.recommendation}</div>
                               </CardContent>
@@ -729,7 +729,7 @@ export default function EnhancedReportDetailClient({
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="font-semibold">{finding.type}</span>
                                   <Badge size="sm" variant={finding.severity === 'critical' ? 'danger' : 'warning'}>{finding.severity}</Badge>
-                                  {finding.cwe && <span className="text-xs text-muted-foreground">{finding.cwe}</span>}
+                                  {finding.cwe && <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{finding.cwe}</span>}
                                 </div>
                                 <div className="text-sm">{finding.description}</div>
                                 <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ':' + finding.line : ''}</code>
@@ -752,7 +752,7 @@ export default function EnhancedReportDetailClient({
                                 <div className="font-semibold">{finding.type}</div>
                                 <div className="text-sm">{finding.description}</div>
                                 <code className="block text-xs font-mono bg-muted px-2 py-1 rounded">{finding.file}{finding.line ? ':' + finding.line : ''}</code>
-                                <div className="text-xs text-muted-foreground">{dict.reportDetail.impact}: {finding.impact}</div>
+                                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.impact}: {finding.impact}</div>
                               </div>
                             </div>
                           </CardContent>
@@ -772,10 +772,10 @@ export default function EnhancedReportDetailClient({
                                 <div className="flex items-center gap-2">
                                   <span className="font-semibold">{sug.title}</span>
                                   <Badge size="sm" variant="accent">P{sug.priority}</Badge>
-                                  <span className="text-xs text-muted-foreground">{sug.type}</span>
+                                  <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{sug.type}</span>
                                 </div>
                                 <div className="text-sm">{sug.description}</div>
-                                <div className="text-xs text-muted-foreground">{dict.reportDetail.estimatedImpact}: {sug.estimatedImpact}</div>
+                                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.estimatedImpact}: {sug.estimatedImpact}</div>
                               </div>
                             </div>
                           </CardContent>
@@ -794,7 +794,7 @@ export default function EnhancedReportDetailClient({
                   <CardTitle>{dict.reportDetail.aiSummary}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-6 pb-6">
-                  <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{report.summary}</div>
+                  <div className="text-[13px] text-[hsl(var(--ds-text-2))] leading-relaxed whitespace-pre-wrap">{report.summary}</div>
                 </CardContent>
               </Card>
             )}

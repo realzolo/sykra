@@ -43,11 +43,11 @@ function SessionsSkeleton() {
             </div>
             <div className="space-y-2">
               {Array.from({ length: 3 }).map((_, index) => (
-                <div key={`session-card-skeleton-${index}`} className="rounded-xl border border-border bg-card p-4 space-y-3">
+                <div key={`session-card-skeleton-${index}`} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-4 space-y-3">
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-3 w-64" />
                   <Skeleton className="h-3 w-72" />
-                  <Skeleton className="h-8 w-20 rounded-md" />
+                  <Skeleton className="h-8 w-20 rounded-[6px]" />
                 </div>
               ))}
             </div>
@@ -121,8 +121,8 @@ export default function SecurityPage() {
 
           <div className="space-y-6">
             <div>
-              <h1 className="text-lg font-semibold">Security</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
+              <h1 className="text-[15px] font-semibold">Security</h1>
+              <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">
                 Manage active sessions for your account
               </p>
             </div>
@@ -130,7 +130,7 @@ export default function SecurityPage() {
             {sessions.length === 0 ? (
               <Card>
                 <CardContent className="p-6">
-                  <p className="text-sm text-muted-foreground text-center">
+                  <p className="text-[13px] text-[hsl(var(--ds-text-2))] text-center">
                     No active sessions found.
                   </p>
                 </CardContent>
@@ -143,21 +143,21 @@ export default function SecurityPage() {
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-medium">Session</h3>
+                            <h3 className="text-[13px] font-medium">Session</h3>
                             {session.isCurrent && (
                               <Badge size="sm" variant="accent">
                                 Current
                               </Badge>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
                             IP: {session.ipAddress || 'Unknown'} | Last used: {formatDate(session.lastUsedAt)}
                           </p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
                             Created: {formatDate(session.createdAt)} | Expires: {formatDate(session.expiresAt)}
                           </p>
                           {session.userAgent && (
-                            <p className="text-xs text-muted-foreground break-words">
+                            <p className="text-[12px] text-[hsl(var(--ds-text-2))] break-words">
                               {session.userAgent}
                             </p>
                           )}

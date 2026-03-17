@@ -162,15 +162,15 @@ export default function AddProjectModal({ open, onClose, onCreated, dict }: {
         {step === 'pick' && (
           <div className="flex flex-col gap-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[hsl(var(--ds-text-2))]" />
               <Input placeholder={dict.projects.searchProjects} value={search} onChange={e => setSearch(e.target.value)} className="pl-10" autoFocus />
             </div>
-            <div className="flex-1 overflow-y-auto border border-border rounded-md max-h-[320px] bg-background">
+            <div className="flex-1 overflow-y-auto border border-[hsl(var(--ds-border-1))] rounded-[6px] max-h-[320px] bg-background">
               {reposLoading ? (
                 <div className="p-4 space-y-3">
                   {Array.from({ length: 6 }).map((_, index) => (
                     <div key={`repo-skeleton-${index}`} className="flex items-center gap-3">
-                      <Skeleton className="h-10 w-10 rounded-md" />
+                      <Skeleton className="h-10 w-10 rounded-[6px]" />
                       <div className="flex-1 space-y-2">
                         <Skeleton className="h-4 w-2/3" />
                         <Skeleton className="h-3 w-1/2" />
@@ -185,37 +185,37 @@ export default function AddProjectModal({ open, onClose, onCreated, dict }: {
               ) : reposError ? (
                 <div className="p-8 text-center text-danger text-sm">{reposError}</div>
               ) : filtered.length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground text-sm">{dict.projects.noRepositories}</div>
+                <div className="p-8 text-center text-[hsl(var(--ds-text-2))] text-sm">{dict.projects.noRepositories}</div>
               ) : (
                 <div className="divide-y divide-border">
                   {filtered.map((repo) => (
                     <button
                       key={repo.fullName}
                       onClick={() => pickRepo(repo)}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors text-left cursor-pointer"
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[hsl(var(--ds-surface-1))] transition-colors text-left cursor-pointer"
                     >
-                      <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center shrink-0">
+                      <div className="w-10 h-10 rounded-[6px] bg-muted flex items-center justify-center shrink-0">
                         {repo.isPrivate ? <Lock className="size-4" /> : <Github className="size-4" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
                           <span className="font-medium text-sm truncate">{repo.fullName}</span>
                           {repo.isPrivate && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-muted shrink-0">
+                            <span className="text-xs px-2 py-0.5 rounded-[4px] bg-muted shrink-0">
                               {dict.projects.privateRepo}
                             </span>
                           )}
                         </div>
                         {repo.description && (
-                          <p className="text-xs text-muted-foreground truncate">{repo.description}</p>
+                          <p className="text-[12px] text-[hsl(var(--ds-text-2))] truncate">{repo.description}</p>
                         )}
                       </div>
                       <div className="text-right shrink-0">
                         {repo.language && (
-                          <div className="text-xs text-muted-foreground mb-0.5">{repo.language}</div>
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-0.5">{repo.language}</div>
                         )}
                         {repo.updatedAt && (
-                          <div className="text-xs text-muted-foreground">{formatDate(repo.updatedAt)}</div>
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{formatDate(repo.updatedAt)}</div>
                         )}
                       </div>
                     </button>
@@ -223,19 +223,19 @@ export default function AddProjectModal({ open, onClose, onCreated, dict }: {
                 </div>
               )}
             </div>
-            {repos.length > 0 && <p className="text-xs text-muted-foreground text-center">{t(dict.projects.repositoriesLoaded, { count: repos.length.toString() })}</p>}
+            {repos.length > 0 && <p className="text-[12px] text-[hsl(var(--ds-text-2))] text-center">{t(dict.projects.repositoriesLoaded, { count: repos.length.toString() })}</p>}
           </div>
         )}
 
         {step === 'confirm' && selected && (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div className="flex items-center gap-3 p-4 rounded-md bg-muted/40 border border-border">
-              <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center shrink-0">
+            <div className="flex items-center gap-3 p-4 rounded-[6px] bg-[hsl(var(--ds-surface-1))] border border-[hsl(var(--ds-border-1))]">
+              <div className="w-10 h-10 rounded-[6px] bg-muted flex items-center justify-center shrink-0">
                 <Github className="size-5" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sm truncate">{selected.fullName}</p>
-                <p className="text-xs text-muted-foreground">{dict.projects.branch}: {selected.defaultBranch}</p>
+                <p className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.projects.branch}: {selected.defaultBranch}</p>
               </div>
               <Button type="button" variant="ghost" size="sm" onClick={() => setStep('pick')}>{dict.common.edit}</Button>
             </div>
@@ -246,7 +246,7 @@ export default function AddProjectModal({ open, onClose, onCreated, dict }: {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-muted-foreground font-normal">({dict.common.none})</span></label>
+              <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-[hsl(var(--ds-text-2))] font-normal">({dict.common.none})</span></label>
               <Select value={rulesetId} onValueChange={(value) => setRulesetId(value)}>
                 <SelectTrigger>
                   <SelectValue />

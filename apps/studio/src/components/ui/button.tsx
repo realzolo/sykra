@@ -4,22 +4,22 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-1)] transition-soft focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+  'inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-[6px] text-[13px] font-medium transition-colors duration-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[hsl(var(--ds-accent-7))] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
   {
     variants: {
       variant: {
-        default: 'bg-foreground text-background hover:bg-foreground/90',
-        secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-        outline: 'border border-border bg-transparent hover:bg-muted/70',
-        ghost: 'bg-transparent hover:bg-muted/70',
-        link: 'text-accent underline-offset-4 hover:underline',
-        destructive: 'bg-danger text-white hover:bg-danger/90',
+        default:     'bg-foreground text-background border border-transparent hover:bg-foreground/90',
+        secondary:   'bg-[hsl(var(--ds-surface-2))] text-foreground border border-[hsl(var(--ds-border-2))] hover:bg-[hsl(var(--ds-surface-3))]',
+        outline:     'bg-transparent text-foreground border border-[hsl(var(--ds-border-2))] hover:bg-[hsl(var(--ds-surface-1))]',
+        ghost:       'bg-transparent text-[hsl(var(--ds-text-2))] border border-transparent hover:bg-[hsl(var(--ds-surface-1))] hover:text-foreground',
+        link:        'text-[hsl(var(--ds-accent-8))] underline-offset-4 hover:underline border border-transparent',
+        destructive: 'bg-danger text-white border border-transparent hover:bg-danger/90',
       },
       size: {
-        default: 'h-9 px-3.5 text-button-14',
-        sm: 'h-8 px-3 text-button-12',
-        lg: 'h-10 px-4 text-button-16',
-        icon: 'h-9 w-9',
+        default: 'h-8 px-3',
+        sm:      'h-7 px-2.5 text-[12px]',
+        lg:      'h-9 px-4 text-[14px]',
+        icon:    'h-8 w-8',
       },
     },
     defaultVariants: {

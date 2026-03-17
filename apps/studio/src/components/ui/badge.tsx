@@ -3,22 +3,22 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const badgeVariants = cva(
-  'inline-flex items-center rounded-full border border-transparent px-2.5 py-0.5 text-label-12 transition-colors',
+  'inline-flex items-center rounded-[4px] border border-transparent px-1.5 py-0.5 text-[11px] font-medium leading-none transition-colors',
   {
     variants: {
       variant: {
-        default: 'bg-muted text-foreground',
-        secondary: 'bg-secondary text-secondary-foreground',
-        outline: 'border-border text-foreground',
-        success: 'bg-success/15 text-success border-success/20',
-        warning: 'bg-warning/15 text-warning border-warning/20',
-        danger: 'bg-danger/15 text-danger border-danger/20',
-        accent: 'bg-accent/15 text-accent border-accent/20',
-        muted: 'bg-muted/60 text-muted-foreground border-border',
+        default:   'bg-[hsl(var(--ds-surface-2))] text-foreground border-[hsl(var(--ds-border-1))]',
+        secondary: 'bg-[hsl(var(--ds-surface-2))] text-[hsl(var(--ds-text-2))] border-[hsl(var(--ds-border-1))]',
+        outline:   'border-[hsl(var(--ds-border-2))] text-foreground',
+        success:   'bg-[hsl(var(--ds-success-7)/0.12)] text-success border-[hsl(var(--ds-success-7)/0.25)]',
+        warning:   'bg-[hsl(var(--ds-warning-7)/0.12)] text-warning border-[hsl(var(--ds-warning-7)/0.25)]',
+        danger:    'bg-[hsl(var(--ds-danger-7)/0.12)] text-danger border-[hsl(var(--ds-danger-7)/0.25)]',
+        accent:    'bg-[hsl(var(--ds-accent-7)/0.12)] text-accent border-[hsl(var(--ds-accent-7)/0.25)]',
+        muted:     'bg-[hsl(var(--ds-surface-1))] text-[hsl(var(--ds-text-2))] border-[hsl(var(--ds-border-1))]',
       },
       size: {
-        sm: 'text-label-11 px-2 py-0.5',
-        default: 'text-label-12 px-2.5 py-0.5',
+        sm:      'text-[10px] px-1.5 py-0.5',
+        default: 'text-[11px] px-1.5 py-0.5',
       },
     },
     defaultVariants: {

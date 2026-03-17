@@ -125,15 +125,15 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-5 h-16 border-b border-border bg-card shrink-0">
+      <div className="flex items-center gap-3 px-5 h-11 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] shrink-0">
         <Link href={withOrgPrefix(pathname, '/projects')}>
           <Button size="icon" variant="ghost"><ArrowLeft className="size-4" /></Button>
         </Link>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold">{project.name}</div>
-          <div className="text-xs text-muted-foreground">{project.repo}</div>
+          <div className="text-[13px] font-semibold">{project.name}</div>
+          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{project.repo}</div>
         </div>
-        {selected.length > 0 && <span className="text-xs text-muted-foreground font-medium">{dict.commits.selected.replace('{{count}}', selected.length.toString())}</span>}
+        {selected.length > 0 && <span className="text-[12px] text-[hsl(var(--ds-text-2))] font-medium">{dict.commits.selected.replace('{{count}}', selected.length.toString())}</span>}
         <Button
           disabled={!selected.length || analyzing}
           onClick={() => {
@@ -149,7 +149,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-border bg-card/50 shrink-0">
+      <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] shrink-0">
         <Select value={branch} onValueChange={(value) => setBranch(value)}>
           <SelectTrigger className="w-[150px] h-8">
             <SelectValue />
@@ -176,17 +176,17 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
             {allFilteredSelected ? dict.commits.deselectAll : dict.commits.selectAll.replace('{{count}}', filtered.length.toString())}
           </Button>
         )}
-        <span className="text-xs text-muted-foreground ml-auto">{dict.commits.commitsCount.replace('{{count}}', filtered.length.toString())}</span>
+        <span className="text-[12px] text-[hsl(var(--ds-text-2))] ml-auto">{dict.commits.commitsCount.replace('{{count}}', filtered.length.toString())}</span>
       </div>
 
       {/* Commit list */}
-      <div className="flex-1 overflow-auto bg-muted/30 p-4">
+      <div className="flex-1 overflow-auto bg-[hsl(var(--ds-background-1))] p-4">
         {loading ? (
           <div className="flex flex-col gap-2">
             {Array.from({ length: 8 }).map((_, index) => (
-              <div key={`commit-skeleton-${index}`} className="rounded-xl border border-border bg-card px-4 py-4 space-y-3">
+              <div key={`commit-skeleton-${index}`} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] px-4 py-4 space-y-3">
                 <div className="flex items-center gap-3">
-                  <Skeleton className="h-4 w-4 rounded-md" />
+                  <Skeleton className="h-4 w-4 rounded-[4px]" />
                   <Skeleton className="h-4 w-16" />
                   <Skeleton className="h-4 w-2/3" />
                 </div>
@@ -198,7 +198,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-20 text-muted-foreground text-sm">{dict.commits.noCommits}</div>
+          <div className="text-center py-20 text-[hsl(var(--ds-text-2))] text-[13px]">{dict.commits.noCommits}</div>
         ) : (
           <div className="flex flex-col gap-2">
             {filtered.map(commit => {
@@ -208,10 +208,10 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
                   key={commit.sha}
                   onClick={() => openCommitDetail(commit)}
                   className={[
-                    'flex items-center gap-3.5 px-4 py-3.5 cursor-pointer rounded-xl border transition-all',
+                    'flex items-center gap-3.5 px-4 py-3.5 cursor-pointer rounded-[8px] border transition-colors duration-100',
                     isSelected
-                      ? 'border-[hsl(var(--accent)/0.4)] bg-[hsl(var(--accent)/0.08)] ring-2 ring-[hsl(var(--accent)/0.18)]'
-                      : 'border-border bg-card hover:border-[hsl(var(--accent)/0.25)] hover:bg-[hsl(var(--accent)/0.06)]',
+                      ? 'border-[hsl(var(--ds-accent-7)/0.4)] bg-[hsl(var(--ds-accent-7)/0.08)]'
+                      : 'border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] hover:border-[hsl(var(--ds-border-2))] hover:bg-[hsl(var(--ds-surface-1))]',
                   ].join(' ')}
                 >
                   <button
@@ -222,8 +222,8 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
                     }}
                     aria-pressed={isSelected}
                     className={[
-                      'w-4.5 h-4.5 rounded-md shrink-0 flex items-center justify-center border-2 transition-all',
-                      isSelected ? 'border-[hsl(var(--accent))] bg-[hsl(var(--accent))]' : 'border-border bg-background',
+                      'w-4.5 h-4.5 rounded-[4px] shrink-0 flex items-center justify-center border-2 transition-colors duration-100',
+                      isSelected ? 'border-[hsl(var(--ds-accent-7))] bg-[hsl(var(--ds-accent-7))]' : 'border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-background-1))]',
                     ].join(' ')}
                   >
                     {isSelected && (
@@ -234,20 +234,20 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
                   </button>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1.5">
-                      <code className="text-xs font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                      <code className="text-[11px] font-mono px-1.5 py-0.5 rounded-[4px] bg-[hsl(var(--ds-surface-2))] text-[hsl(var(--ds-text-2))] shrink-0">
                         {commit.sha.slice(0, 7)}
                       </code>
-                      <span className="text-sm font-medium truncate">{commit.message}</span>
+                      <span className="text-[13px] font-medium truncate">{commit.message}</span>
                     </div>
                     <div className="flex items-center gap-3.5">
-                      <span className="text-xs text-muted-foreground flex items-center gap-1"><User className="size-3" />{commit.author}</span>
-                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="size-3" />{formatDate(commit.date)}</span>
+                      <span className="text-[12px] text-[hsl(var(--ds-text-2))] flex items-center gap-1"><User className="size-3" />{commit.author}</span>
+                      <span className="text-[12px] text-[hsl(var(--ds-text-2))] flex items-center gap-1"><Clock className="size-3" />{formatDate(commit.date)}</span>
                     </div>
                   </div>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="gap-1 text-xs"
+                    className="gap-1 text-[12px]"
                     onClick={(event) => {
                       event.stopPropagation();
                       openCommitDetail(commit);
@@ -277,17 +277,17 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
             <DialogTitle>{dict.commits.confirmReview}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/50 border border-border">
+            <div className="flex items-center gap-4 p-4 rounded-[8px] bg-[hsl(var(--ds-surface-1))] border border-[hsl(var(--ds-border-1))]">
               <div className="flex-1">
-                <div className="text-xs text-muted-foreground mb-1">{dict.commits.pendingCommitCount}</div>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.commits.pendingCommitCount}</div>
                 <div className="text-2xl font-bold">{selected.length}</div>
               </div>
               <div className="flex-1">
-                <div className="text-xs text-muted-foreground mb-1">{dict.projects.ruleSet}</div>
-                <div className="text-sm font-semibold">{ruleSetName || '—'}</div>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.projects.ruleSet}</div>
+                <div className="text-[13px] font-semibold">{ruleSetName || '—'}</div>
               </div>
             </div>
-            <p className="text-sm text-muted-foreground leading-relaxed">
+            <p className="text-[13px] text-[hsl(var(--ds-text-2))] leading-relaxed">
               {dict.commits.analysisNote}
             </p>
           </div>
@@ -304,16 +304,16 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
             <DialogTitle>{dict.commits.commitChanges}</DialogTitle>
           </DialogHeader>
           {detailCommit && (
-            <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
-              <code className="rounded bg-muted px-2 py-0.5">{detailCommit.sha.slice(0, 7)}</code>
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))] flex flex-wrap items-center gap-2">
+              <code className="rounded-[4px] bg-[hsl(var(--ds-surface-2))] px-2 py-0.5">{detailCommit.sha.slice(0, 7)}</code>
               <span className="text-foreground">{detailCommit.message}</span>
-              <span className="text-muted-foreground">·</span>
+              <span className="text-[hsl(var(--ds-text-2))]">·</span>
               <span>{detailCommit.author}</span>
-              <span className="text-muted-foreground">·</span>
+              <span className="text-[hsl(var(--ds-text-2))]">·</span>
               <span>{formatDate(detailCommit.date)}</span>
             </div>
           )}
-          <div className="mt-4 border border-border rounded-xl overflow-hidden bg-background">
+          <div className="mt-4 border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden bg-[hsl(var(--ds-background-1))]">
             {detailLoading && (
               <div className="p-4 space-y-2">
                 {Array.from({ length: 12 }).map((_, index) => (
@@ -322,7 +322,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
               </div>
             )}
             {!detailLoading && detailError && (
-              <div className="p-6 text-sm text-muted-foreground">{dict.commits.diffFailed}</div>
+              <div className="p-6 text-[13px] text-[hsl(var(--ds-text-2))]">{dict.commits.diffFailed}</div>
             )}
             {!detailLoading && !detailError && detailDiff && (
               <div className="h-[60vh]">
@@ -330,7 +330,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
               </div>
             )}
             {!detailLoading && !detailError && !detailDiff && (
-              <div className="p-6 text-sm text-muted-foreground">{dict.commits.diffEmpty}</div>
+              <div className="p-6 text-[13px] text-[hsl(var(--ds-text-2))]">{dict.commits.diffEmpty}</div>
             )}
           </div>
           <DialogFooter>

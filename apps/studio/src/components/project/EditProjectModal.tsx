@@ -77,11 +77,11 @@ export default function EditProjectModal({ project, open, onClose, onUpdated, di
             <Input id="name" value={name} onChange={e => setName(e.target.value)} required />
           </div>
           <div className="space-y-2">
-            <label htmlFor="description" className="text-sm font-semibold">{dict.common.description} <span className="text-muted-foreground font-normal">({dict.projects.optional})</span></label>
+            <label htmlFor="description" className="text-sm font-semibold">{dict.common.description} <span className="text-[hsl(var(--ds-text-2))] font-normal">({dict.projects.optional})</span></label>
             <Input id="description" value={description} onChange={e => setDescription(e.target.value)} placeholder={dict.projects.descriptionPlaceholder} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-muted-foreground font-normal">({dict.projects.optional})</span></label>
+            <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-[hsl(var(--ds-text-2))] font-normal">({dict.projects.optional})</span></label>
             <Select value={rulesetId} onValueChange={(value) => setRulesetId(value)}>
               <SelectTrigger>
                 <SelectValue />

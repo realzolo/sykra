@@ -85,7 +85,7 @@ export default function BatchOperations({
   }
 
   return (
-    <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-lg border border-border">
+    <div className="flex items-center gap-3 p-3 bg-[hsl(var(--ds-surface-1))] rounded-[8px] border border-[hsl(var(--ds-border-1))]">
       <button onClick={toggleSelectAll} className="flex items-center gap-2 text-sm hover:text-primary transition-colors">
         {allSelected ? <CheckSquare className="size-4" /> : someSelected ? <Square className="size-4 fill-primary/20" /> : <Square className="size-4" />}
         <span>
@@ -138,7 +138,7 @@ export default function BatchOperations({
 export function IssueCheckbox({ id, checked, onChange }: { id: string; checked: boolean; onChange: (id: string) => void }) {
   return (
     <button onClick={e => { e.stopPropagation(); onChange(id); }} className="shrink-0">
-      {checked ? <CheckSquare className="size-4 text-primary" /> : <Square className="size-4 text-muted-foreground hover:text-primary transition-colors" />}
+      {checked ? <CheckSquare className="size-4 text-primary" /> : <Square className="size-4 text-[hsl(var(--ds-text-2))] hover:text-primary transition-colors" />}
     </button>
   );
 }

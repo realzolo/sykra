@@ -55,10 +55,10 @@ export default function EnhancedIssueCard({
   }
 
   return (
-    <div className="bg-card border border-border rounded-xl overflow-hidden mb-3 shadow-sm hover:shadow-md transition-all duration-200">
+    <div className="bg-[hsl(var(--ds-background-2))] border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden mb-3 shadow-sm hover:shadow-md transition-all duration-200">
       <div
         onClick={() => setExpanded(e => !e)}
-        className="flex items-start gap-3 px-5 py-4 cursor-pointer hover:bg-muted/50 transition-colors"
+        className="flex items-start gap-3 px-5 py-4 cursor-pointer hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
       >
         <div className="shrink-0 mt-0.5">
           <Icon className={['size-5', config.iconClass].join(' ')} />
@@ -66,22 +66,22 @@ export default function EnhancedIssueCard({
 
         <div className="flex-1 min-w-0 space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <code className="text-xs font-mono bg-muted rounded-lg px-2.5 py-1">
+            <code className="text-xs font-mono bg-muted rounded-[8px] px-2.5 py-1">
               {issue.file}{issue.line ? `:${issue.line}` : ''}
             </code>
-            <span className={['px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide', config.badgeClass].join(' ')}>
+            <span className={['px-2.5 py-1 rounded-[4px] text-[10px] font-bold uppercase tracking-wide', config.badgeClass].join(' ')}>
               {config.label}
             </span>
-            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">
+            <span className="px-2.5 py-1 rounded-[4px] text-xs font-semibold bg-primary/10 text-primary">
               {dict.reports.categories[issue.category as keyof typeof dict.reports.categories] ?? issue.category}
             </span>
             {issue.priority && (
-              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-secondary text-secondary-foreground">
+              <span className="px-2.5 py-1 rounded-[4px] text-xs font-semibold bg-secondary text-secondary-foreground">
                 P{issue.priority}
               </span>
             )}
             {issue.estimatedEffort && (
-              <span className="text-xs font-medium text-muted-foreground">
+              <span className="text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
                 <Zap className="size-3 inline mr-1" />
                 {issue.estimatedEffort}
               </span>
@@ -89,32 +89,32 @@ export default function EnhancedIssueCard({
           </div>
           <div className="text-sm font-medium text-foreground leading-relaxed">{issue.message}</div>
           {issue.impactScope && (
-            <div className="text-xs text-muted-foreground">{dict.reportDetail.impactScopeLabel}: {issue.impactScope}</div>
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.impactScopeLabel}: {issue.impactScope}</div>
           )}
         </div>
 
-        <div className="shrink-0 text-muted-foreground">
+        <div className="shrink-0 text-[hsl(var(--ds-text-2))]">
           {expanded ? <ChevronUp className="size-5" /> : <ChevronDown className="size-5" />}
         </div>
       </div>
 
       {expanded && (
-        <div className="border-t border-border bg-muted/30 p-5 space-y-4">
+        <div className="border-t border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-5 space-y-4">
           <div>
-            <div className="text-xs font-semibold text-muted-foreground mb-2">{dict.reportDetail.ruleLabel}</div>
+            <div className="text-xs font-semibold text-[hsl(var(--ds-text-2))] mb-2">{dict.reportDetail.ruleLabel}</div>
             <div className="text-sm font-medium">{issue.rule}</div>
           </div>
 
           {issue.codeSnippet && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-semibold text-muted-foreground">{dict.reportDetail.codeSnippetLabel}</div>
-              <Button variant="ghost" size="sm" className="h-7 text-xs rounded-lg" onClick={() => handleCopy(issue.codeSnippet!)}>
+                <div className="text-xs font-semibold text-[hsl(var(--ds-text-2))]">{dict.reportDetail.codeSnippetLabel}</div>
+              <Button variant="ghost" size="sm" className="h-7 text-xs rounded-[8px]" onClick={() => handleCopy(issue.codeSnippet!)}>
                 {copied ? <Check className="size-3.5 mr-1" /> : <Copy className="size-3.5 mr-1" />}
                 {dict.common.copy}
               </Button>
               </div>
-              <pre className="text-xs font-mono bg-card border border-border rounded-lg p-3 overflow-x-auto">
+              <pre className="text-xs font-mono bg-[hsl(var(--ds-background-2))] border border-[hsl(var(--ds-border-1))] rounded-[8px] p-3 overflow-x-auto">
                 {issue.codeSnippet}
               </pre>
             </div>
@@ -122,8 +122,8 @@ export default function EnhancedIssueCard({
 
           {issue.suggestion && (
             <div>
-              <div className="text-xs font-semibold text-muted-foreground mb-2">💡 {dict.reportDetail.fixSuggestionLabel}</div>
-              <div className="text-sm bg-card border border-border rounded-lg p-3 whitespace-pre-wrap">
+              <div className="text-xs font-semibold text-[hsl(var(--ds-text-2))] mb-2">💡 {dict.reportDetail.fixSuggestionLabel}</div>
+              <div className="text-sm bg-[hsl(var(--ds-background-2))] border border-[hsl(var(--ds-border-1))] rounded-[8px] p-3 whitespace-pre-wrap">
                 {issue.suggestion}
               </div>
             </div>
@@ -132,13 +132,13 @@ export default function EnhancedIssueCard({
           {issue.fixPatch && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-semibold text-muted-foreground">🔧 {dict.reportDetail.fixPatchLabel}</div>
-              <Button variant="ghost" size="sm" className="h-7 text-xs rounded-lg" onClick={() => handleCopy(issue.fixPatch!)}>
+                <div className="text-xs font-semibold text-[hsl(var(--ds-text-2))]">🔧 {dict.reportDetail.fixPatchLabel}</div>
+              <Button variant="ghost" size="sm" className="h-7 text-xs rounded-[8px]" onClick={() => handleCopy(issue.fixPatch!)}>
                 {copied ? <Check className="size-3.5 mr-1" /> : <Copy className="size-3.5 mr-1" />}
                 {dict.common.copy}
               </Button>
               </div>
-              <pre className="text-xs font-mono bg-card border border-border rounded-lg p-3 overflow-x-auto">
+              <pre className="text-xs font-mono bg-[hsl(var(--ds-background-2))] border border-[hsl(var(--ds-border-1))] rounded-[8px] p-3 overflow-x-auto">
                 {issue.fixPatch}
               </pre>
             </div>
@@ -147,7 +147,7 @@ export default function EnhancedIssueCard({
           {(onChat || codebaseHref) && (
             <div className="pt-2 flex flex-wrap gap-2">
               {codebaseHref && (
-                <Button asChild variant="outline" size="sm" className="gap-2 rounded-lg">
+                <Button asChild variant="outline" size="sm" className="gap-2 rounded-[8px]">
                   <Link href={codebaseHref}>
                     <FileCode className="size-4" />
                     {dict.reportDetail.viewInCodebase}
@@ -155,7 +155,7 @@ export default function EnhancedIssueCard({
                 </Button>
               )}
               {onChat && (
-                <Button variant="outline" size="sm" onClick={onChat} className="gap-2 rounded-lg">
+                <Button variant="outline" size="sm" onClick={onChat} className="gap-2 rounded-[8px]">
                   <MessageCircle className="size-4" />
                   {dict.reportDetail.discussIssue}
                 </Button>

@@ -325,14 +325,14 @@ export default function OrganizationsPage() {
                   <Skeleton className="h-4 w-36" />
                   <Skeleton className="h-3 w-64" />
                 </div>
-                <Skeleton className="h-8 w-40 rounded-md" />
+                <Skeleton className="h-8 w-40 rounded-[6px]" />
               </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-3 w-16" />
                 </div>
-                <div className="border border-border rounded-lg overflow-hidden bg-card">
+                <div className="border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden bg-[hsl(var(--ds-background-2))]">
                   <div className="hidden md:grid grid-cols-[1fr_140px_160px] px-4 py-2 gap-4">
                     <Skeleton className="h-3 w-16" />
                     <Skeleton className="h-3 w-12" />
@@ -344,9 +344,9 @@ export default function OrganizationsPage() {
                         <Skeleton className="h-4 w-40" />
                         <Skeleton className="h-3 w-28" />
                       </div>
-                      <Skeleton className="h-5 w-16 rounded-full" />
+                      <Skeleton className="h-5 w-16 rounded-[4px]" />
                       <div className="flex justify-end">
-                        <Skeleton className="h-6 w-20 rounded-full" />
+                        <Skeleton className="h-6 w-20 rounded-[4px]" />
                       </div>
                     </div>
                   ))}
@@ -368,8 +368,8 @@ export default function OrganizationsPage() {
           <div className="space-y-8">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h1 className="text-lg font-semibold">Organizations</h1>
-                <p className="text-sm text-muted-foreground mt-0.5">
+                <h1 className="text-[15px] font-semibold">Organizations</h1>
+                <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">
                   Manage workspaces, members, and invites.
                 </p>
               </div>
@@ -390,7 +390,7 @@ export default function OrganizationsPage() {
                   </DialogHeader>
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-xs font-medium">Name</label>
+                      <label className="text-[12px] font-medium">Name</label>
                       <Input
                         value={newOrgName}
                         onChange={(e) => setNewOrgName(e.target.value)}
@@ -398,7 +398,7 @@ export default function OrganizationsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs font-medium">Slug (optional)</label>
+                      <label className="text-[12px] font-medium">Slug (optional)</label>
                       <Input
                         value={newOrgSlug}
                         onChange={(e) => setNewOrgSlug(e.target.value)}
@@ -418,26 +418,26 @@ export default function OrganizationsPage() {
 
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold">Your organizations</h2>
-                <span className="text-xs text-muted-foreground">
+                <h2 className="text-[13px] font-semibold">Your organizations</h2>
+                <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
                   {orgs.length} total
                 </span>
               </div>
 
               {orgs.length === 0 ? (
                 <Card>
-                  <CardContent className="p-6 text-center text-sm text-muted-foreground">
+                  <CardContent className="p-6 text-center text-[13px] text-[hsl(var(--ds-text-2))]">
                     No organizations yet.
                   </CardContent>
                 </Card>
               ) : (
-                <div className="overflow-hidden rounded-lg border border-border">
-                  <div className="hidden md:grid grid-cols-[1fr_140px_160px] px-4 py-2 text-xs text-muted-foreground">
+                <div className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-1))]">
+                  <div className="hidden md:grid grid-cols-[1fr_140px_160px] px-4 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
                     <span>Name</span>
                     <span>Type</span>
                     <span className="text-right">Status</span>
                   </div>
-                  <div className="divide-y divide-border">
+                  <div className="divide-y divide-[hsl(var(--ds-border-1))]">
                     {orgs.map((org) => {
                       const isActive = org.id === activeOrg?.id;
                       return (
@@ -446,8 +446,8 @@ export default function OrganizationsPage() {
                           className="flex flex-col gap-2 px-4 py-3 md:grid md:grid-cols-[1fr_140px_160px] md:items-center"
                         >
                           <div>
-                            <div className="text-sm font-medium">{org.name}</div>
-                            <div className="text-xs text-muted-foreground">{org.slug}</div>
+                            <div className="text-[13px] font-medium">{org.name}</div>
+                            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{org.slug}</div>
                           </div>
                           <div>
                             <Badge variant={org.is_personal ? 'secondary' : 'outline'}>
@@ -481,22 +481,22 @@ export default function OrganizationsPage() {
             <section className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-base font-semibold">Members</h2>
-                  <p className="text-xs text-muted-foreground">
+                  <h2 className="text-[13px] font-semibold">Members</h2>
+                  <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
                     {activeOrg ? `Workspace: ${activeOrg.name}` : 'Select an organization'}
                   </p>
                 </div>
                 <Badge variant="muted">{members.length}</Badge>
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-border">
-                <div className="hidden md:grid grid-cols-[1fr_160px_120px_120px] px-4 py-2 text-xs text-muted-foreground">
+              <div className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-1))]">
+                <div className="hidden md:grid grid-cols-[1fr_160px_120px_120px] px-4 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
                   <span>User</span>
                   <span>Role</span>
                   <span>Status</span>
                   <span className="text-right">Actions</span>
                 </div>
-                <div className="divide-y divide-border">
+                <div className="divide-y divide-[hsl(var(--ds-border-1))]">
                   {membersLoading ? (
                     <div className="px-4 py-4 space-y-3">
                       {Array.from({ length: 3 }).map((_, index) => (
@@ -505,16 +505,16 @@ export default function OrganizationsPage() {
                             <Skeleton className="h-4 w-40" />
                             <Skeleton className="h-3 w-48" />
                           </div>
-                          <Skeleton className="h-7 w-24 rounded-md" />
-                          <Skeleton className="h-5 w-16 rounded-full" />
+                          <Skeleton className="h-7 w-24 rounded-[6px]" />
+                          <Skeleton className="h-5 w-16 rounded-[4px]" />
                           <div className="flex justify-end">
-                            <Skeleton className="h-7 w-20 rounded-md" />
+                            <Skeleton className="h-7 w-20 rounded-[6px]" />
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : members.length === 0 ? (
-                    <div className="px-4 py-6 text-sm text-muted-foreground">No members found.</div>
+                    <div className="px-4 py-6 text-[13px] text-[hsl(var(--ds-text-2))]">No members found.</div>
                   ) : (
                     members.map((member) => {
                       const isSelf = member.user_id === currentUserId;
@@ -533,12 +533,12 @@ export default function OrganizationsPage() {
                           className="flex flex-col gap-3 px-4 py-3 md:grid md:grid-cols-[1fr_160px_120px_120px] md:items-center"
                         >
                           <div>
-                            <div className="text-sm font-medium">
+                            <div className="text-[13px] font-medium">
                               {member.email ?? member.user_id}
-                              {isSelf && <span className="text-xs text-muted-foreground"> (You)</span>}
+                              {isSelf && <span className="text-[12px] text-[hsl(var(--ds-text-2))]"> (You)</span>}
                             </div>
                             {member.email && (
-                              <div className="text-xs text-muted-foreground">{member.user_id}</div>
+                              <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{member.user_id}</div>
                             )}
                           </div>
                           <div>
@@ -579,7 +579,7 @@ export default function OrganizationsPage() {
                                 Remove
                               </Button>
                             ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
+                              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">—</span>
                             )}
                           </div>
                         </div>
@@ -593,8 +593,8 @@ export default function OrganizationsPage() {
             <section className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-base font-semibold">Invites</h2>
-                  <p className="text-xs text-muted-foreground">
+                  <h2 className="text-[13px] font-semibold">Invites</h2>
+                  <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
                     Invite teammates to join {activeOrg?.name ?? 'your organization'}.
                   </p>
                 </div>
@@ -626,21 +626,21 @@ export default function OrganizationsPage() {
                     </Button>
                   </div>
                   {!canManageMembers && (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
                       Only owners or admins can send invites.
                     </p>
                   )}
                 </CardContent>
               </Card>
 
-              <div className="overflow-hidden rounded-lg border border-border">
-                <div className="hidden md:grid grid-cols-[1fr_120px_160px_120px] px-4 py-2 text-xs text-muted-foreground">
+              <div className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-1))]">
+                <div className="hidden md:grid grid-cols-[1fr_120px_160px_120px] px-4 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
                   <span>Email</span>
                   <span>Role</span>
                   <span>Expires</span>
                   <span className="text-right">Actions</span>
                 </div>
-                <div className="divide-y divide-border">
+                <div className="divide-y divide-[hsl(var(--ds-border-1))]">
                   {invitesLoading ? (
                     <div className="px-4 py-4 space-y-3">
                       {Array.from({ length: 2 }).map((_, index) => (
@@ -649,16 +649,16 @@ export default function OrganizationsPage() {
                             <Skeleton className="h-4 w-44" />
                             <Skeleton className="h-3 w-24" />
                           </div>
-                          <Skeleton className="h-5 w-16 rounded-full" />
+                          <Skeleton className="h-5 w-16 rounded-[4px]" />
                           <Skeleton className="h-3 w-20" />
                           <div className="flex justify-end">
-                            <Skeleton className="h-7 w-24 rounded-md" />
+                            <Skeleton className="h-7 w-24 rounded-[6px]" />
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : invites.length === 0 ? (
-                    <div className="px-4 py-6 text-sm text-muted-foreground">No active invites.</div>
+                    <div className="px-4 py-6 text-[13px] text-[hsl(var(--ds-text-2))]">No active invites.</div>
                   ) : (
                     invites.map((invite) => {
                       const expired = new Date(invite.expires_at).getTime() < Date.now();
@@ -668,15 +668,15 @@ export default function OrganizationsPage() {
                           className="flex flex-col gap-2 px-4 py-3 md:grid md:grid-cols-[1fr_120px_160px_120px] md:items-center"
                         >
                           <div>
-                            <div className="text-sm font-medium">{invite.email}</div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-[13px] font-medium">{invite.email}</div>
+                            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
                               {invite.accepted_at ? 'Accepted' : expired ? 'Expired' : 'Pending'}
                             </div>
                           </div>
                           <div>
                             <Badge variant={roleBadgeVariant[invite.role]}>{roleLabels[invite.role]}</Badge>
                           </div>
-                          <div className="text-xs text-muted-foreground">
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
                             {new Date(invite.expires_at).toLocaleDateString()}
                           </div>
                           <div className="flex items-center gap-2 md:justify-end">

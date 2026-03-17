@@ -113,7 +113,7 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
               </SelectContent>
             </Select>
             {providerConfig?.description && (
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">
                 {providerConfig.description}
               </p>
             )}
@@ -165,7 +165,7 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
                   }
                 />
                 {field.help && (
-                  <p className="text-xs text-muted-foreground mt-1">{field.help}</p>
+                  <p className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">{field.help}</p>
                 )}
               </div>
             ))}

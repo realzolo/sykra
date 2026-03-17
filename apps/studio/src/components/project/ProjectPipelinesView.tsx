@@ -26,9 +26,9 @@ const STATUS_ICONS: Record<PipelineRunStatus, React.ReactNode> = {
   failed:    <XCircle className="size-3.5 text-danger" />,
   timed_out: <XCircle className="size-3.5 text-danger" />,
   running:   <RefreshCw className="size-3.5 text-warning animate-spin" />,
-  queued:    <Clock className="size-3.5 text-muted-foreground" />,
-  canceled:  <Circle className="size-3.5 text-muted-foreground" />,
-  skipped:   <Circle className="size-3.5 text-muted-foreground" />,
+  queued:    <Clock className="size-3.5 text-[hsl(var(--ds-text-2))]" />,
+  canceled:  <Circle className="size-3.5 text-[hsl(var(--ds-text-2))]" />,
+  skipped:   <Circle className="size-3.5 text-[hsl(var(--ds-text-2))]" />,
 };
 
 const ENV_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'muted'> = {
@@ -92,7 +92,7 @@ export default function ProjectPipelinesView({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
+      <div className="px-6 py-4 border-b border-[hsl(var(--ds-border-1))] bg-background shrink-0">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-[16px] font-semibold text-foreground">{p.title}</div>
@@ -107,7 +107,7 @@ export default function ProjectPipelinesView({
       </div>
 
       {/* Column headers */}
-      <div className="flex items-center px-6 py-2 border-b border-border bg-[hsl(var(--ds-surface-1))] text-[11px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider gap-4 shrink-0">
+      <div className="flex items-center px-6 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[11px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider gap-4 shrink-0">
         <div className="flex-1">{dict.common.name}</div>
         <div className="w-24 text-center">{p.environment}</div>
         <div className="w-20 text-center">{p.stages.source}</div>
@@ -120,22 +120,22 @@ export default function ProjectPipelinesView({
         {loading ? (
           <div className="flex flex-col gap-px">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-center px-6 py-4 gap-4 border-b border-border">
+              <div key={i} className="flex items-center px-6 py-4 gap-4 border-b border-[hsl(var(--ds-border-1))]">
                 <Skeleton className="h-4 flex-1" />
-                <Skeleton className="h-5 w-24 rounded-full" />
+                <Skeleton className="h-5 w-24 rounded-[4px]" />
                 <Skeleton className="h-4 w-20" />
                 <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-7 w-16 rounded-md" />
+                <Skeleton className="h-7 w-16 rounded-[6px]" />
               </div>
             ))}
           </div>
         ) : pipelines.length === 0 ? (
           <div className="flex flex-col items-start gap-3 px-6 py-20">
-            <div className="p-3 rounded-lg bg-muted">
-              <GitBranch className="size-5 text-muted-foreground" />
+            <div className="p-3 rounded-[8px] bg-muted">
+              <GitBranch className="size-5 text-[hsl(var(--ds-text-2))]" />
             </div>
             <div className="text-sm font-medium text-foreground">{p.emptyTitle}</div>
-            <div className="text-sm text-muted-foreground">{p.emptyDescription}</div>
+            <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{p.emptyDescription}</div>
             <Button size="sm" onClick={() => setWizardOpen(true)}>
               {p.new}
             </Button>
@@ -147,7 +147,7 @@ export default function ProjectPipelinesView({
             return (
               <div
                 key={pipeline.id}
-                className="flex items-center px-6 py-4 gap-4 border-b border-border hover:bg-[hsl(var(--ds-surface-1))] cursor-pointer group transition-colors duration-100"
+                className="flex items-center px-6 py-4 gap-4 border-b border-[hsl(var(--ds-border-1))] hover:bg-[hsl(var(--ds-surface-1))] cursor-pointer group transition-colors duration-100"
                 onClick={() =>
                   router.push(
                     withOrgPrefix(pathname, `/projects/${projectId}/pipelines/${pipeline.id}`),
@@ -174,14 +174,14 @@ export default function ProjectPipelinesView({
                       </Badge>
                     </span>
                   ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
+                    <span className="text-[12px] text-[hsl(var(--ds-text-2))]">—</span>
                   )}
                 </div>
-                <div className="w-28 text-xs text-muted-foreground">
+                <div className="w-28 text-[12px] text-[hsl(var(--ds-text-2))]">
                   {run ? (
                     <div>
                       <div>{new Date(run.created_at).toLocaleDateString()}</div>
-                      <div className="text-muted-foreground/70">
+                      <div className="text-[hsl(var(--ds-text-2))]/70">
                         {durationLabel(run.started_at, run.finished_at)}
                       </div>
                     </div>

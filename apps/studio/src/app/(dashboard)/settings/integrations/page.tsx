@@ -48,21 +48,21 @@ function IntegrationsSkeleton() {
                     <Skeleton className="h-4 w-40" />
                     <Skeleton className="h-3 w-56" />
                   </div>
-                  <Skeleton className="h-8 w-28 rounded-md" />
+                  <Skeleton className="h-8 w-28 rounded-[6px]" />
                 </div>
                 <div className="space-y-2">
                   {Array.from({ length: 3 }).map((_, index) => (
-                    <div key={`vcs-card-skeleton-${index}`} className="rounded-xl border border-border bg-card p-4 space-y-3">
+                    <div key={`vcs-card-skeleton-${index}`} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-4 space-y-3">
                       <div className="flex items-center gap-2">
                         <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-4 w-12 rounded-full" />
+                        <Skeleton className="h-4 w-12 rounded-[4px]" />
                       </div>
                       <Skeleton className="h-3 w-40" />
                       <Skeleton className="h-3 w-56" />
                       <div className="flex gap-2">
-                        <Skeleton className="h-7 w-16 rounded-md" />
-                        <Skeleton className="h-7 w-7 rounded-md" />
-                        <Skeleton className="h-7 w-20 rounded-md" />
+                        <Skeleton className="h-7 w-16 rounded-[6px]" />
+                        <Skeleton className="h-7 w-7 rounded-[6px]" />
+                        <Skeleton className="h-7 w-20 rounded-[6px]" />
                       </div>
                     </div>
                   ))}
@@ -75,21 +75,21 @@ function IntegrationsSkeleton() {
                     <Skeleton className="h-4 w-32" />
                     <Skeleton className="h-3 w-52" />
                   </div>
-                  <Skeleton className="h-8 w-28 rounded-md" />
+                  <Skeleton className="h-8 w-28 rounded-[6px]" />
                 </div>
                 <div className="space-y-2">
                   {Array.from({ length: 2 }).map((_, index) => (
-                    <div key={`ai-card-skeleton-${index}`} className="rounded-xl border border-border bg-card p-4 space-y-3">
+                    <div key={`ai-card-skeleton-${index}`} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-4 space-y-3">
                       <div className="flex items-center gap-2">
                         <Skeleton className="h-4 w-28" />
-                        <Skeleton className="h-4 w-12 rounded-full" />
+                        <Skeleton className="h-4 w-12 rounded-[4px]" />
                       </div>
                       <Skeleton className="h-3 w-36" />
                       <Skeleton className="h-3 w-44" />
                       <div className="flex gap-2">
-                        <Skeleton className="h-7 w-16 rounded-md" />
-                        <Skeleton className="h-7 w-7 rounded-md" />
-                        <Skeleton className="h-7 w-20 rounded-md" />
+                        <Skeleton className="h-7 w-16 rounded-[6px]" />
+                        <Skeleton className="h-7 w-7 rounded-[6px]" />
+                        <Skeleton className="h-7 w-20 rounded-[6px]" />
                       </div>
                     </div>
                   ))}
@@ -196,23 +196,23 @@ export default function IntegrationsPage() {
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-sm font-medium">{integration.name}</h3>
+                <h3 className="text-[13px] font-medium">{integration.name}</h3>
                 {integration.is_default && (
                   <Badge size="sm" variant="accent">
                     Default
                   </Badge>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mb-2">
+              <p className="text-[12px] text-[hsl(var(--ds-text-2))] mb-2">
                 Provider: {integration.provider}
               </p>
               {integration.config.baseUrl && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
                   URL: {integration.config.baseUrl}
                 </p>
               )}
               {integration.config.model && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
                   Model: {integration.config.model}
                 </p>
               )}
@@ -280,8 +280,8 @@ export default function IntegrationsPage() {
 
           <div className="space-y-6">
             <div>
-              <h1 className="text-lg font-semibold">Integrations</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
+              <h1 className="text-[15px] font-semibold">Integrations</h1>
+              <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">
                 Manage your code repository and AI model integrations
               </p>
             </div>
@@ -291,8 +291,8 @@ export default function IntegrationsPage() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-base font-semibold">Code Repositories</h2>
-                    <p className="text-sm text-muted-foreground">
+                    <h2 className="text-[13px] font-semibold">Code Repositories</h2>
+                    <p className="text-[13px] text-[hsl(var(--ds-text-2))]">
                       Connect to GitHub, GitLab, or other Git services
                     </p>
                   </div>
@@ -307,7 +307,7 @@ export default function IntegrationsPage() {
                 {vcsIntegrations.length === 0 ? (
                   <Card>
                     <CardContent className="p-6">
-                      <p className="text-sm text-muted-foreground text-center">
+                      <p className="text-[13px] text-[hsl(var(--ds-text-2))] text-center">
                         No repository integrations configured. Add one to get started.
                       </p>
                     </CardContent>
@@ -325,8 +325,8 @@ export default function IntegrationsPage() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-base font-semibold">AI Models</h2>
-                    <p className="text-sm text-muted-foreground">
+                    <h2 className="text-[13px] font-semibold">AI Models</h2>
+                    <p className="text-[13px] text-[hsl(var(--ds-text-2))]">
                       Connect to Claude, GPT-4, or other AI services
                     </p>
                   </div>
@@ -341,7 +341,7 @@ export default function IntegrationsPage() {
                 {aiIntegrations.length === 0 ? (
                   <Card>
                     <CardContent className="p-6">
-                      <p className="text-sm text-muted-foreground text-center">
+                      <p className="text-[13px] text-[hsl(var(--ds-text-2))] text-center">
                         No AI integrations configured. Add one to enable code analysis.
                       </p>
                     </CardContent>

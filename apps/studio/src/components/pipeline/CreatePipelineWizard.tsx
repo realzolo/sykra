@@ -231,7 +231,7 @@ export default function CreatePipelineWizard({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col overflow-hidden p-0">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-[hsl(var(--ds-border-1))] shrink-0">
           <DialogTitle className="text-heading-sm">{p.new}</DialogTitle>
           {/* Step indicator */}
           <div className="flex items-center gap-2 mt-3">
@@ -243,12 +243,12 @@ export default function CreatePipelineWizard({
                   disabled={i > stepIndex}
                 >
                   <div
-                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-medium transition-colors ${
+                    className={`w-5 h-5 rounded-[4px] flex items-center justify-center text-[11px] font-medium transition-colors ${
                       i < stepIndex
                         ? "bg-foreground text-background"
                         : i === stepIndex
                         ? "bg-foreground text-background"
-                        : "bg-muted text-muted-foreground"
+                        : "bg-muted text-[hsl(var(--ds-text-2))]"
                     }`}
                   >
                     {i < stepIndex ? "✓" : i + 1}
@@ -257,7 +257,7 @@ export default function CreatePipelineWizard({
                     className={`text-xs ${
                       i === stepIndex
                         ? "text-foreground font-medium"
-                        : "text-muted-foreground"
+                        : "text-[hsl(var(--ds-text-2))]"
                     }`}
                   >
                     {p.wizard[`step${s.charAt(0).toUpperCase() + s.slice(1) as "Basic" | "Stages" | "Notifications"}`]}
@@ -339,7 +339,7 @@ export default function CreatePipelineWizard({
                 </div>
               </div>
 
-              <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
+              <div className="flex items-start gap-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-muted/20 px-4 py-3">
                 <Switch
                   checked={config.source.autoTrigger}
                   onCheckedChange={(v) =>
@@ -351,7 +351,7 @@ export default function CreatePipelineWizard({
                 />
                 <div>
                   <div className="text-sm font-medium">{p.basic.autoTrigger}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
+                  <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                     {p.basic.autoTriggerHelp}
                   </div>
                 </div>
@@ -368,13 +368,13 @@ export default function CreatePipelineWizard({
                   <button
                     key={tab}
                     onClick={() => setStageTab(tab)}
-                    className={`w-full flex items-center gap-2 rounded-md px-3 py-2 text-left text-xs transition-colors ${
+                    className={`w-full flex items-center gap-2 rounded-[6px] px-3 py-2 text-left text-xs transition-colors ${
                       stageTab === tab
                         ? "bg-muted text-foreground font-medium"
-                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                        : "text-[hsl(var(--ds-text-2))] hover:bg-[hsl(var(--ds-surface-1))] hover:text-foreground"
                     }`}
                   >
-                    <span className="w-4 h-4 rounded-full bg-muted/80 text-[10px] flex items-center justify-center text-muted-foreground shrink-0">
+                    <span className="w-4 h-4 rounded-[4px] bg-muted/80 text-[10px] flex items-center justify-center text-[hsl(var(--ds-text-2))] shrink-0">
                       {i + 1}
                     </span>
                     {p.stageTab[tab]}
@@ -391,18 +391,18 @@ export default function CreatePipelineWizard({
                   <div className="space-y-3">
                     <div>
                       <div className="text-sm font-medium">{p.source.title}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                         {p.source.description}
                       </div>
                     </div>
-                    <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-2">
-                      <div className="text-xs text-muted-foreground">
+                    <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-muted/20 p-4 space-y-2">
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
                         {dict.projects.repository}
                       </div>
                       <div className="text-sm font-medium">
                         {dict.nav.project.commits}
                       </div>
-                      <div className="text-xs text-muted-foreground mt-2">
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-2">
                         {p.basic.branch}
                       </div>
                       <div className="text-sm font-medium">
@@ -417,12 +417,12 @@ export default function CreatePipelineWizard({
                   <div className="space-y-4">
                     <div>
                       <div className="text-sm font-medium">{p.review.title}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                         {p.review.description}
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                    <div className="flex items-center justify-between rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
                       <div className="text-sm font-medium">{p.review.enabled}</div>
                       <Switch
                         checked={config.review.enabled}
@@ -436,13 +436,13 @@ export default function CreatePipelineWizard({
                     </div>
 
                     {config.review.enabled && (
-                      <div className="space-y-3 rounded-lg border border-border px-4 py-3">
+                      <div className="space-y-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
                         <div className="flex items-center justify-between">
                           <div>
                             <div className="text-sm font-medium">
                               {p.review.qualityGateEnabled}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-0.5">
+                            <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                               {p.review.qualityGateHelp}
                             </div>
                           </div>
@@ -460,7 +460,7 @@ export default function CreatePipelineWizard({
                           />
                         </div>
                         {config.review.qualityGateEnabled && (
-                          <div className="space-y-1.5 pt-2 border-t border-border">
+                          <div className="space-y-1.5 pt-2 border-t border-[hsl(var(--ds-border-1))]">
                             <label className="text-xs font-medium text-foreground">
                               {p.review.minScore}
                             </label>
@@ -484,11 +484,11 @@ export default function CreatePipelineWizard({
                                 }
                                 className="w-24"
                               />
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
                                 / 100
                               </span>
                             </div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
                               {p.review.minScoreHelp}
                             </div>
                           </div>
@@ -520,7 +520,7 @@ export default function CreatePipelineWizard({
                     dict={p}
                     templates={
                       <div className="flex flex-wrap gap-2 pb-1">
-                        <span className="text-xs text-muted-foreground self-center">
+                        <span className="text-[12px] text-[hsl(var(--ds-text-2))] self-center">
                           {p.build.templates}:
                         </span>
                         {(
@@ -531,7 +531,7 @@ export default function CreatePipelineWizard({
                           <button
                             key={t}
                             onClick={() => applyTemplate(t)}
-                            className="text-xs px-2 py-0.5 rounded border border-border hover:bg-muted/50 transition-colors"
+                            className="text-xs px-2 py-0.5 rounded border border-[hsl(var(--ds-border-1))] hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
                           >
                             {p.build[`template${t.charAt(0).toUpperCase() + t.slice(1) as "Node" | "Python" | "Go"}`]}
                           </button>
@@ -564,7 +564,7 @@ export default function CreatePipelineWizard({
                       dict={p}
                     />
                     {config.deploy.enabled && (
-                      <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
+                      <div className="flex items-start gap-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-muted/20 px-4 py-3">
                         <Switch
                           checked={config.deploy.rollbackEnabled}
                           onCheckedChange={(v) =>
@@ -578,7 +578,7 @@ export default function CreatePipelineWizard({
                           <div className="text-sm font-medium">
                             {p.deploy.rollbackEnabled}
                           </div>
-                          <div className="text-xs text-muted-foreground mt-0.5">
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                             {p.deploy.rollbackHelp}
                           </div>
                         </div>
@@ -595,13 +595,13 @@ export default function CreatePipelineWizard({
             <div className="space-y-4">
               <div>
                 <div className="text-sm font-medium">{p.notifications.title}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                   {p.notifications.description}
                 </div>
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div className="flex items-center justify-between rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
                   <span className="text-sm">{p.notifications.onSuccess}</span>
                   <Switch
                     checked={config.notifications.onSuccess}
@@ -616,7 +616,7 @@ export default function CreatePipelineWizard({
                     }
                   />
                 </div>
-                <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div className="flex items-center justify-between rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
                   <span className="text-sm">{p.notifications.onFailure}</span>
                   <Switch
                     checked={config.notifications.onFailure}
@@ -656,10 +656,10 @@ export default function CreatePipelineWizard({
                             },
                           }))
                         }
-                        className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                        className={`flex-1 py-2 rounded-[8px] border text-xs font-medium transition-colors ${
                           active
                             ? "border-foreground bg-muted text-foreground"
-                            : "border-border text-muted-foreground hover:border-foreground/40"
+                            : "border-[hsl(var(--ds-border-1))] text-[hsl(var(--ds-text-2))] hover:border-foreground/40"
                         }`}
                       >
                         {p.notifications[ch]}
@@ -673,7 +673,7 @@ export default function CreatePipelineWizard({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-border shrink-0 flex items-center justify-between">
+        <div className="px-6 py-4 border-t border-[hsl(var(--ds-border-1))] shrink-0 flex items-center justify-between">
           <Button
             variant="ghost"
             size="sm"
@@ -752,10 +752,10 @@ function StepEditor({
     <div className="space-y-4">
       <div>
         <div className="text-sm font-medium">{title}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">{description}</div>
+        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">{description}</div>
       </div>
 
-      <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+      <div className="flex items-center justify-between rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
         <div className="text-sm font-medium">{enabledLabel}</div>
         <Switch checked={enabled} onCheckedChange={onToggle} />
       </div>
@@ -765,7 +765,7 @@ function StepEditor({
           {templates && <div>{templates}</div>}
 
           {steps.length === 0 && (
-            <div className="text-xs text-muted-foreground py-4 text-center">
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))] py-4 text-center">
               {noStepsLabel}
             </div>
           )}
@@ -773,11 +773,11 @@ function StepEditor({
           {steps.map((step, idx) => (
             <div
               key={step.id}
-              className="rounded-lg border border-border bg-background p-3 space-y-2.5"
+              className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-3 space-y-2.5"
             >
               <div className="flex items-center gap-2">
-                <GripVertical className="size-3.5 text-muted-foreground/40 shrink-0" />
-                <span className="text-xs text-muted-foreground font-medium w-4">
+                <GripVertical className="size-3.5 text-[hsl(var(--ds-text-2))]/40 shrink-0" />
+                <span className="text-[12px] text-[hsl(var(--ds-text-2))] font-medium w-4">
                   {idx + 1}
                 </span>
                 <Input
@@ -788,7 +788,7 @@ function StepEditor({
                 />
                 <button
                   onClick={() => onRemove(step.id)}
-                  className="text-muted-foreground hover:text-danger transition-colors"
+                  className="text-[hsl(var(--ds-text-2))] hover:text-danger transition-colors"
                 >
                   <Trash2 className="size-3.5" />
                 </button>

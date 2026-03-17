@@ -95,11 +95,11 @@ export default function SavedFilters({ userId, currentFilter, onApplyFilter, dic
       </div>
 
       {filters.length === 0 ? (
-        <div className="text-sm text-muted-foreground text-center py-4">{dict.reports.noSavedFilters}</div>
+        <div className="text-[13px] text-[hsl(var(--ds-text-2))] text-center py-4">{dict.reports.noSavedFilters}</div>
       ) : (
         <div className="space-y-2">
           {filters.map(filter => (
-            <div key={filter.id} className="flex items-center gap-2 p-2 rounded-md border border-border hover:bg-muted/40 transition-colors">
+            <div key={filter.id} className="flex items-center gap-2 p-2 rounded-[6px] border border-[hsl(var(--ds-border-1))] hover:bg-[hsl(var(--ds-surface-1))] transition-colors">
               {filter.is_default && <Star className="size-3.5 text-yellow-500 fill-yellow-500" />}
               <button onClick={() => onApplyFilter(filter.filter_config)} className="flex-1 text-left text-sm">
                 {filter.name}
@@ -122,7 +122,7 @@ export default function SavedFilters({ userId, currentFilter, onApplyFilter, dic
               <label className="text-sm font-medium">{dict.reports.filterNameLabel}</label>
               <Input value={filterName} onChange={e => setFilterName(e.target.value)} placeholder={dict.reports.filterNamePlaceholder} autoFocus />
             </div>
-            <div className="text-sm text-muted-foreground">
+            <div className="text-[13px] text-[hsl(var(--ds-text-2))]">
               {dict.reports.currentFilterLabel}
               <ul className="mt-2 space-y-1">
                 {currentFilter.severity && (

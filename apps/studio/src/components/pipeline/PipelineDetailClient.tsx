@@ -72,9 +72,9 @@ const STATUS_ICON: Record<PipelineRunStatus, React.ReactNode> = {
   failed: <XCircle className="size-4 text-danger" />,
   timed_out: <XCircle className="size-4 text-danger" />,
   running: <RefreshCw className="size-4 text-warning animate-spin" />,
-  queued: <Clock className="size-4 text-muted-foreground" />,
-  canceled: <Circle className="size-4 text-muted-foreground" />,
-  skipped: <Circle className="size-4 text-muted-foreground" />,
+  queued: <Clock className="size-4 text-[hsl(var(--ds-text-2))]" />,
+  canceled: <Circle className="size-4 text-[hsl(var(--ds-text-2))]" />,
+  skipped: <Circle className="size-4 text-[hsl(var(--ds-text-2))]" />,
 };
 
 const STATUS_ICON_SM: Record<PipelineRunStatus, React.ReactNode> = {
@@ -82,9 +82,9 @@ const STATUS_ICON_SM: Record<PipelineRunStatus, React.ReactNode> = {
   failed: <XCircle className="size-3 text-danger" />,
   timed_out: <XCircle className="size-3 text-danger" />,
   running: <RefreshCw className="size-3 text-warning animate-spin" />,
-  queued: <Clock className="size-3 text-muted-foreground" />,
-  canceled: <Circle className="size-3 text-muted-foreground" />,
-  skipped: <Circle className="size-3 text-muted-foreground" />,
+  queued: <Clock className="size-3 text-[hsl(var(--ds-text-2))]" />,
+  canceled: <Circle className="size-3 text-[hsl(var(--ds-text-2))]" />,
+  skipped: <Circle className="size-3 text-[hsl(var(--ds-text-2))]" />,
 };
 
 type PipelineRun = PipelineRunDetail["run"];
@@ -457,8 +457,8 @@ export default function PipelineDetailClient({
           return (
             <div key={stage} className="flex items-center">
               <div className="flex flex-col items-center gap-1">
-                <div className={`size-2.5 rounded-full ${dot}`} />
-                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                <div className={`size-2.5 rounded-[4px] ${dot}`} />
+                <span className="text-[10px] text-[hsl(var(--ds-text-2))] whitespace-nowrap">
                   {label}
                 </span>
               </div>
@@ -476,7 +476,7 @@ export default function PipelineDetailClient({
 
   if (loading) {
     return (
-      <div className="px-6 py-10 text-sm text-muted-foreground">
+      <div className="px-6 py-10 text-[13px] text-[hsl(var(--ds-text-2))]">
         {dict.common.loading}
       </div>
     );
@@ -487,7 +487,7 @@ export default function PipelineDetailClient({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
+      <div className="px-6 py-4 border-b border-[hsl(var(--ds-border-1))] bg-background shrink-0">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -510,11 +510,11 @@ export default function PipelineDetailClient({
               )}
             </div>
             {pipeline?.description && (
-              <div className="text-[13px] text-muted-foreground truncate mt-0.5">
+              <div className="text-[13px] text-[hsl(var(--ds-text-2))] truncate mt-0.5">
                 {pipeline.description}
               </div>
             )}
-            <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+            <div className="flex items-center gap-3 mt-1.5 text-[12px] text-[hsl(var(--ds-text-2))]">
               <div className="flex items-center gap-1">
                 <GitBranch className="size-3" />
                 {pipeline?.trigger_branch ?? "main"}
@@ -550,7 +550,7 @@ export default function PipelineDetailClient({
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-border bg-background shrink-0">
+      <div className="border-b border-[hsl(var(--ds-border-1))] bg-background shrink-0">
         <div className="flex px-6 gap-1">
           {(["runs", "configure"] as Tab[]).map((t) => (
             <button
@@ -559,7 +559,7 @@ export default function PipelineDetailClient({
               className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${
                 tab === t
                   ? "border-foreground text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
+                  : "border-transparent text-[hsl(var(--ds-text-2))] hover:text-foreground"
               }`}
             >
               {t === "runs" ? (
@@ -579,21 +579,21 @@ export default function PipelineDetailClient({
         {tab === "runs" && (
           <div className="flex h-full">
             {/* Left: run list */}
-            <div className="w-64 shrink-0 border-r border-border flex flex-col overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
+            <div className="w-64 shrink-0 border-r border-[hsl(var(--ds-border-1))] flex flex-col overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-[hsl(var(--ds-border-1))] flex items-center justify-between">
                 <span className="text-xs font-medium text-foreground">
                   {p.detail.runHistory}
                 </span>
                 <button
                   onClick={loadRuns}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-[hsl(var(--ds-text-2))] hover:text-foreground transition-colors"
                 >
                   <RefreshCw className="size-3.5" />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {runs.length === 0 && (
-                  <div className="px-4 py-8 text-xs text-muted-foreground text-center">
+                  <div className="px-4 py-8 text-[12px] text-[hsl(var(--ds-text-2))] text-center">
                     {p.detail.noRuns}
                   </div>
                 )}
@@ -607,10 +607,10 @@ export default function PipelineDetailClient({
                       setLogText("");
                       setExpandedJobId(null);
                     }}
-                    className={`w-full text-left px-4 py-3 border-b border-border transition-colors ${
+                    className={`w-full text-left px-4 py-3 border-b border-[hsl(var(--ds-border-1))] transition-colors ${
                       selectedRunId === run.id
-                        ? "bg-muted/50"
-                        : "hover:bg-muted/30"
+                        ? "bg-[hsl(var(--ds-surface-1))]"
+                        : "hover:bg-[hsl(var(--ds-surface-1))]"
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -627,7 +627,7 @@ export default function PipelineDetailClient({
                         {p.status[run.status as PipelineRunStatus]}
                       </Badge>
                     </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
+                    <div className="mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
                       {p.detail.trigger[
                         run.trigger_type as keyof typeof p.detail.trigger
                       ] ?? run.trigger_type}
@@ -635,7 +635,7 @@ export default function PipelineDetailClient({
                         <span className="ml-1">· {run.branch}</span>
                       )}
                     </div>
-                    <div className="text-[11px] text-muted-foreground">
+                    <div className="text-[11px] text-[hsl(var(--ds-text-2))]">
                       {new Date(run.created_at).toLocaleString()}
                     </div>
                   </button>
@@ -646,7 +646,7 @@ export default function PipelineDetailClient({
             {/* Right: run detail */}
             <div className="flex-1 flex flex-col overflow-hidden">
               {!selectedRunId && (
-                <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+                <div className="flex-1 flex items-center justify-center text-[13px] text-[hsl(var(--ds-text-2))]">
                   {p.detail.noRuns}
                 </div>
               )}
@@ -654,7 +654,7 @@ export default function PipelineDetailClient({
               {selectedRunId && (
                 <>
                   {/* Run header */}
-                  <div className="px-6 py-4 border-b border-border shrink-0">
+                  <div className="px-6 py-4 border-b border-[hsl(var(--ds-border-1))] shrink-0">
                     <div className="flex items-start justify-between gap-4">
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
@@ -684,7 +684,7 @@ export default function PipelineDetailClient({
                         </div>
 
                         {currentRun && (
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-4 text-[12px] text-[hsl(var(--ds-text-2))]">
                             {currentRun.branch && (
                               <div className="flex items-center gap-1">
                                 <GitBranch className="size-3" />
@@ -736,16 +736,16 @@ export default function PipelineDetailClient({
                   {/* Jobs + logs */}
                   <div className="flex-1 flex overflow-hidden">
                     {/* Job/step tree */}
-                    <div className="w-56 shrink-0 border-r border-border overflow-y-auto">
+                    <div className="w-56 shrink-0 border-r border-[hsl(var(--ds-border-1))] overflow-y-auto">
                       {!runDetail && (
-                        <div className="px-4 py-6 text-xs text-muted-foreground">
+                        <div className="px-4 py-6 text-[12px] text-[hsl(var(--ds-text-2))]">
                           {dict.common.loading}
                         </div>
                       )}
                       {runDetail?.jobs.map((job) => (
                         <div key={job.id}>
                           <button
-                            className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-muted/30 transition-colors"
+                            className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
                             onClick={() =>
                               setExpandedJobId(
                                 expandedJobId === job.id ? null : job.id
@@ -757,9 +757,9 @@ export default function PipelineDetailClient({
                               {job.name}
                             </span>
                             {expandedJobId === job.id ? (
-                              <ChevronDown className="size-3 text-muted-foreground" />
+                              <ChevronDown className="size-3 text-[hsl(var(--ds-text-2))]" />
                             ) : (
-                              <ChevronRight className="size-3 text-muted-foreground" />
+                              <ChevronRight className="size-3 text-[hsl(var(--ds-text-2))]" />
                             )}
                           </button>
                           {expandedJobId === job.id &&
@@ -771,14 +771,14 @@ export default function PipelineDetailClient({
                                   onClick={() => loadLog(step.id)}
                                   className={`w-full flex items-center gap-2 pl-8 pr-4 py-1.5 transition-colors text-left ${
                                     selectedStepId === step.id
-                                      ? "bg-muted/50"
+                                      ? "bg-[hsl(var(--ds-surface-1))]"
                                       : "hover:bg-muted/20"
                                   }`}
                                 >
                                   {STATUS_ICON_SM[
                                     step.status as PipelineRunStatus
                                   ]}
-                                  <span className="text-[11px] truncate text-muted-foreground">
+                                  <span className="text-[11px] truncate text-[hsl(var(--ds-text-2))]">
                                     {step.name}
                                   </span>
                                 </button>
@@ -790,7 +790,7 @@ export default function PipelineDetailClient({
                     {/* Log viewer */}
                     <div className="flex-1 flex flex-col overflow-hidden bg-[#0d0d0d]">
                       {!selectedStepId && (
-                        <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
+                        <div className="flex-1 flex items-center justify-center text-[12px] text-[hsl(var(--ds-text-2))]">
                           {p.log.selectStep}
                         </div>
                       )}
@@ -800,7 +800,7 @@ export default function PipelineDetailClient({
                           className="flex-1 overflow-y-auto p-4 font-mono text-[11px] text-green-400 leading-relaxed whitespace-pre-wrap"
                         >
                           {logText || (
-                            <span className="text-muted-foreground">
+                            <span className="text-[hsl(var(--ds-text-2))]">
                               {p.log.noLogs}
                             </span>
                           )}
@@ -818,18 +818,18 @@ export default function PipelineDetailClient({
         {tab === "configure" && config && (
           <div className="flex h-full">
             {/* Stage nav */}
-            <div className="w-40 shrink-0 border-r border-border py-4 space-y-1 px-3">
+            <div className="w-40 shrink-0 border-r border-[hsl(var(--ds-border-1))] py-4 space-y-1 px-3">
               {STAGE_KEYS.map((s, i) => (
                 <button
                   key={s}
                   onClick={() => setConfigStageTab(s)}
-                  className={`w-full flex items-center gap-2 rounded-md px-3 py-2 text-left text-xs transition-colors ${
+                  className={`w-full flex items-center gap-2 rounded-[6px] px-3 py-2 text-left text-xs transition-colors ${
                     configStageTab === s
                       ? "bg-muted text-foreground font-medium"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      : "text-[hsl(var(--ds-text-2))] hover:bg-[hsl(var(--ds-surface-1))] hover:text-foreground"
                   }`}
                 >
-                  <span className="w-4 h-4 rounded-full bg-muted/80 text-[10px] flex items-center justify-center shrink-0">
+                  <span className="w-4 h-4 rounded-[4px] bg-muted/80 text-[10px] flex items-center justify-center shrink-0">
                     {i + 1}
                   </span>
                   {p.stageTab[s]}
@@ -839,13 +839,13 @@ export default function PipelineDetailClient({
               {/* Pipeline-level settings */}
               <button
                 onClick={() => setConfigStageTab("settings")}
-                className={`w-full flex items-center gap-2 rounded-md px-3 py-2 text-left text-xs transition-colors ${
+                className={`w-full flex items-center gap-2 rounded-[6px] px-3 py-2 text-left text-xs transition-colors ${
                   configStageTab === "settings"
                     ? "bg-muted text-foreground font-medium"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    : "text-[hsl(var(--ds-text-2))] hover:bg-[hsl(var(--ds-surface-1))] hover:text-foreground"
                 }`}
               >
-                <span className="w-4 h-4 rounded-full bg-muted/80 text-[10px] flex items-center justify-center shrink-0">
+                <span className="w-4 h-4 rounded-[4px] bg-muted/80 text-[10px] flex items-center justify-center shrink-0">
                   S
                 </span>
                 {p.settingsTab.title}
@@ -858,10 +858,10 @@ export default function PipelineDetailClient({
               {configStageTab === "settings" && (
                 <div className="space-y-6 max-w-2xl pb-24">
                   {/* Variables */}
-                  <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+                  <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-4 space-y-3">
                     <div>
                       <div className="text-sm font-medium">{p.settingsTab.variablesTitle}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                         {p.settingsTab.variablesDescription}
                       </div>
                     </div>
@@ -892,7 +892,7 @@ export default function PipelineDetailClient({
                           </div>
                         ))}
                       {Object.keys(config.variables ?? {}).length === 0 && (
-                        <div className="text-xs text-muted-foreground py-2">
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] py-2">
                           {dict.common.none}
                         </div>
                       )}
@@ -929,16 +929,16 @@ export default function PipelineDetailClient({
                   </div>
 
                   {/* Notifications */}
-                  <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+                  <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-4 space-y-3">
                     <div>
                       <div className="text-sm font-medium">{p.notifications.title}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                         {p.notifications.description}
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                      <div className="flex items-center justify-between rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
                         <span className="text-sm">{p.notifications.onSuccess}</span>
                         <Switch
                           checked={config.notifications.onSuccess}
@@ -951,7 +951,7 @@ export default function PipelineDetailClient({
                           disabled={!isAdmin}
                         />
                       </div>
-                      <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                      <div className="flex items-center justify-between rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
                         <span className="text-sm">{p.notifications.onFailure}</span>
                         <Switch
                           checked={config.notifications.onFailure}
@@ -988,10 +988,10 @@ export default function PipelineDetailClient({
                                   },
                                 });
                               }}
-                              className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                              className={`flex-1 py-2 rounded-[8px] border text-xs font-medium transition-colors ${
                                 active
                                   ? "border-foreground bg-muted text-foreground"
-                                  : "border-border text-muted-foreground hover:border-foreground/40"
+                                  : "border-[hsl(var(--ds-border-1))] text-[hsl(var(--ds-text-2))] hover:border-foreground/40"
                               } ${!isAdmin ? "opacity-60 cursor-not-allowed" : ""}`}
                               disabled={!isAdmin}
                             >
@@ -1004,11 +1004,11 @@ export default function PipelineDetailClient({
                   </div>
 
                   {/* Secrets */}
-                  <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+                  <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-medium">{p.settingsTab.secretsTitle}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                           {p.settingsTab.secretsDescription}
                         </div>
                       </div>
@@ -1019,12 +1019,12 @@ export default function PipelineDetailClient({
 
                     <div className="space-y-2">
                       {secretsLoading && (
-                        <div className="text-xs text-muted-foreground py-2">
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] py-2">
                           {dict.common.loading}
                         </div>
                       )}
                       {!secretsLoading && secrets.length === 0 && (
-                        <div className="text-xs text-muted-foreground py-2">
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] py-2">
                           {dict.common.none}
                         </div>
                       )}
@@ -1088,7 +1088,7 @@ export default function PipelineDetailClient({
                 <div className="space-y-4 max-w-lg">
                   <div>
                     <div className="text-sm font-medium">{p.source.title}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
+                    <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                       {p.source.description}
                     </div>
                   </div>
@@ -1104,7 +1104,7 @@ export default function PipelineDetailClient({
                       }
                     />
                   </div>
-                  <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
+                  <div className="flex items-start gap-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-muted/20 px-4 py-3">
                     <Switch
                       checked={config.source.autoTrigger}
                       onCheckedChange={(v) =>
@@ -1118,7 +1118,7 @@ export default function PipelineDetailClient({
                       <div className="text-sm font-medium">
                         {p.basic.autoTrigger}
                       </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                         {p.basic.autoTriggerHelp}
                       </div>
                     </div>
@@ -1131,11 +1131,11 @@ export default function PipelineDetailClient({
                 <div className="space-y-4 max-w-lg">
                   <div>
                     <div className="text-sm font-medium">{p.review.title}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
+                    <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                       {p.review.description}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                  <div className="flex items-center justify-between rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
                     <span className="text-sm font-medium">{p.review.enabled}</span>
                     <Switch
                       checked={config.review.enabled}
@@ -1148,13 +1148,13 @@ export default function PipelineDetailClient({
                     />
                   </div>
                   {config.review.enabled && (
-                    <div className="space-y-3 rounded-lg border border-border px-4 py-3">
+                    <div className="space-y-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="text-sm font-medium">
                             {p.review.qualityGateEnabled}
                           </div>
-                          <div className="text-xs text-muted-foreground mt-0.5">
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                             {p.review.qualityGateHelp}
                           </div>
                         </div>
@@ -1172,7 +1172,7 @@ export default function PipelineDetailClient({
                         />
                       </div>
                       {config.review.qualityGateEnabled && (
-                        <div className="space-y-1.5 pt-2 border-t border-border">
+                        <div className="space-y-1.5 pt-2 border-t border-[hsl(var(--ds-border-1))]">
                           <label className="text-xs font-medium">
                             {p.review.minScore}
                           </label>
@@ -1196,7 +1196,7 @@ export default function PipelineDetailClient({
                               }
                               className="w-24"
                             />
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
                               / 100
                             </span>
                           </div>
@@ -1233,7 +1233,7 @@ export default function PipelineDetailClient({
                     p={p}
                   />
                   {config.deploy.enabled && (
-                    <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
+                    <div className="flex items-start gap-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-muted/20 px-4 py-3">
                       <Switch
                         checked={config.deploy.rollbackEnabled}
                         onCheckedChange={(v) =>
@@ -1247,7 +1247,7 @@ export default function PipelineDetailClient({
                         <div className="text-sm font-medium">
                           {p.deploy.rollbackEnabled}
                         </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
                           {p.deploy.rollbackHelp}
                         </div>
                       </div>
@@ -1258,7 +1258,7 @@ export default function PipelineDetailClient({
             </div>
 
             {/* Save footer */}
-            <div className="absolute bottom-0 right-0 left-40 px-6 py-3 border-t border-border bg-background flex justify-end">
+            <div className="absolute bottom-0 right-0 left-40 px-6 py-3 border-t border-[hsl(var(--ds-border-1))] bg-background flex justify-end">
               <Button
                 variant="default"
                 size="sm"
@@ -1300,11 +1300,11 @@ function ConfigStepEditor({
     <div className="space-y-4 max-w-2xl">
       <div>
         <div className="text-sm font-medium">{stageP.title}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">
+        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
           {stageP.description}
         </div>
       </div>
-      <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+      <div className="flex items-center justify-between rounded-[8px] border border-[hsl(var(--ds-border-1))] px-4 py-3">
         <span className="text-sm font-medium">{stageP.enabled}</span>
         <Switch
           checked={stageConfig.enabled}
@@ -1316,17 +1316,17 @@ function ConfigStepEditor({
       {stageConfig.enabled && (
         <div className="space-y-3">
           {stageConfig.steps.length === 0 && (
-            <div className="text-xs text-muted-foreground py-4 text-center">
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))] py-4 text-center">
               {stageP.noSteps}
             </div>
           )}
           {stageConfig.steps.map((step, idx) => (
             <div
               key={step.id}
-              className="rounded-lg border border-border bg-background p-3 space-y-2.5"
+              className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-3 space-y-2.5"
             >
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground font-medium w-5 shrink-0">
+                <span className="text-[12px] text-[hsl(var(--ds-text-2))] font-medium w-5 shrink-0">
                   {idx + 1}.
                 </span>
                 <Input
@@ -1337,7 +1337,7 @@ function ConfigStepEditor({
                 />
                 <button
                   onClick={() => onRemove(step.id)}
-                  className="text-muted-foreground hover:text-danger transition-colors"
+                  className="text-[hsl(var(--ds-text-2))] hover:text-danger transition-colors"
                 >
                   <Trash2 className="size-3.5" />
                 </button>

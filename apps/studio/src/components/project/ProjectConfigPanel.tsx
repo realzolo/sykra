@@ -94,7 +94,7 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
             <Skeleton className="h-4 w-28" />
             <Skeleton className="h-3 w-52" />
           </div>
-          <Skeleton className="h-6 w-10 rounded-full" />
+          <Skeleton className="h-6 w-10 rounded-[4px]" />
         </div>
         <div className="space-y-2">
           <Skeleton className="h-4 w-32" />
@@ -102,7 +102,7 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
           <Skeleton className="h-3 w-2/3" />
         </div>
         <div className="flex justify-end">
-          <Skeleton className="h-9 w-32 rounded-md" />
+          <Skeleton className="h-9 w-32 rounded-[6px]" />
         </div>
       </div>
     );
@@ -126,7 +126,7 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
           rows={8}
           className="font-mono text-sm"
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
           {dict.projects.ignorePatternsHelp}
         </p>
       </div>
@@ -148,7 +148,7 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
           }
           placeholder={dict.projects.qualityThresholdPlaceholder}
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
           {dict.projects.qualityThresholdHelp}
         </p>
       </div>
@@ -157,7 +157,7 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
           <label className="text-sm font-medium">{dict.projects.autoAnalyze}</label>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
             {dict.projects.autoAnalyzeHelp}
           </p>
         </div>
@@ -179,7 +179,7 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
           }
           placeholder="https://your-webhook-url.com/notify"
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
           {dict.projects.webhookHelp}
         </p>
       </div>

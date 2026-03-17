@@ -59,7 +59,7 @@ export default function TrendChart({ projectId, dict }: { projectId: string; dic
         </div>
         <div className="flex gap-2">
           {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={`trend-pill-${index}`} className="h-7 w-16 rounded-full" />
+            <Skeleton key={`trend-pill-${index}`} className="h-7 w-16 rounded-[4px]" />
           ))}
         </div>
       </div>
@@ -67,7 +67,7 @@ export default function TrendChart({ projectId, dict }: { projectId: string; dic
   }
 
   if (snapshots.length === 0) {
-    return <div className="text-sm text-muted-foreground">{dict.reportDetail.trendNoData}</div>;
+    return <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.trendNoData}</div>;
   }
 
   const latest = snapshots[snapshots.length - 1];
@@ -85,7 +85,7 @@ export default function TrendChart({ projectId, dict }: { projectId: string; dic
       <div className="flex items-center gap-6">
         <div>
           <div className="text-2xl font-bold">{latest.score}</div>
-          <div className="text-xs text-muted-foreground">{dict.reportDetail.currentScore}</div>
+          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.currentScore}</div>
         </div>
         <div className="flex items-center gap-1.5">
           {scoreDiff > 0 ? (
@@ -93,13 +93,13 @@ export default function TrendChart({ projectId, dict }: { projectId: string; dic
           ) : scoreDiff < 0 ? (
             <><TrendingDown className="size-4 text-danger" /><span className="text-sm font-semibold text-danger">{scoreDiff}</span></>
           ) : (
-            <><Minus className="size-4 text-muted-foreground" /><span className="text-sm text-muted-foreground">{dict.reportDetail.noChange}</span></>
+            <><Minus className="size-4 text-[hsl(var(--ds-text-2))]" /><span className="text-[13px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.noChange}</span></>
           )}
         </div>
         <div className="h-8 w-px bg-border" />
         <div>
           <div className="text-2xl font-bold">{latest.total_issues}</div>
-          <div className="text-xs text-muted-foreground">{dict.reportDetail.totalIssues}</div>
+          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.totalIssues}</div>
         </div>
         <div className="flex items-center gap-1.5">
           {issuesDiff < 0 ? (
@@ -107,7 +107,7 @@ export default function TrendChart({ projectId, dict }: { projectId: string; dic
           ) : issuesDiff > 0 ? (
             <><TrendingDown className="size-4 text-danger" /><span className="text-sm font-semibold text-danger">+{issuesDiff}</span></>
           ) : (
-            <><Minus className="size-4 text-muted-foreground" /><span className="text-sm text-muted-foreground">{dict.reportDetail.noChange}</span></>
+            <><Minus className="size-4 text-[hsl(var(--ds-text-2))]" /><span className="text-[13px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.noChange}</span></>
           )}
         </div>
       </div>
@@ -128,7 +128,7 @@ export default function TrendChart({ projectId, dict }: { projectId: string; dic
                 </div>
               </div>
               {idx % Math.ceil(snapshots.length / 7) === 0 && (
-                <div className="text-[10px] text-muted-foreground">
+                <div className="text-[10px] text-[hsl(var(--ds-text-2))]">
                   {new Date(snap.snapshot_date).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}
                 </div>
               )}
@@ -143,7 +143,7 @@ export default function TrendChart({ projectId, dict }: { projectId: string; dic
           <button
             key={d}
             onClick={() => setDays(d)}
-            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+            className={`px-3 py-1 text-xs rounded-[6px] transition-colors ${
               days === d ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
             }`}
           >
