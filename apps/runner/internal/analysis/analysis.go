@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -136,7 +137,39 @@ func RunAnalyzeTask(
 		publisher.ReportStatus(payload.ReportID, "done", &score)
 	}
 
+	// Optional: notify Studio so it can send user-facing notifications (email, etc.).
+	postStudioReportEvent(ctx, payload.ReportID)
+
 	return nil
+}
+
+func postStudioReportEvent(ctx context.Context, reportID string) {
+	studioURL := strings.TrimSpace(os.Getenv("STUDIO_URL"))
+	token := strings.TrimSpace(os.Getenv("STUDIO_TOKEN"))
+	if studioURL == "" || token == "" {
+		return
+	}
+
+	url := strings.TrimRight(studioURL, "/") + "/api/runner/events"
+	raw, err := json.Marshal(map[string]any{
+		"type":     "report.done",
+		"reportId": reportID,
+	})
+	if err != nil {
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Runner-Token", token)
+	client := &http.Client{Timeout: 5 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	_ = res.Body.Close()
 }
 
 func analyzeFull(

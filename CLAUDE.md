@@ -50,6 +50,7 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 **URL routing:**
 - Dashboard URLs must include org prefix: `/o/:orgId/...`
 - `/o/:orgId/...` routes are real wrappers that mirror the dashboard pages
+- Org home page: `/o/:orgId` renders the dashboard overview (no longer auto-redirects to projects)
 - `middleware.ts` keeps the `org_id` cookie in sync when an `/o/:orgId/...` path is requested
 - If a user hits `/projects` (or other dashboard path) and has `org_id`, middleware redirects to `/o/:orgId/...`
 
@@ -246,6 +247,10 @@ EMAIL_VERIFICATION_REQUIRED= # Require email verification before login (true|fal
 RUNNER_BASE_URL=            # Runner base URL (e.g. http://localhost:8200)
 RUNNER_TOKEN=               # Shared token for runner auth
 TASK_RUNNER_TOKEN=          # Optional, protects internal task endpoints (e.g. /api/codebase/sync)
+EMAIL_PROVIDER=             # Email provider for notifications: console|resend
+EMAIL_FROM=                 # From address (required for resend)
+RESEND_API_KEY=             # Resend API key (required when EMAIL_PROVIDER=resend)
+STUDIO_BASE_URL=            # Public base URL for links included in emails (optional)
 ```
 
 **Runner env (apps/runner):**
@@ -255,6 +260,8 @@ RUNNER_TOKEN=
 DATABASE_URL=               # Postgres connection string
 REDIS_URL=                  # Redis queue
 ENCRYPTION_KEY=             # Same key used by studio for decrypting secrets
+STUDIO_URL=                 # Studio base URL (Runner -> Studio), used by pipeline executors
+STUDIO_TOKEN=               # Token presented to Studio as X-Runner-Token (defaults to RUNNER_TOKEN; dev falls back to "dev-runner")
 PIPELINE_QUEUE=             # Pipeline queue name
 PIPELINE_CONCURRENCY=       # Max concurrent pipeline jobs
 PIPELINE_RUN_TIMEOUT=       # Overall run timeout (e.g. 2h)
@@ -292,6 +299,10 @@ artifact_retention_days = 30
 
 [security]
 encryption_key = ""
+
+[studio]
+url = ""
+token = ""
 ```
 
 Environment files for Studio live under `apps/studio` (e.g. `apps/studio/.env`).
@@ -333,12 +344,18 @@ If new install warnings appear, approve the dependency and update the allowlist.
 - **Studio** ships a drag-and-drop DAG builder under `/pipelines` with stage/job/step configuration.
 - **Pipelines** are org-scoped and may be created without linking a project (`project_id` is nullable).
 - **Pipeline config** is versioned in `pipeline_versions` and linked from `pipelines.current_version_id`.
+- **Pipeline secrets** are stored in `pipeline_secrets` encrypted at rest (AES-256-GCM, `ENCRYPTION_KEY`) and injected into every step as environment variables (write-only in UI).
 - **Execution model**: jobs form a DAG via `needs`; steps run sequentially inside a job.
 - **Runner** executes **shell** steps only (for now) with per-step timeouts, retries, and status events.
 - **Events** are appended to `pipeline_run_events` for UI polling and audit.
 - **Logs** and **artifacts** are stored locally under `RUNNER_DATA_DIR`:
   - `logs/{run_id}/{job_key}/{step_key}.log`
   - `artifacts/{run_id}/{job_key}/{step_key}/...`
+- **Runner → Studio callbacks (pipelines)**:
+  - `source_checkout` fetches repo info from `GET /api/projects/:id`
+  - `review_gate` fetches latest completed report score from `GET /api/reports?projectId=...&limit=1`
+  - Runner emits completion events to Studio at `POST /api/runner/events` (authorized via `X-Runner-Token`) so Studio can send notifications
+  - Runner must be configured with `STUDIO_URL` and a token (`STUDIO_TOKEN`, defaults to `RUNNER_TOKEN`) and Studio must accept `X-Runner-Token` (shared secret)
 
 **GitHub webhook:** `/api/webhooks/github` supports `?project_id=...`. If a repo matches multiple projects, the endpoint returns 409 and requires `project_id`.
 
@@ -357,6 +374,7 @@ Automatic mirror sync can be triggered by:
 Stale workspaces can be cleared via `POST /api/codebase/cleanup` (uses `x-task-token` if `TASK_RUNNER_TOKEN` is set).
 
 Local cache directories (for example `apps/studio/.codebase/` and `/.pnpm-store/`) are not committed to Git.
+Note: env vars like `CODEBASE_ROOT` / `CODEBASE_MIRRORS_DIR` / `CODEBASE_WORKSPACES_DIR` treat empty values (e.g. `FOO=` in `.env`) as "unset" and fall back to defaults.
 
 ```
 CODEBASE_ROOT=
@@ -381,13 +399,14 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 
 ## Runtime Contracts
 
-- All API routes require login; runner endpoints accept `X-Runner-Token`
+- All API routes require login; a small set of Studio endpoints accept `X-Runner-Token` for Runner-to-Studio calls (pipeline executors)
 - Auth uses the `session` HTTP-only cookie; email verification is controlled by `EMAIL_VERIFICATION_REQUIRED` (default true)
 - `analysis_issues.status`: `open | fixed | ignored | false_positive | planned`
 - `/api/projects/[id]/trends` returns array directly (no `data` wrapper)
 - Rules learning endpoints are admin-only (org-scoped)
 - Public pages accessible without login: `/`, `/login`, `/verify`, `/reset`, `/auth/*`, `/invite/*`, `/terms`, `/privacy`
 - Dashboard routes must be accessed via `/o/:orgId/...` (middleware rewrites internally)
+- Project detail tabs support deep links via query params: `?tab=commits|codebase|stats|config`. Codebase supports `ref`, `path`, `line` for jump-to-location.
 
 ## FAQ
 

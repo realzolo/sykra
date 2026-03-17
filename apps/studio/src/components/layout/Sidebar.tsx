@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
   Check,
   ChevronDown,
-  Code2,
+  Home,
   GitBranch,
   FolderOpen,
   FileText,
@@ -63,6 +63,7 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
   const pathOrgId = extractOrgFromPath(pathname).orgId;
 
   const navItems = [
+    { base: '/',         href: withOrgPrefix(pathname, '/'),         label: dict.nav.home,     icon: Home,       countKey: null },
     { base: '/projects', href: withOrgPrefix(pathname, '/projects'), label: dict.nav.projects, icon: FolderOpen, countKey: 'projects' as const },
     { base: '/pipelines', href: withOrgPrefix(pathname, '/pipelines'), label: dict.nav.pipelines, icon: GitBranch, countKey: null },
     { base: '/reports',  href: withOrgPrefix(pathname, '/reports'),  label: dict.nav.reports,  icon: FileText,   countKey: 'reports' as const },
@@ -70,7 +71,10 @@ export default function Sidebar({ locale, dict }: SidebarProps) {
     { base: '/settings', href: withOrgPrefix(pathname, '/settings'), label: dict.nav.settings,  icon: Settings,   countKey: null },
   ];
 
-  const activeBase = navItems.find(item => basePath.startsWith(item.base))?.base ?? '/projects';
+  const activeBase =
+    basePath === '/'
+      ? '/'
+      : navItems.filter(item => item.base !== '/').find(item => basePath.startsWith(item.base))?.base ?? '/projects';
 
   useEffect(() => {
     let alive = true;

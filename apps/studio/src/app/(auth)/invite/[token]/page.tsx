@@ -18,7 +18,7 @@ export default function InviteAcceptPage() {
       const res = await fetch('/api/orgs/active');
       if (!res.ok) return '/projects';
       const data = await res.json();
-      if (data?.orgId) return `/o/${data.orgId}/projects`;
+      if (data?.orgId) return `/o/${data.orgId}`;
     } catch {}
     return '/projects';
   }

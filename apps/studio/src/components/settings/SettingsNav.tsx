@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Plug, Shield, Users } from 'lucide-react';
+import { Bell, Plug, Shield, Users } from 'lucide-react';
 import { stripOrgPrefix, withOrgPrefix } from '@/lib/orgPath';
 
 const items = [
   { href: '/settings/organizations', label: 'Organizations', icon: Users },
+  { href: '/settings/notifications', label: 'Notifications', icon: Bell },
   { href: '/settings/integrations', label: 'Integrations', icon: Plug },
   { href: '/settings/security', label: 'Security', icon: Shield },
 ];

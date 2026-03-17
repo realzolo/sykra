@@ -23,3 +23,10 @@ artifact_retention_days = 30
 
 [security]
 encryption_key = ""
+
+[studio]
+# Base URL for Studio (used by pipeline source_checkout and review_gate job types)
+url = "http://localhost:8109"
+# Optional: token presented to Studio as `X-Runner-Token`. If empty, Runner will
+# fall back to the main `RUNNER_TOKEN` env var / `[runner].token` value.
+token = ""

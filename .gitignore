@@ -20,6 +20,7 @@
 # production
 **/build
 apps/runner/runner
+apps/runner/data/logs/
 
 # misc
 .DS_Store

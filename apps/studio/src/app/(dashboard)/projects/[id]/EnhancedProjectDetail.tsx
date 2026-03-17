@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Settings, GitBranch, BarChart3, Code2 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import CommitsClient from './CommitsClient';
@@ -12,10 +14,44 @@ type Project = {
   id: string; name: string; repo: string; default_branch: string; org_id: string;
 };
 
+type ProjectTab = 'commits' | 'codebase' | 'stats' | 'config';
+
+function isProjectTab(value: string | null): value is ProjectTab {
+  return value === 'commits' || value === 'codebase' || value === 'stats' || value === 'config';
+}
+
 export default function EnhancedProjectDetail({ project, branches, dict }: { project: Project; branches: string[]; dict: Dictionary }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const [tab, setTab] = useState<ProjectTab>(() => {
+    const raw = searchParams.get('tab');
+    return isProjectTab(raw) ? raw : 'commits';
+  });
+
+  useEffect(() => {
+    const raw = searchParams.get('tab');
+    const next = isProjectTab(raw) ? raw : 'commits';
+    if (next !== tab) setTab(next);
+  }, [searchParams, tab]);
+
+  const handleTabChange = (value: string) => {
+    if (!isProjectTab(value)) return;
+    setTab(value);
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === 'commits') {
+      params.delete('tab');
+    } else {
+      params.set('tab', value);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
   return (
     <div className="flex flex-col h-full">
-      <Tabs className="flex flex-col h-full" defaultValue="commits">
+      <Tabs className="flex flex-col h-full" value={tab} onValueChange={handleTabChange}>
         <div className="border-b border-border bg-background shrink-0 px-4">
           <TabsList className="bg-transparent h-11">
             <TabsTrigger value="commits">

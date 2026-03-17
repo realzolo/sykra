@@ -9,6 +9,7 @@ import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requireProjectAccess } from '@/services/orgs';
 import { queryOne } from '@/lib/db';
+import { isRunnerAuthorized } from '@/services/runnerAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,8 +24,9 @@ export async function GET(
     return rateLimitResponse;
   }
 
-  const user = await requireUser();
-  if (!user) return unauthorized();
+  const runnerAuthorized = isRunnerAuthorized(request);
+  const user = runnerAuthorized ? null : await requireUser();
+  if (!runnerAuthorized && !user) return unauthorized();
 
   try {
     const { id } = await params;
@@ -32,7 +34,27 @@ export async function GET(
 
     logger.setContext({ projectId });
 
-    const project = await withRetry(() => requireProjectAccess(projectId, user.id));
+    if (runnerAuthorized) {
+      const project = await withRetry(() =>
+        queryOne<{
+          id: string;
+          org_id: string | null;
+          repo: string | null;
+          default_branch: string;
+        }>(
+          `select id, org_id, repo, default_branch
+           from code_projects
+           where id = $1`,
+          [projectId]
+        )
+      );
+      if (!project) {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      }
+      return NextResponse.json(project);
+    }
+
+    const project = await withRetry(() => requireProjectAccess(projectId, user!.id));
     logger.info(`Project fetched: ${projectId}`);
     return NextResponse.json(project);
   } catch (err) {

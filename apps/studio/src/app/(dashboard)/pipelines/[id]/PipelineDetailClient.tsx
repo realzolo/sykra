@@ -52,6 +52,7 @@ import {
   STATUS_VARIANTS,
 } from "@/services/pipelineTypes";
 import { withOrgPrefix } from "@/lib/orgPath";
+import { useOrgRole } from "@/lib/useOrgRole";
 
 type Tab = "runs" | "configure";
 
@@ -101,13 +102,15 @@ export default function PipelineDetailClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const p = dict.pipelines;
+  const { isAdmin } = useOrgRole();
 
   const initialTab = (searchParams.get("tab") as Tab) ?? "runs";
   const [tab, setTab] = useState<Tab>(initialTab);
   const [pipeline, setPipeline] = useState<PipelineSummary | null>(null);
   const [config, setConfig] = useState<PipelineConfig | null>(null);
   const [runs, setRuns] = useState<PipelineRun[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const initialRunId = searchParams.get("runId");
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
   const [runDetail, setRunDetail] = useState<PipelineRunDetail | null>(null);
   const [logText, setLogText] = useState("");
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
@@ -116,7 +119,16 @@ export default function PipelineDetailClient({
   const [running, setRunning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
-  const [configStageTab, setConfigStageTab] = useState<StageKey>("source");
+  const [configStageTab, setConfigStageTab] = useState<StageKey | "settings">("source");
+  const [newVarKey, setNewVarKey] = useState("");
+  const [newVarValue, setNewVarValue] = useState("");
+
+  const [secretsLoading, setSecretsLoading] = useState(false);
+  const [secrets, setSecrets] = useState<Array<{ name: string; created_at: string; updated_at: string }>>([]);
+  const [secretName, setSecretName] = useState("");
+  const [secretValue, setSecretValue] = useState("");
+  const [secretSaving, setSecretSaving] = useState(false);
+  const [secretDeleting, setSecretDeleting] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   // ── Data loading ───────────────────────────────────────────────────────────
@@ -148,14 +160,37 @@ export default function PipelineDetailClient({
     }
   }, [pipelineId]);
 
+  const loadSecrets = useCallback(async () => {
+    setSecretsLoading(true);
+    try {
+      const res = await fetch(`/api/pipelines/${pipelineId}/secrets`, {
+        method: "GET",
+      });
+      if (!res.ok) throw new Error("failed");
+      const data = await res.json().catch(() => ({}));
+      setSecrets(Array.isArray(data?.secrets) ? data.secrets : []);
+    } catch {
+      toast.error(p.settingsTab.loadFailed);
+    } finally {
+      setSecretsLoading(false);
+    }
+  }, [pipelineId, p.settingsTab.loadFailed]);
+
   useEffect(() => {
     loadPipeline();
     loadRuns();
   }, [loadPipeline, loadRuns]);
 
+  useEffect(() => {
+    if (tab !== "configure") return;
+    if (configStageTab !== "settings") return;
+    void loadSecrets();
+  }, [tab, configStageTab, loadSecrets]);
+
   // Auto-select the most recent run
   useEffect(() => {
-    if (runs.length > 0 && !selectedRunId) {
+    if (runs.length === 0) return;
+    if (!selectedRunId || !runs.some((r) => r.id === selectedRunId)) {
       setSelectedRunId(runs[0].id);
     }
   }, [runs, selectedRunId]);
@@ -273,6 +308,79 @@ export default function PipelineDetailClient({
       toast.error(p.saveFailed);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function addVariable() {
+    if (!config) return;
+    const key = newVarKey.trim();
+    if (!key) return;
+    const next = { ...(config.variables ?? {}) };
+    if (Object.prototype.hasOwnProperty.call(next, key)) return;
+    next[key] = newVarValue;
+    setConfig({ ...config, variables: next });
+    setNewVarKey("");
+    setNewVarValue("");
+  }
+
+  function removeVariable(key: string) {
+    if (!config) return;
+    const next = { ...(config.variables ?? {}) };
+    delete next[key];
+    setConfig({ ...config, variables: next });
+  }
+
+  function updateVariable(key: string, value: string) {
+    if (!config) return;
+    const next = { ...(config.variables ?? {}) };
+    next[key] = value;
+    setConfig({ ...config, variables: next });
+  }
+
+  async function saveSecret() {
+    const name = secretName.trim().toUpperCase();
+    if (!name) {
+      toast.error(p.settingsTab.keyRequired);
+      return;
+    }
+    if (!secretValue) {
+      toast.error(p.settingsTab.valueRequired);
+      return;
+    }
+
+    setSecretSaving(true);
+    try {
+      const res = await fetch(`/api/pipelines/${pipelineId}/secrets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, value: secretValue }),
+      });
+      if (!res.ok) throw new Error("failed");
+      toast.success(p.settingsTab.saveSuccess);
+      setSecretName(name);
+      setSecretValue("");
+      await loadSecrets();
+    } catch {
+      toast.error(p.settingsTab.saveFailed);
+    } finally {
+      setSecretSaving(false);
+    }
+  }
+
+  async function deleteSecret(name: string) {
+    setSecretDeleting(name);
+    try {
+      const res = await fetch(
+        `/api/pipelines/${pipelineId}/secrets?name=${encodeURIComponent(name)}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) throw new Error("failed");
+      toast.success(p.settingsTab.deleteSuccess);
+      await loadSecrets();
+    } catch {
+      toast.error(p.settingsTab.deleteFailed);
+    } finally {
+      setSecretDeleting(null);
     }
   }
 
@@ -730,15 +838,251 @@ export default function PipelineDetailClient({
               <Separator className="my-3" />
               {/* Pipeline-level settings */}
               <button
-                onClick={() => setConfigStageTab("source" as StageKey)}
-                className="w-full text-left px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setConfigStageTab("settings")}
+                className={`w-full flex items-center gap-2 rounded-md px-3 py-2 text-left text-xs transition-colors ${
+                  configStageTab === "settings"
+                    ? "bg-muted text-foreground font-medium"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                }`}
               >
-                {dict.common.settings ?? "Settings"}
+                <span className="w-4 h-4 rounded-full bg-muted/80 text-[10px] flex items-center justify-center shrink-0">
+                  S
+                </span>
+                {p.settingsTab.title}
               </button>
             </div>
 
             {/* Stage editor */}
             <div className="flex-1 overflow-y-auto px-6 py-5">
+              {/* Settings */}
+              {configStageTab === "settings" && (
+                <div className="space-y-6 max-w-2xl pb-24">
+                  {/* Variables */}
+                  <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+                    <div>
+                      <div className="text-sm font-medium">{p.settingsTab.variablesTitle}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {p.settingsTab.variablesDescription}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {Object.entries(config.variables ?? {})
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([k, v]) => (
+                          <div key={k} className="flex items-center gap-2">
+                            <Input value={k} disabled className="h-8 text-xs font-mono w-48" />
+                            <Input
+                              value={v}
+                              onChange={(e) => updateVariable(k, e.target.value)}
+                              className="h-8 text-xs font-mono flex-1"
+                              disabled={!isAdmin}
+                            />
+                            {isAdmin && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => removeVariable(k)}
+                                aria-label={dict.common.delete}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      {Object.keys(config.variables ?? {}).length === 0 && (
+                        <div className="text-xs text-muted-foreground py-2">
+                          {dict.common.none}
+                        </div>
+                      )}
+                    </div>
+
+                    {isAdmin && (
+                      <>
+                        <Separator />
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={newVarKey}
+                            onChange={(e) => setNewVarKey(e.target.value)}
+                            placeholder={p.settingsTab.varKey}
+                            className="h-8 text-xs font-mono w-48"
+                          />
+                          <Input
+                            value={newVarValue}
+                            onChange={(e) => setNewVarValue(e.target.value)}
+                            placeholder={p.settingsTab.varValue}
+                            className="h-8 text-xs font-mono flex-1"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={addVariable}
+                            disabled={!newVarKey.trim()}
+                          >
+                            <Plus className="size-3.5 mr-1" />
+                            {p.settingsTab.addVar}
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Notifications */}
+                  <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+                    <div>
+                      <div className="text-sm font-medium">{p.notifications.title}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {p.notifications.description}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                        <span className="text-sm">{p.notifications.onSuccess}</span>
+                        <Switch
+                          checked={config.notifications.onSuccess}
+                          onCheckedChange={(v) =>
+                            setConfig({
+                              ...config,
+                              notifications: { ...config.notifications, onSuccess: v },
+                            })
+                          }
+                          disabled={!isAdmin}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                        <span className="text-sm">{p.notifications.onFailure}</span>
+                        <Switch
+                          checked={config.notifications.onFailure}
+                          onCheckedChange={(v) =>
+                            setConfig({
+                              ...config,
+                              notifications: { ...config.notifications, onFailure: v },
+                            })
+                          }
+                          disabled={!isAdmin}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-foreground">
+                        {p.notifications.channels}
+                      </div>
+                      <div className="flex gap-3">
+                        {(["inapp", "email"] as const).map((ch) => {
+                          const active = config.notifications.channels.includes(ch);
+                          return (
+                            <button
+                              key={ch}
+                              onClick={() => {
+                                if (!isAdmin) return;
+                                setConfig({
+                                  ...config,
+                                  notifications: {
+                                    ...config.notifications,
+                                    channels: active
+                                      ? config.notifications.channels.filter((c) => c !== ch)
+                                      : [...config.notifications.channels, ch],
+                                  },
+                                });
+                              }}
+                              className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                                active
+                                  ? "border-foreground bg-muted text-foreground"
+                                  : "border-border text-muted-foreground hover:border-foreground/40"
+                              } ${!isAdmin ? "opacity-60 cursor-not-allowed" : ""}`}
+                              disabled={!isAdmin}
+                            >
+                              {p.notifications[ch]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Secrets */}
+                  <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium">{p.settingsTab.secretsTitle}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {p.settingsTab.secretsDescription}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => loadSecrets()} disabled={secretsLoading}>
+                        {dict.common.refresh}
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {secretsLoading && (
+                        <div className="text-xs text-muted-foreground py-2">
+                          {dict.common.loading}
+                        </div>
+                      )}
+                      {!secretsLoading && secrets.length === 0 && (
+                        <div className="text-xs text-muted-foreground py-2">
+                          {dict.common.none}
+                        </div>
+                      )}
+                      {!secretsLoading &&
+                        secrets.map((s) => (
+                          <div key={s.name} className="flex items-center gap-2">
+                            <Input value={s.name} disabled className="h-8 text-xs font-mono w-48" />
+                            <div className="flex-1">
+                              <Badge variant="muted" size="sm">{p.settingsTab.saved}</Badge>
+                            </div>
+                            {isAdmin && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => deleteSecret(s.name)}
+                                disabled={secretDeleting === s.name}
+                                aria-label={dict.common.delete}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+
+                    {isAdmin && (
+                      <>
+                        <Separator />
+                        <div className="grid gap-2 md:grid-cols-[200px_1fr_auto] items-center">
+                          <Input
+                            value={secretName}
+                            onChange={(e) => setSecretName(e.target.value)}
+                            placeholder={p.settingsTab.secretKey}
+                            className="h-8 text-xs font-mono"
+                          />
+                          <Input
+                            type="password"
+                            value={secretValue}
+                            onChange={(e) => setSecretValue(e.target.value)}
+                            placeholder={p.settingsTab.secretValue}
+                            className="h-8 text-xs font-mono"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={saveSecret}
+                            disabled={secretSaving || !secretName.trim() || !secretValue}
+                          >
+                            {p.settingsTab.saveSecret}
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Source */}
               {configStageTab === "source" && (
                 <div className="space-y-4 max-w-lg">
@@ -919,7 +1263,7 @@ export default function PipelineDetailClient({
                 variant="default"
                 size="sm"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || !isAdmin}
               >
                 {saving ? dict.common.loading : p.savePipeline}
               </Button>

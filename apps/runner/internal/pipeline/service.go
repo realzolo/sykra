@@ -41,11 +41,18 @@ type CreatePipelineInput struct {
 }
 
 type UpdatePipelineInput struct {
-	PipelineID  string
-	Name        string
-	Description string
-	Config      PipelineConfig
-	UpdatedBy   string
+	PipelineID          string
+	Name                string
+	Description         string
+	Config              PipelineConfig
+	Environment         string
+	AutoTrigger         bool
+	TriggerBranch       string
+	QualityGateEnabled  bool
+	QualityGateMinScore int
+	NotifyOnSuccess     bool
+	NotifyOnFailure     bool
+	UpdatedBy           string
 }
 
 type TriggerRunInput struct {
@@ -74,6 +81,14 @@ func (s *Service) CreatePipeline(ctx context.Context, input CreatePipelineInput)
 	if err := ValidateConfig(input.Config); err != nil {
 		return nil, nil, err
 	}
+
+	// Keep metadata columns in sync with config for v2 pipelines.
+	input.AutoTrigger = input.Config.Source.AutoTrigger
+	input.TriggerBranch = input.Config.Source.Branch
+	input.QualityGateEnabled = input.Config.Review.QualityGateEnabled
+	input.QualityGateMinScore = input.Config.Review.QualityGateMinScore
+	input.NotifyOnSuccess = input.Config.Notify.OnSuccess
+	input.NotifyOnFailure = input.Config.Notify.OnFailure
 
 	var createdBy *string
 	if input.CreatedBy != "" {
@@ -139,10 +154,20 @@ func (s *Service) UpdatePipeline(ctx context.Context, input UpdatePipelineInput)
 		return nil, err
 	}
 
-	if input.Name != "" || input.Description != "" {
-		if err := s.Store.UpdatePipelineMetadata(ctx, input.PipelineID, input.Name, input.Description); err != nil {
-			return nil, err
-		}
+	// Keep metadata columns in sync with config (and accept environment update).
+	nextEnv := current.Environment
+	if strings.TrimSpace(input.Environment) != "" {
+		nextEnv = input.Environment
+	}
+	nextAutoTrigger := input.Config.Source.AutoTrigger
+	nextTriggerBranch := input.Config.Source.Branch
+	nextQualityGateEnabled := input.Config.Review.QualityGateEnabled
+	nextQualityGateMinScore := input.Config.Review.QualityGateMinScore
+	nextNotifyOnSuccess := input.Config.Notify.OnSuccess
+	nextNotifyOnFailure := input.Config.Notify.OnFailure
+
+	if err := s.Store.UpdatePipelineMetadata(ctx, input.PipelineID, input.Name, input.Description, nextEnv, nextAutoTrigger, nextTriggerBranch, nextQualityGateEnabled, nextQualityGateMinScore, nextNotifyOnSuccess, nextNotifyOnFailure); err != nil {
+		return nil, err
 	}
 
 	versionNumber := current.LatestVersion + 1

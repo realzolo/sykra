@@ -47,6 +47,13 @@ func (v PipelineVersion) DecodeConfig(target any) error {
 	return json.Unmarshal(v.Config, target)
 }
 
+type PipelineSecret struct {
+	Name           string    `json:"name"`
+	ValueEncrypted string    `json:"value_encrypted"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 type PipelineRun struct {
 	ID             string          `json:"id"`
 	PipelineID     string          `json:"pipeline_id"`
@@ -202,17 +209,43 @@ func (s *Store) CreatePipeline(ctx context.Context, pipeline Pipeline) (*Pipelin
 	return &out, nil
 }
 
-func (s *Store) UpdatePipelineMetadata(ctx context.Context, pipelineID string, name string, description string) error {
+func (s *Store) UpdatePipelineMetadata(
+	ctx context.Context,
+	pipelineID string,
+	name string,
+	description string,
+	environment string,
+	autoTrigger bool,
+	triggerBranch string,
+	qualityGateEnabled bool,
+	qualityGateMinScore int,
+	notifyOnSuccess bool,
+	notifyOnFailure bool,
+) error {
 	_, err := s.pool.Exec(
 		ctx,
 		`update pipelines
 		 set name=coalesce($2, name),
 		     description=coalesce($3, description),
+		     environment=coalesce($4, environment),
+		     auto_trigger=$5,
+		     trigger_branch=coalesce($6, trigger_branch),
+		     quality_gate_enabled=$7,
+		     quality_gate_min_score=$8,
+		     notify_on_success=$9,
+		     notify_on_failure=$10,
 		     updated_at=now()
 		 where id=$1`,
 		pipelineID,
 		nullIfEmpty(name),
 		nullIfEmpty(description),
+		nullIfEmpty(environment),
+		autoTrigger,
+		nullIfEmpty(triggerBranch),
+		qualityGateEnabled,
+		qualityGateMinScore,
+		notifyOnSuccess,
+		notifyOnFailure,
 	)
 	return err
 }
@@ -330,11 +363,36 @@ func (s *Store) GetPipelineWithCurrentVersion(ctx context.Context, pipelineID st
 	return pipeline, version, nil
 }
 
+func (s *Store) ListPipelineSecrets(ctx context.Context, pipelineID string) ([]PipelineSecret, error) {
+	rows, err := s.pool.Query(
+		ctx,
+		`select name, value_encrypted, created_at, updated_at
+     from pipeline_secrets
+     where pipeline_id=$1
+     order by name asc`,
+		pipelineID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PipelineSecret
+	for rows.Next() {
+		var row PipelineSecret
+		if err := rows.Scan(&row.Name, &row.ValueEncrypted, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) GetPipelineVersion(ctx context.Context, versionID string) (*PipelineVersion, error) {
 	row := s.pool.QueryRow(
 		ctx,
 		`select id, pipeline_id, version, config, created_by, created_at
-		 from pipeline_versions where id=$1`,
+     from pipeline_versions where id=$1`,
 		versionID,
 	)
 

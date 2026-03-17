@@ -35,6 +35,7 @@
     "settings": "Settings"
   },
   "nav": {
+    "home": "Home",
     "projects": "Projects",
     "pipelines": "Pipelines",
     "reports": "Reports",
@@ -419,19 +420,47 @@
       "diagnosisLoading": "Analyzing failure...",
       "diagnosisFailed": "Could not generate diagnosis"
     },
+    "settingsTab": {
+      "title": "Settings",
+      "variablesTitle": "Variables",
+      "variablesDescription": "Plain environment variables injected into every step.",
+      "varKey": "Key",
+      "varValue": "Value",
+      "addVar": "Add variable",
+      "secretsTitle": "Secrets",
+      "secretsDescription": "Write-only values encrypted at rest. They are available as env vars during pipeline runs.",
+      "secretKey": "Key",
+      "secretValue": "Value (write-only)",
+      "saveSecret": "Save secret",
+      "saved": "Saved",
+      "keyRequired": "Key is required",
+      "valueRequired": "Value is required",
+      "loadFailed": "Failed to load secrets",
+      "saveSuccess": "Secret saved",
+      "saveFailed": "Failed to save secret",
+      "deleteSuccess": "Secret deleted",
+      "deleteFailed": "Failed to delete secret"
+    },
     "runs": "Runs",
     "noLogs": "No logs yet",
     "selectStep": "Select a step to view logs"
   },
   "dashboard": {
     "overview": "Overview",
+    "totalProjects": "Total Projects",
     "totalReports": "Total Reports",
+    "openIssues": "Open Issues",
+    "activeRuns": "Active Runs",
     "averageScore": "Average Score",
     "totalIssues": "Total Issues",
     "pending": "Pending",
     "critical": "Critical",
     "allCompleted": "All Completed",
-    "inProgress": "In Progress"
+    "inProgress": "In Progress",
+    "recentReports": "Recent Reports",
+    "recentRuns": "Recent Pipeline Runs",
+    "viewAll": "View all",
+    "last14Days": "Last 14 days"
   },
   "reports": {
     "title": "Reports",
@@ -689,6 +718,7 @@
     "codeSnippetLabel": "Code snippet",
     "fixSuggestionLabel": "Fix suggestion",
     "fixPatchLabel": "Fix patch",
-    "discussIssue": "Discuss with AI"
+    "discussIssue": "Discuss with AI",
+    "viewInCodebase": "View in Codebase"
   }
 }

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, AlertTriangle, AlertCircle, Info, Zap, Copy, Check, MessageCircle } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronDown, ChevronUp, AlertTriangle, AlertCircle, Info, Zap, Copy, Check, MessageCircle, FileCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
@@ -21,7 +22,17 @@ type Issue = {
   estimatedEffort?: string;
 };
 
-export default function EnhancedIssueCard({ issue, onChat, dict }: { issue: Issue; onChat?: () => void; dict: Dictionary }) {
+export default function EnhancedIssueCard({
+  issue,
+  onChat,
+  codebaseHref,
+  dict,
+}: {
+  issue: Issue;
+  onChat?: () => void;
+  codebaseHref?: string;
+  dict: Dictionary;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -133,12 +144,22 @@ export default function EnhancedIssueCard({ issue, onChat, dict }: { issue: Issu
             </div>
           )}
 
-          {onChat && (
-            <div className="pt-2">
-              <Button variant="outline" size="sm" onClick={onChat} className="gap-2 rounded-lg">
-                <MessageCircle className="size-4" />
-                {dict.reportDetail.discussIssue}
-              </Button>
+          {(onChat || codebaseHref) && (
+            <div className="pt-2 flex flex-wrap gap-2">
+              {codebaseHref && (
+                <Button asChild variant="outline" size="sm" className="gap-2 rounded-lg">
+                  <Link href={codebaseHref}>
+                    <FileCode className="size-4" />
+                    {dict.reportDetail.viewInCodebase}
+                  </Link>
+                </Button>
+              )}
+              {onChat && (
+                <Button variant="outline" size="sm" onClick={onChat} className="gap-2 rounded-lg">
+                  <MessageCircle className="size-4" />
+                  {dict.reportDetail.discussIssue}
+                </Button>
+              )}
             </div>
           )}
         </div>

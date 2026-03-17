@@ -24,6 +24,10 @@ function supportsTemperature(model: string): boolean {
   return true;
 }
 
+function isAsyncIterable(value: unknown): value is AsyncIterable<any> {
+  return Boolean(value && typeof (value as any)[Symbol.asyncIterator] === 'function');
+}
+
 /**
  * OpenAI-compatible AI Client
  * Supports: Anthropic, OpenAI, DeepSeek, and other OpenAI-compatible APIs
@@ -117,6 +121,10 @@ export class OpenAICompatibleClient implements AIClient {
     }
 
     const response = await this.anthropicClient!.messages.create(params);
+    if (!('content' in response)) {
+      throw new Error('Unexpected streaming response from Anthropic');
+    }
+
     const content = (response.content[0] as { text: string }).text;
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -194,6 +202,9 @@ export class OpenAICompatibleClient implements AIClient {
       }
 
       const stream = await this.anthropicClient.messages.create(params);
+      if (!isAsyncIterable(stream)) {
+        throw new Error('Unexpected non-stream response from Anthropic');
+      }
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           yield event.delta.text;

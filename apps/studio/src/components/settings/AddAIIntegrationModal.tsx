@@ -27,8 +27,12 @@ interface ProviderConfig {
   docs?: string;
   presets?: Array<{
     name: string;
-    config: Record<string, string>;
+    config: Record<string, string | number>;
   }>;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
@@ -36,7 +40,7 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
   const [selectedProvider, setSelectedProvider] = useState('openai-compatible');
   const [selectedPreset, setSelectedPreset] = useState('');
   const [name, setName] = useState('');
-  const [config, setConfig] = useState<Record<string, string>>({});
+  const [config, setConfig] = useState<Record<string, string | number>>({});
   const [secret, setSecret] = useState('');
   const [isDefault, setIsDefault] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -177,7 +181,7 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
                 </label>
                 {field.type === 'select' && field.options ? (
                   <Select
-                    value={config[field.key] || undefined}
+                    value={asString(config[field.key])}
                     onValueChange={(value) =>
                       setConfig((prev) => ({ ...prev, [field.key]: value }))
                     }
@@ -210,7 +214,7 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
                   <Input
                     type={field.type}
                     placeholder={field.placeholder}
-                    value={config[field.key] || ''}
+                    value={String(config[field.key] ?? '')}
                     onChange={(e) =>
                       setConfig((prev) => ({ ...prev, [field.key]: e.target.value }))
                     }

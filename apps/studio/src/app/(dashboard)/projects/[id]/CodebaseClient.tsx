@@ -2,7 +2,8 @@
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { EditorView } from '@codemirror/view';
+import { useSearchParams } from 'next/navigation';
+import { EditorView } from '@codemirror/view';
 import {
   Copy,
   FileText,
@@ -103,6 +104,17 @@ const COMPOSER_PADDING = 12;
 const COMPOSER_EST_HEIGHT = 280;
 const MAX_SELECTION_TEXT = 1200;
 
+function isCommitSha(value: string) {
+  return /^[0-9a-f]{7,40}$/i.test(value.trim());
+}
+
+function parentDir(filePath: string) {
+  const cleaned = filePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  const parts = cleaned.split('/').filter(Boolean);
+  parts.pop();
+  return parts.join('/');
+}
+
 export default function CodebaseClient({
   project,
   branches,
@@ -112,6 +124,8 @@ export default function CodebaseClient({
   branches: string[];
   dict: Dictionary;
 }) {
+  const searchParams = useSearchParams();
+
   const [branch, setBranch] = useState<string>(branches[0] ?? project.default_branch);
   const [currentPath, setCurrentPath] = useState('');
   const [entries, setEntries] = useState<TreeEntry[]>([]);
@@ -139,6 +153,7 @@ export default function CodebaseClient({
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [lastLineClicked, setLastLineClicked] = useState<number | null>(null);
   const [forceSyncUntil, setForceSyncUntil] = useState(0);
+  const [editorReadyKey, setEditorReadyKey] = useState(0);
 
   const treeRequestId = useRef(0);
   const fileRequestId = useRef(0);
@@ -147,13 +162,36 @@ export default function CodebaseClient({
   const composerRef = useRef<HTMLDivElement | null>(null);
   const codeContainerRef = useRef<HTMLDivElement | null>(null);
   const codeScrollerRef = useRef<HTMLElement | null>(null);
+  const editorViewRef = useRef<EditorView | null>(null);
+  const pendingScrollLineRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!branches.length) return;
-    if (!branches.includes(branch)) {
+    if (!branches.includes(branch) && !isCommitSha(branch)) {
       setBranch(branches[0]);
     }
   }, [branches, branch]);
+
+  const deepLinkPath = searchParams.get('path');
+  const deepLinkRef = searchParams.get('ref');
+  const deepLinkLine = searchParams.get('line');
+
+  // Deep link support: open a file (optionally at a specific ref + line).
+  useEffect(() => {
+    if (!deepLinkPath) return;
+    const targetPath = deepLinkPath.replace(/\\/g, '/').replace(/^\/+/, '').trim();
+    if (!targetPath) return;
+
+    const refOverride = deepLinkRef?.trim() || undefined;
+
+    const parsedLine = deepLinkLine ? Number(deepLinkLine) : Number.NaN;
+    pendingScrollLineRef.current = Number.isFinite(parsedLine)
+      ? Math.max(1, Math.trunc(parsedLine))
+      : null;
+
+    setCurrentPath(parentDir(targetPath));
+    void loadFile(targetPath, false, refOverride);
+  }, [deepLinkPath, deepLinkRef, deepLinkLine]);
 
   useEffect(() => {
     if (!project.org_id) return;
@@ -304,15 +342,19 @@ export default function CodebaseClient({
     void loadFile(entry.path);
   };
 
-  const loadFile = async (path: string, forceSync?: boolean) => {
+  const loadFile = async (path: string, forceSync?: boolean, refOverride?: string) => {
     const requestId = ++fileRequestId.current;
     setFileLoading(true);
     setFileError(null);
     setFilePath(path);
     setFileData(null);
     try {
+      const effectiveRef = refOverride?.trim() || branch;
+      if (refOverride && refOverride !== branch) {
+        setBranch(refOverride);
+      }
       const params = new URLSearchParams();
-      params.set('ref', branch);
+      params.set('ref', effectiveRef);
       const shouldForceSync = forceSync ? true : forceSyncUntil > Date.now();
       params.set('sync', shouldForceSync ? '1' : '0');
       params.set('path', path);
@@ -491,7 +533,9 @@ export default function CodebaseClient({
   };
 
   const handleEditorReady = (view: EditorView) => {
+    editorViewRef.current = view;
     codeScrollerRef.current = view.scrollDOM;
+    setEditorReadyKey((value) => value + 1);
   };
 
   const closeComposer = () => {
@@ -501,7 +545,48 @@ export default function CodebaseClient({
     setAssigneeIds([]);
   };
 
-  const shouldRenderFile = filePath && fileData && !fileData.isBinary && !fileData.truncated;
+  const shouldRenderFile = Boolean(filePath && fileData && !fileData.isBinary && !fileData.truncated);
+
+  useEffect(() => {
+    const line = pendingScrollLineRef.current;
+    if (!line) return;
+    if (!shouldRenderFile || !fileData) return;
+
+    let canceled = false;
+
+    const attemptScroll = (attempt: number) => {
+      if (canceled) return;
+      const view = editorViewRef.current;
+      if (!view) return;
+
+      // The CodeEditor updates its document in an effect. Wait a few frames
+      // so the view reflects the latest `fileData.content` before scrolling.
+      if (attempt < 5) {
+        const current = view.state.doc.toString();
+        if (current !== fileData.content) {
+          requestAnimationFrame(() => attemptScroll(attempt + 1));
+          return;
+        }
+      }
+
+      const maxLine = view.state.doc.lines;
+      const safeLine = Math.max(1, Math.min(maxLine, line));
+      const info = view.state.doc.line(safeLine);
+
+      view.dispatch({
+        selection: { anchor: info.from, head: info.to },
+        effects: EditorView.scrollIntoView(info.from, { y: 'center' }),
+      });
+
+      pendingScrollLineRef.current = null;
+    };
+
+    const raf = requestAnimationFrame(() => attemptScroll(0));
+    return () => {
+      canceled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [editorReadyKey, fileData, shouldRenderFile]);
 
   return (
     <div className="flex flex-col h-full">
@@ -514,6 +599,11 @@ export default function CodebaseClient({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                {!branches.includes(branch) && isCommitSha(branch) && (
+                  <SelectItem key={branch} value={branch}>
+                    {dict.reports.commit}: {branch.slice(0, 7)}
+                  </SelectItem>
+                )}
                 {branches.map((item) => (
                   <SelectItem key={item} value={item}>
                     {item}

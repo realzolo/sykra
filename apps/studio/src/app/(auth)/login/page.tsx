@@ -11,7 +11,7 @@ export default async function LoginPage() {
   const user = await requireUser();
   if (user) {
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined);
-    redirect(`/o/${orgId}/projects`);
+    redirect(`/o/${orgId}`);
   }
 
   const locale = await getLocale();

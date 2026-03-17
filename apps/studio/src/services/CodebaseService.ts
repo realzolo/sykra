@@ -134,22 +134,29 @@ export class CodebaseService {
   private fileCache = new Map<string, CacheEntry<ReadFileResult>>();
 
   constructor(options: CodebaseServiceOptions = {}) {
-    this.rootDir = path.resolve(
-      options.rootDir ?? process.env.CODEBASE_ROOT ?? DEFAULT_ROOT
-    );
-    this.mirrorsDir = path.resolve(
-      options.mirrorsDir ?? process.env.CODEBASE_MIRRORS_DIR ?? path.join(this.rootDir, 'mirrors')
-    );
-    this.workspacesDir = path.resolve(
-      options.workspacesDir ?? process.env.CODEBASE_WORKSPACES_DIR ?? path.join(this.rootDir, 'workspaces')
-    );
+    // Note: dotenv will set `FOO=` to the empty string. For path settings we treat
+    // empty/blank as "unset" to avoid accidentally writing into the project root.
+    const rootDir = options.rootDir ?? readNonEmptyStringEnv('CODEBASE_ROOT') ?? DEFAULT_ROOT;
+    this.rootDir = path.resolve(rootDir);
+
+    const mirrorsDir =
+      options.mirrorsDir ??
+      readNonEmptyStringEnv('CODEBASE_MIRRORS_DIR') ??
+      path.join(this.rootDir, 'mirrors');
+    this.mirrorsDir = path.resolve(mirrorsDir);
+
+    const workspacesDir =
+      options.workspacesDir ??
+      readNonEmptyStringEnv('CODEBASE_WORKSPACES_DIR') ??
+      path.join(this.rootDir, 'workspaces');
+    this.workspacesDir = path.resolve(workspacesDir);
     this.syncIntervalMs = readNumberEnv('CODEBASE_SYNC_INTERVAL_MS', options.syncIntervalMs, DEFAULT_SYNC_INTERVAL_MS);
     this.lockTimeoutMs = readNumberEnv('CODEBASE_LOCK_TIMEOUT_MS', options.lockTimeoutMs, DEFAULT_LOCK_TIMEOUT_MS);
     this.lockStaleMs = readNumberEnv('CODEBASE_LOCK_STALE_MS', options.lockStaleMs, DEFAULT_LOCK_STALE_MS);
     this.workspaceTtlMs = readNumberEnv('CODEBASE_WORKSPACE_TTL_MS', options.workspaceTtlMs, DEFAULT_WORKSPACE_TTL_MS);
     this.fileMaxBytes = readNumberEnv('CODEBASE_FILE_MAX_BYTES', options.fileMaxBytes, DEFAULT_FILE_MAX_BYTES);
     this.gitTimeoutMs = readNumberEnv('CODEBASE_GIT_TIMEOUT_MS', options.gitTimeoutMs, DEFAULT_GIT_TIMEOUT_MS);
-    this.gitBin = options.gitBin ?? process.env.CODEBASE_GIT_BIN ?? 'git';
+    this.gitBin = options.gitBin ?? readNonEmptyStringEnv('CODEBASE_GIT_BIN') ?? 'git';
     this.cacheTtlMs = DEFAULT_CACHE_TTL_MS;
     this.cacheMaxEntries = DEFAULT_CACHE_MAX_ENTRIES;
   }
@@ -822,6 +829,13 @@ function readNumberEnv(name: string, override: number | undefined, fallback: num
   if (!raw) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readNonEmptyStringEnv(name: string): string | undefined {
+  const raw = process.env[name];
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function assertNonEmpty(value: string, label: string) {

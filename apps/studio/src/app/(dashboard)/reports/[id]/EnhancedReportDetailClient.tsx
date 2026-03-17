@@ -360,6 +360,19 @@ export default function EnhancedReportDetailClient({
     setChatOpen(true);
   }
 
+  const projectId = report.project_id;
+  const primaryCommitSha = report.commits?.[0]?.sha;
+
+  function codebaseHrefForIssue(issue: Issue) {
+    const base = withOrgPrefix(pathname, `/projects/${projectId}`);
+    const params = new URLSearchParams();
+    params.set('tab', 'codebase');
+    if (issue.file) params.set('path', issue.file);
+    if (primaryCommitSha) params.set('ref', primaryCommitSha);
+    if (issue.line) params.set('line', String(issue.line));
+    return `${base}?${params.toString()}`;
+  }
+
   const scoreLabel = (score: number) => {
     if (score >= 85) return dict.reportDetail.excellent;
     if (score >= 70) return dict.reportDetail.good;
@@ -602,7 +615,13 @@ export default function EnhancedReportDetailClient({
                     ) : (
                       <div className="space-y-3">
                         {filteredIssues.map((issue, idx) => (
-                          <EnhancedIssueCard key={issue.file + '-' + issue.line + '-' + idx} issue={issue} onChat={() => openChat(issue.file)} dict={dict} />
+                          <EnhancedIssueCard
+                            key={issue.file + '-' + issue.line + '-' + idx}
+                            issue={issue}
+                            onChat={() => openChat(issue.file)}
+                            codebaseHref={codebaseHrefForIssue(issue)}
+                            dict={dict}
+                          />
                         ))}
                       </div>
                     )}

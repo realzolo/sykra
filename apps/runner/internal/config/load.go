@@ -56,6 +56,18 @@ func LoadWithOptions(opts LoadOptions) (Config, error) {
 	cfg.StudioURL = envString("STUDIO_URL", cfg.StudioURL)
 	cfg.StudioToken = envString("STUDIO_TOKEN", cfg.StudioToken)
 
+	// Backward/ergonomic default: if a dedicated Studio token isn't provided,
+	// reuse the runner token so a single shared secret can secure both directions
+	// (Studio -> Runner and Runner -> Studio).
+	if cfg.StudioToken == "" {
+		cfg.StudioToken = cfg.RunnerToken
+	}
+	if cfg.StudioToken == "" {
+		// Allows local development without configuring tokens, while still letting
+		// Studio distinguish runner calls from normal browser traffic.
+		cfg.StudioToken = "dev-runner"
+	}
+
 	analyzeTimeoutRaw = envString("ANALYZE_TIMEOUT", analyzeTimeoutRaw)
 	pipelineTimeoutRaw = envString("PIPELINE_RUN_TIMEOUT", pipelineTimeoutRaw)
 
@@ -79,6 +91,12 @@ func LoadWithOptions(opts LoadOptions) (Config, error) {
 	}
 	if cfg.EncryptionKey != "" && os.Getenv("ENCRYPTION_KEY") == "" {
 		_ = os.Setenv("ENCRYPTION_KEY", cfg.EncryptionKey)
+	}
+	if cfg.StudioURL != "" && os.Getenv("STUDIO_URL") == "" {
+		_ = os.Setenv("STUDIO_URL", cfg.StudioURL)
+	}
+	if cfg.StudioToken != "" && os.Getenv("STUDIO_TOKEN") == "" {
+		_ = os.Setenv("STUDIO_TOKEN", cfg.StudioToken)
 	}
 
 	return cfg, nil

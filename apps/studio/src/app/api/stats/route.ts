@@ -18,6 +18,28 @@ export async function GET(request: NextRequest) {
 
   const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
 
+  const [projectCountRow, openIssuesRow, activeRunsRow] = await Promise.all([
+    query<Record<string, any>>(
+      `select count(*)::int as count
+       from code_projects
+       where org_id = $1`,
+      [orgId]
+    ).then((rows) => rows[0] ?? { count: 0 }),
+    query<Record<string, any>>(
+      `select count(*)::int as count
+       from analysis_issues i
+       join analysis_reports r on r.id = i.report_id
+       where r.org_id = $1 and r.status = 'done' and i.status = 'open'`,
+      [orgId]
+    ).then((rows) => rows[0] ?? { count: 0 }),
+    query<Record<string, any>>(
+      `select count(*)::int as count
+       from pipeline_runs
+       where org_id = $1 and status in ('queued','running')`,
+      [orgId]
+    ).then((rows) => rows[0] ?? { count: 0 }),
+  ]);
+
   // Get all reports
   const reports = await query<Record<string, any>>(
     `select status, score, issues, created_at
@@ -29,13 +51,16 @@ export async function GET(request: NextRequest) {
 
   if (!reports || reports.length === 0) {
     return NextResponse.json({
+      totalProjects: projectCountRow.count ?? 0,
       totalReports: 0,
       averageScore: 0,
+      openIssues: openIssuesRow.count ?? 0,
       totalIssues: 0,
       criticalIssues: 0,
       recentTrend: 'stable',
       trendValue: 0,
       pendingReports: 0,
+      activePipelineRuns: activeRunsRow.count ?? 0,
     });
   }
 
@@ -87,12 +112,15 @@ export async function GET(request: NextRequest) {
   const recentTrend = trendValue > 2 ? 'up' : trendValue < -2 ? 'down' : 'stable';
 
   return NextResponse.json({
+    totalProjects: projectCountRow.count ?? 0,
     totalReports: reports.length,
     averageScore,
+    openIssues: openIssuesRow.count ?? 0,
     totalIssues,
     criticalIssues,
     recentTrend,
     trendValue,
     pendingReports,
+    activePipelineRuns: activeRunsRow.count ?? 0,
   });
 }

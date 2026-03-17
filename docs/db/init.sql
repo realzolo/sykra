@@ -623,6 +623,19 @@ alter table pipelines
   add constraint pipelines_current_version_fk
   foreign key (current_version_id) references pipeline_versions(id);
 
+create table pipeline_secrets (
+  id uuid primary key default gen_random_uuid(),
+  pipeline_id uuid not null references pipelines(id) on delete cascade,
+  org_id uuid not null references organizations(id) on delete cascade,
+  name text not null,
+  value_encrypted text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (pipeline_id, name)
+);
+
+create index pipeline_secrets_org_pipeline_idx on pipeline_secrets (org_id, pipeline_id);
+
 create table pipeline_runs (
   id uuid primary key default gen_random_uuid(),
   pipeline_id uuid not null references pipelines(id) on delete cascade,

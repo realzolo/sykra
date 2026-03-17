@@ -1,15 +1,20 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	runnercrypto "spec-axis/runner/internal/crypto"
 	"spec-axis/runner/internal/store"
 )
 
@@ -21,6 +26,41 @@ type Engine struct {
 	// Studio integration for source_checkout and review_gate
 	StudioURL   string
 	StudioToken string
+}
+
+func (e *Engine) postStudioEvent(ctx context.Context, typ string, payload map[string]any) {
+	if strings.TrimSpace(e.StudioURL) == "" || strings.TrimSpace(e.StudioToken) == "" {
+		return
+	}
+	url := strings.TrimRight(e.StudioURL, "/") + "/api/runner/events"
+	body := map[string]any{
+		"type": typ,
+	}
+	for k, v := range payload {
+		body[k] = v
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Runner-Token", e.StudioToken)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		log.Printf("studio event post failed: %v", err)
+		return
+	}
+	_ = res.Body.Close()
+	if res.StatusCode >= 300 {
+		log.Printf("studio event post failed: status=%d", res.StatusCode)
+	}
 }
 
 func (e *Engine) Execute(ctx context.Context, runID string) error {
@@ -45,6 +85,21 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 	projectID := ""
 	if run.ProjectID != nil {
 		projectID = *run.ProjectID
+	}
+
+	// Decrypt pipeline secrets once per run.
+	// Secrets are injected as environment variables into every step.
+	secrets := map[string]string{}
+	secretRows, err := e.Store.ListPipelineSecrets(ctx, run.PipelineID)
+	if err != nil {
+		return err
+	}
+	for _, row := range secretRows {
+		plain, err := runnercrypto.DecryptSecret(row.ValueEncrypted)
+		if err != nil {
+			return fmt.Errorf("decrypt pipeline secret %s: %w", row.Name, err)
+		}
+		secrets[row.Name] = plain
 	}
 
 	// Build the internal plan from the four-stage config
@@ -124,7 +179,7 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 	startJob := func(jobID string) {
 		inFlight++
 		go func(id string) {
-			err := e.runJob(ctx, runID, cfg, jobIndex[id], jobMap[id])
+			err := e.runJob(ctx, runID, cfg, secrets, jobIndex[id], jobMap[id])
 			jobDone <- jobResult{jobKey: id, err: err}
 		}(jobID)
 	}
@@ -169,6 +224,7 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 			"status":     StatusFailed,
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
 		})
+		e.postStudioEvent(ctx, "pipeline.run.failed", map[string]any{"runId": runID})
 		return fmt.Errorf("pipeline run failed")
 	}
 
@@ -179,6 +235,7 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 			"status":     StatusFailed,
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
 		})
+		e.postStudioEvent(ctx, "pipeline.run.failed", map[string]any{"runId": runID})
 		return fmt.Errorf("pipeline run stalled")
 	}
 
@@ -188,11 +245,12 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 		"status":     StatusSuccess,
 		"finishedAt": time.Now().UTC().Format(time.RFC3339),
 	})
+	e.postStudioEvent(ctx, "pipeline.run.completed", map[string]any{"runId": runID})
 
 	return nil
 }
 
-func (e *Engine) runJob(ctx context.Context, runID string, cfg PipelineConfig, job PipelineJob, record store.PipelineJob) error {
+func (e *Engine) runJob(ctx context.Context, runID string, cfg PipelineConfig, secrets map[string]string, job PipelineJob, record store.PipelineJob) error {
 	if record.ID == "" {
 		return fmt.Errorf("job record missing for %s", job.ID)
 	}
@@ -226,7 +284,7 @@ func (e *Engine) runJob(ctx context.Context, runID string, cfg PipelineConfig, j
 			return fmt.Errorf("step record missing for %s", step.ID)
 		}
 
-		status, err := e.runStep(jobCtx, runID, cfg, job, record, step, stepRecord)
+		status, err := e.runStep(jobCtx, runID, cfg, secrets, job, record, step, stepRecord)
 		if err != nil && !step.ContinueOnError {
 			jobErr = err
 		}
@@ -271,6 +329,7 @@ func (e *Engine) runStep(
 	ctx context.Context,
 	runID string,
 	cfg PipelineConfig,
+	secrets map[string]string,
 	job PipelineJob,
 	jobRecord store.PipelineJob,
 	step PipelineStep,
@@ -290,7 +349,7 @@ func (e *Engine) runStep(
 		"startedAt": time.Now().UTC().Format(time.RFC3339),
 	})
 
-	env := buildEnv(runID, cfg, job, step)
+	env := buildEnv(runID, cfg, secrets, job, step)
 	workingDir := step.WorkingDir
 	if workingDir == "" {
 		workingDir = job.WorkingDir
@@ -403,7 +462,7 @@ func (e *Engine) cancelPendingJobs(ctx context.Context, runID string, jobIndex m
 	return nil
 }
 
-func buildEnv(runID string, cfg PipelineConfig, job PipelineJob, step PipelineStep) map[string]string {
+func buildEnv(runID string, cfg PipelineConfig, secrets map[string]string, job PipelineJob, step PipelineStep) map[string]string {
 	env := map[string]string{}
 	for k, v := range cfg.Variables {
 		env[k] = v
@@ -412,6 +471,10 @@ func buildEnv(runID string, cfg PipelineConfig, job PipelineJob, step PipelineSt
 		env[k] = v
 	}
 	for k, v := range step.Env {
+		env[k] = v
+	}
+	// Secrets override variables and inline env to discourage plain-text secret values in config.
+	for k, v := range secrets {
 		env[k] = v
 	}
 	env["PIPELINE_RUN_ID"] = runID

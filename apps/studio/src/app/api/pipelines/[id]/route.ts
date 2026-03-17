@@ -66,6 +66,15 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       name: validated.name ?? '',
       description: validated.description ?? '',
       config: validated.config,
+      ...(validated.environment ? { environment: validated.environment } : {}),
+      ...(validated.config ? {
+        autoTrigger: validated.config.source.autoTrigger,
+        triggerBranch: validated.config.source.branch,
+        qualityGateEnabled: validated.config.review.qualityGateEnabled,
+        qualityGateMinScore: validated.config.review.qualityGateMinScore,
+        notifyOnSuccess: validated.config.notifications.onSuccess,
+        notifyOnFailure: validated.config.notifications.onFailure,
+      } : {}),
       updatedBy: user.id,
     };
     const result = await updatePipeline(id, payload);

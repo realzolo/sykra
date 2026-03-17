@@ -35,6 +35,7 @@
     "settings": "设置"
   },
   "nav": {
+    "home": "首页",
     "projects": "项目",
     "pipelines": "流水线",
     "reports": "报告",
@@ -421,19 +422,47 @@
       "diagnosisLoading": "正在分析失败原因...",
       "diagnosisFailed": "无法生成诊断报告"
     },
+    "settingsTab": {
+      "title": "设置",
+      "variablesTitle": "变量",
+      "variablesDescription": "明文环境变量，会注入到每个步骤中。",
+      "varKey": "键",
+      "varValue": "值",
+      "addVar": "添加变量",
+      "secretsTitle": "密钥",
+      "secretsDescription": "写入后不可读取，落库加密。流水线运行时作为环境变量提供。",
+      "secretKey": "键",
+      "secretValue": "值（写入后不可读）",
+      "saveSecret": "保存密钥",
+      "saved": "已保存",
+      "keyRequired": "请输入键",
+      "valueRequired": "请输入值",
+      "loadFailed": "加载密钥失败",
+      "saveSuccess": "密钥已保存",
+      "saveFailed": "保存密钥失败",
+      "deleteSuccess": "密钥已删除",
+      "deleteFailed": "删除密钥失败"
+    },
     "runs": "运行记录",
     "noLogs": "暂无日志",
     "selectStep": "选择步骤查看日志"
   },
   "dashboard": {
     "overview": "概览",
+    "totalProjects": "项目总数",
     "totalReports": "总报告数",
+    "openIssues": "未解决问题",
+    "activeRuns": "运行中",
     "averageScore": "平均评分",
     "totalIssues": "问题总数",
     "pending": "待处理",
     "critical": "严重",
     "allCompleted": "全部完成",
-    "inProgress": "进行中"
+    "inProgress": "进行中",
+    "recentReports": "最近报告",
+    "recentRuns": "最近流水线运行",
+    "viewAll": "查看全部",
+    "last14Days": "最近 14 天"
   },
   "reports": {
     "title": "报告",
@@ -691,6 +720,7 @@
     "codeSnippetLabel": "代码片段",
     "fixSuggestionLabel": "修复建议",
     "fixPatchLabel": "修复代码",
-    "discussIssue": "与 AI 讨论此问题"
+    "discussIssue": "与 AI 讨论此问题",
+    "viewInCodebase": "在代码库中查看"
   }
 }

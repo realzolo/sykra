@@ -123,21 +123,35 @@ func (a *API) handlePipelineByID(w http.ResponseWriter, r *http.Request) {
 			})
 		case http.MethodPut:
 			var payload struct {
-				Name        string         `json:"name"`
-				Description string         `json:"description"`
-				Config      PipelineConfig `json:"config"`
-				UpdatedBy   string         `json:"updatedBy"`
+				Name                string         `json:"name"`
+				Description         string         `json:"description"`
+				Config              PipelineConfig `json:"config"`
+				Environment         string         `json:"environment"`
+				AutoTrigger         bool           `json:"autoTrigger"`
+				TriggerBranch       string         `json:"triggerBranch"`
+				QualityGateEnabled  bool           `json:"qualityGateEnabled"`
+				QualityGateMinScore int            `json:"qualityGateMinScore"`
+				NotifyOnSuccess     bool           `json:"notifyOnSuccess"`
+				NotifyOnFailure     bool           `json:"notifyOnFailure"`
+				UpdatedBy           string         `json:"updatedBy"`
 			}
 			if err := httpx.ReadJSON(r, 2<<20, &payload); err != nil {
 				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
 				return
 			}
 			version, err := a.service.UpdatePipeline(r.Context(), UpdatePipelineInput{
-				PipelineID:  pipelineID,
-				Name:        payload.Name,
-				Description: payload.Description,
-				Config:      payload.Config,
-				UpdatedBy:   payload.UpdatedBy,
+				PipelineID:          pipelineID,
+				Name:                payload.Name,
+				Description:         payload.Description,
+				Config:              payload.Config,
+				Environment:         payload.Environment,
+				AutoTrigger:         payload.AutoTrigger,
+				TriggerBranch:       payload.TriggerBranch,
+				QualityGateEnabled:  payload.QualityGateEnabled,
+				QualityGateMinScore: payload.QualityGateMinScore,
+				NotifyOnSuccess:     payload.NotifyOnSuccess,
+				NotifyOnFailure:     payload.NotifyOnFailure,
+				UpdatedBy:           payload.UpdatedBy,
 			})
 			if err != nil {
 				httpx.WriteError(w, http.StatusBadRequest, err.Error())

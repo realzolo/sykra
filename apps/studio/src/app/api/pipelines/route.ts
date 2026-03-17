@@ -51,6 +51,12 @@ export async function POST(request: NextRequest) {
       description: validated.description ?? '',
       environment: validated.environment ?? 'production',
       config: validated.config,
+      autoTrigger: validated.config.source.autoTrigger,
+      triggerBranch: validated.config.source.branch,
+      qualityGateEnabled: validated.config.review.qualityGateEnabled,
+      qualityGateMinScore: validated.config.review.qualityGateMinScore,
+      notifyOnSuccess: validated.config.notifications.onSuccess,
+      notifyOnFailure: validated.config.notifications.onFailure,
       createdBy: user.id,
     };
     if (validated.projectId) {
