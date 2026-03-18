@@ -53,6 +53,7 @@ export interface AIConfig {
   model: string; // Model name
   maxTokens?: number;
   temperature?: number;
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 }
 
 /**

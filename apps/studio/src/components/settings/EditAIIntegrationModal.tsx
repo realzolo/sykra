@@ -22,6 +22,7 @@ type AIConfigForm = Record<string, unknown> & {
   baseUrl?: string;
   maxTokens?: number;
   temperature?: number;
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 };
 
 interface Props {
@@ -45,6 +46,15 @@ interface ProviderConfig {
   docs?: string;
 }
 
+function asNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
 export default function EditAIIntegrationModal({ integration, onClose, onSuccess }: Props) {
   const dict = useClientDictionary();
   const i18n = dict.settings.editAiModal;
@@ -54,6 +64,32 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
   const [secret, setSecret] = useState('');
   const [isDefault, setIsDefault] = useState(integration.is_default);
   const [loading, setLoading] = useState(false);
+  const tokenProfiles = [
+    {
+      key: 'fast' as const,
+      label: i18n.tokenProfileFast,
+      maxTokens: 3072,
+      reasoningEffort: 'low',
+    },
+    {
+      key: 'deep' as const,
+      label: i18n.tokenProfileDeep,
+      maxTokens: 6144,
+      reasoningEffort: 'high',
+    },
+    {
+      key: 'logs' as const,
+      label: i18n.tokenProfileLogs,
+      maxTokens: 6144,
+      reasoningEffort: 'medium',
+    },
+    {
+      key: 'autofix' as const,
+      label: i18n.tokenProfileAutofix,
+      maxTokens: 8192,
+      reasoningEffort: 'high',
+    },
+  ];
 
   const loadProviderConfig = useCallback(async () => {
     try {
@@ -83,6 +119,14 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
 
   function asString(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined;
+  }
+
+  function applyTokenProfile(profile: (typeof tokenProfiles)[number]) {
+    setConfig((prev) => ({
+      ...prev,
+      maxTokens: profile.maxTokens,
+      reasoningEffort: profile.reasoningEffort,
+    }));
   }
 
   async function handleSubmit() {
@@ -133,20 +177,21 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-[640px] overflow-hidden p-0">
         <DialogHeader>
-          <DialogTitle>{i18n.title}</DialogTitle>
+          <DialogTitle className="text-[16px] font-semibold">{i18n.title}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
+        <div className="max-h-[calc(90vh-132px)] overflow-y-auto px-6 py-5 flex flex-col gap-4">
           <div>
-            <label className="text-sm font-medium mb-1.5 block">{i18n.provider}</label>
-            <Input value={integration.provider} disabled />
+            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.provider}</label>
+            <Input className="h-9" value={integration.provider} disabled />
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1.5 block">{i18n.name}</label>
+            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.name}</label>
             <Input
+              className="h-9"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={i18n.namePlaceholder}
@@ -157,7 +202,7 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
             .filter((f) => f.key !== 'apiKey')
             .map((field) => (
               <div key={field.key}>
-                <label className="text-sm font-medium mb-1.5 block">
+                <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">
                   {field.label}
                   {field.required && ' *'}
                 </label>
@@ -169,10 +214,10 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
                         {...(selectedValue ? { value: selectedValue } : {})}
                         onValueChange={(value) => setConfigValue(field.key, value)}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="h-9">
                           <SelectValue placeholder={field.placeholder} />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="max-h-80">
                           {field.options.map((opt) => (
                             <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                           ))}
@@ -185,6 +230,7 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
                     const fieldValue = config[field.key];
                     return (
                       <Input
+                        className="h-9"
                         type="number"
                         step={field.key === 'temperature' ? '0.1' : '1'}
                         placeholder={field.placeholder}
@@ -205,6 +251,7 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
                     const textValue = config[field.key];
                     return (
                       <Input
+                        className="h-9"
                         type={field.type}
                         placeholder={field.placeholder}
                         value={
@@ -220,14 +267,47 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
                 {field.help && (
                   <p className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">{field.help}</p>
                 )}
+                {field.key === 'maxTokens' && (
+                  <div className="mt-2 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-2.5">
+                    <p className="text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+                      {i18n.tokenRecommendationTitle}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {tokenProfiles.map((profile) => {
+                        const currentMaxTokens = asNumber(config.maxTokens);
+                        const currentReasoningEffort = asString(config.reasoningEffort);
+                        const active = currentMaxTokens === profile.maxTokens &&
+                          currentReasoningEffort === profile.reasoningEffort;
+                        return (
+                          <button
+                            key={profile.key}
+                            type="button"
+                            onClick={() => applyTokenProfile(profile)}
+                            className={
+                              active
+                                ? 'h-7 rounded-[6px] border border-foreground bg-foreground px-2.5 text-[12px] text-background'
+                                : 'h-7 rounded-[6px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-surface-1))] px-2.5 text-[12px] text-foreground hover:bg-[hsl(var(--ds-surface-2))]'
+                            }
+                          >
+                            {profile.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+                      {i18n.tokenRecommendationHint}
+                    </p>
+                  </div>
+                )}
               </div>
             ))}
 
           <div>
-            <label className="text-sm font-medium mb-1.5 block">
+            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">
               {secret ? i18n.apiKeyLabel : i18n.apiKeyLabelWithHint}
             </label>
             <Input
+              className="h-9"
               type="password"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
@@ -235,13 +315,13 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <Switch checked={isDefault} onCheckedChange={setIsDefault} />
-            <label className="text-sm">{i18n.setDefault}</label>
+          <div className="flex items-center gap-2 pt-1">
+            <Switch id="isDefault-edit-ai" checked={isDefault} onCheckedChange={setIsDefault} />
+            <label htmlFor="isDefault-edit-ai" className="text-[13px]">{i18n.setDefault}</label>
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="px-6 py-4">
           <div className="flex gap-2 w-full">
             <Button variant="outline" onClick={onClose} disabled={loading} className="flex-1">
               {dict.common.cancel}

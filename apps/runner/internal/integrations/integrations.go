@@ -33,11 +33,12 @@ type VCSConfig struct {
 }
 
 type AIConfig struct {
-	BaseURL     string
-	ModelName   string
-	MaxTokens   int
-	Temperature float64
-	APIKey      string
+	BaseURL         string
+	ModelName       string
+	MaxTokens       int
+	Temperature     float64
+	ReasoningEffort string
+	APIKey          string
 }
 
 func ResolveVCSClient(ctx context.Context, st *store.Store, project *store.Project) (VCSClient, error) {
@@ -81,11 +82,12 @@ func ResolveAIClient(ctx context.Context, st *store.Store, project *store.Projec
 	}
 
 	config := AIConfig{
-		BaseURL:     readConfigString(integration.Config, "baseUrl"),
-		ModelName:   readConfigString(integration.Config, "model"),
-		MaxTokens:   readConfigInt(integration.Config, "maxTokens", 4096),
-		Temperature: readConfigFloat(integration.Config, "temperature", 0.7),
-		APIKey:      apiKey,
+		BaseURL:         readConfigString(integration.Config, "baseUrl"),
+		ModelName:       readConfigString(integration.Config, "model"),
+		MaxTokens:       readConfigInt(integration.Config, "maxTokens", 4096),
+		Temperature:     readConfigFloat(integration.Config, "temperature", 0.7),
+		ReasoningEffort: readConfigString(integration.Config, "reasoningEffort"),
+		APIKey:          apiKey,
 	}
 	if strings.TrimSpace(config.ModelName) == "" {
 		return nil, fmt.Errorf("AI model is required")
@@ -344,6 +346,65 @@ func (c *OpenAIAPIClient) Model() string {
 	return c.config.ModelName
 }
 
+var noTemperatureModels = []string{
+	"o1", "o1-mini", "o1-preview",
+	"o3", "o3-mini",
+	"o4-mini",
+	"codex",
+	"codex-latest",
+	"codex-mini-latest",
+	"deepseek-reasoner",
+}
+
+var reasoningModelPrefixes = []string{"o", "gpt-5", "codex"}
+
+func supportsTemperature(model string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(model))
+	for _, m := range noTemperatureModels {
+		if normalized == m || strings.HasPrefix(normalized, m+"-") {
+			return false
+		}
+	}
+	return true
+}
+
+func supportsReasoningEffort(model string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(model))
+	for _, prefix := range reasoningModelPrefixes {
+		if normalized == prefix || strings.HasPrefix(normalized, prefix+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeReasoningEffort(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "minimal", "low", "medium", "high", "xhigh":
+		return strings.TrimSpace(strings.ToLower(value))
+	default:
+		return ""
+	}
+}
+
+func isOpenAIOfficialBase(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Hostname(), "api.openai.com")
+}
+
+func shouldUseResponsesAPI(config AIConfig) bool {
+	if !isOpenAIOfficialBase(config.BaseURL) {
+		return false
+	}
+	if normalizeReasoningEffort(config.ReasoningEffort) != "" {
+		return true
+	}
+	return supportsReasoningEffort(config.ModelName)
+}
+
 func (c *OpenAIAPIClient) Analyze(prompt string, code string, timeout time.Duration) (domain.ReviewResult, error) {
 	if strings.TrimSpace(c.config.BaseURL) == "" {
 		return domain.ReviewResult{}, fmt.Errorf("AI baseUrl is required")
@@ -351,18 +412,23 @@ func (c *OpenAIAPIClient) Analyze(prompt string, code string, timeout time.Durat
 	if strings.Contains(strings.ToLower(c.config.BaseURL), "anthropic.com") {
 		return c.analyzeAnthropic(prompt, code, timeout)
 	}
+	if shouldUseResponsesAPI(c.config) {
+		return c.analyzeOpenAIResponses(prompt, code, timeout)
+	}
 	return c.analyzeOpenAI(prompt, code, timeout)
 }
 
 func (c *OpenAIAPIClient) analyzeAnthropic(prompt string, code string, timeout time.Duration) (domain.ReviewResult, error) {
 	fullPrompt := buildClientPrompt(prompt, code, true)
 	body := map[string]any{
-		"model":       c.config.ModelName,
-		"max_tokens":  c.config.MaxTokens,
-		"temperature": c.config.Temperature,
+		"model":      c.config.ModelName,
+		"max_tokens": c.config.MaxTokens,
 		"messages": []map[string]any{
 			{"role": "user", "content": fullPrompt},
 		},
+	}
+	if supportsTemperature(c.config.ModelName) {
+		body["temperature"] = c.config.Temperature
 	}
 	payload, _ := json.Marshal(body)
 
@@ -415,8 +481,10 @@ func (c *OpenAIAPIClient) analyzeOpenAI(prompt string, code string, timeout time
 		"messages": []map[string]any{
 			{"role": "user", "content": fullPrompt},
 		},
-		"max_tokens":  c.config.MaxTokens,
-		"temperature": c.config.Temperature,
+		"max_tokens": c.config.MaxTokens,
+	}
+	if supportsTemperature(c.config.ModelName) {
+		body["temperature"] = c.config.Temperature
 	}
 	payload, _ := json.Marshal(body)
 
@@ -458,6 +526,92 @@ func (c *OpenAIAPIClient) analyzeOpenAI(prompt string, code string, timeout time
 	message, _ := first["message"].(map[string]any)
 	content, _ := message["content"].(string)
 	return parseReviewResult(content)
+}
+
+func (c *OpenAIAPIClient) analyzeOpenAIResponses(prompt string, code string, timeout time.Duration) (domain.ReviewResult, error) {
+	fullPrompt := buildClientPrompt(prompt, code, false)
+	body := map[string]any{
+		"model":             c.config.ModelName,
+		"input":             fullPrompt,
+		"max_output_tokens": c.config.MaxTokens,
+	}
+	if effort := normalizeReasoningEffort(c.config.ReasoningEffort); effort != "" && supportsReasoningEffort(c.config.ModelName) {
+		body["reasoning"] = map[string]any{"effort": effort}
+	}
+
+	payload, _ := json.Marshal(body)
+	base := strings.TrimSuffix(c.config.BaseURL, "/")
+	endpoint := base + "/responses"
+	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return domain.ReviewResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.config.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.config.APIKey)
+	}
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return domain.ReviewResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return domain.ReviewResult{}, fmt.Errorf("openai-responses error: %s", resp.Status)
+	}
+
+	raw, err := readAll(resp)
+	if err != nil {
+		return domain.ReviewResult{}, err
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return domain.ReviewResult{}, err
+	}
+
+	content := extractResponsesText(parsed)
+	if strings.TrimSpace(content) == "" {
+		return domain.ReviewResult{}, fmt.Errorf("openai responses missing output text")
+	}
+
+	return parseReviewResult(content)
+}
+
+func extractResponsesText(parsed map[string]any) string {
+	if text, ok := parsed["output_text"].(string); ok && strings.TrimSpace(text) != "" {
+		return text
+	}
+
+	output, ok := parsed["output"].([]any)
+	if !ok {
+		return ""
+	}
+
+	parts := make([]string, 0)
+	for _, item := range output {
+		itemMap, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		content, ok := itemMap["content"].([]any)
+		if !ok {
+			continue
+		}
+		for _, block := range content {
+			blockMap, ok := block.(map[string]any)
+			if !ok {
+				continue
+			}
+			text, ok := blockMap["text"].(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				continue
+			}
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func buildClientPrompt(prompt string, code string, strictJSON bool) string {

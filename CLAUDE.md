@@ -327,6 +327,9 @@ Environment files for Studio live under `apps/studio` (e.g. `apps/studio/.env`).
 **VCS and AI integrations** are configured via web UI at **Settings > Integrations** — NOT via env vars.
 - VCS: GitHub, GitLab, Generic Git
 - AI: Any OpenAI API-format provider (Claude, GPT-4, DeepSeek, etc.)
+- AI config supports `model` (manual model ID allowed), optional `maxTokens`, `temperature`, and optional `reasoningEffort` (`none|minimal|low|medium|high|xhigh`)
+- Add/Edit AI Integration modals provide quick `maxTokens` profiles for common workloads (quick review, deep review, log analysis, auto-fix) while still allowing manual override
+- For official OpenAI endpoint (`https://api.openai.com/v1`), reasoning-capable models (for example `gpt-5*`, `o*`, `codex*`) use `/responses`; other providers remain on `/chat/completions`
 - Non-sensitive config → `org_integrations` table; secrets → encrypted in `vault_secret_name`
 - Priority: project-specific > org default (no env var fallback)
 
@@ -428,6 +431,7 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - `PATCH /api/pipelines/[id]` updates `concurrency_mode` in Studio DB (schema must include `pipelines.concurrency_mode`; present in `init.sql`)
 - `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling runner (409 if `queue` mode and run active)
 - Studio server calls Runner `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` (used by `cancel_previous` concurrency mode)
+- AI integration runtime routing: official OpenAI + reasoning-capable model (or explicit `reasoningEffort`) calls `/responses`; otherwise calls `/chat/completions` (Anthropic base URL uses Messages API)
 - `GET /api/rules/templates` returns static template list; `POST /api/rules/templates/[id]/import` is admin-only
 - Report compare page: `/o/:orgId/projects/:id/reports/compare?a=reportIdA&b=reportIdB`
 

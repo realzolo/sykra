@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
@@ -96,19 +97,19 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-[640px] overflow-hidden p-0">
         <DialogHeader>
-          <DialogTitle>{i18n.title}</DialogTitle>
+          <DialogTitle className="text-[16px] font-semibold">{i18n.title}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="max-h-[calc(90vh-132px)] overflow-y-auto px-6 py-5 space-y-4">
           <div>
-            <label className="text-sm font-medium mb-1.5 block">{i18n.provider}</label>
+            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.provider}</label>
             <Select value={selectedProvider} onValueChange={(value) => setSelectedProvider(value)}>
-              <SelectTrigger>
+              <SelectTrigger className="h-9">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-80">
                 {Object.entries(providers).map(([key, value]) => (
                   <SelectItem key={key} value={key}>{value.name}</SelectItem>
                 ))}
@@ -122,8 +123,9 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1.5 block">{i18n.name}</label>
+            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.name}</label>
             <Input
+              className="h-9"
               placeholder={i18n.namePlaceholder}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -131,8 +133,9 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1.5 block">{i18n.accessTokenLabel}</label>
+            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.accessTokenLabel}</label>
             <Input
+              className="h-9"
               type="password"
               placeholder={i18n.accessTokenPlaceholder}
               value={secret}
@@ -154,11 +157,12 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
             .filter((f) => f.key !== 'token')
             .map((field) => (
               <div key={field.key}>
-                <label className="text-sm font-medium mb-1.5 block">
+                <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">
                   {field.label}
                   {field.required && ' *'}
                 </label>
                 <Input
+                  className="h-9"
                   type={field.type}
                   placeholder={field.placeholder}
                   value={config[field.key] || ''}
@@ -172,25 +176,19 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
               </div>
             ))}
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="isDefault"
-              checked={isDefault}
-              onChange={(e) => setIsDefault(e.target.checked)}
-              className="rounded"
-            />
-            <label htmlFor="isDefault" className="text-sm">
+          <div className="flex items-center gap-2 pt-1">
+            <Switch id="isDefault" checked={isDefault} onCheckedChange={setIsDefault} />
+            <label htmlFor="isDefault" className="text-[13px]">
               {i18n.setDefault}
             </label>
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={loading}>
+        <DialogFooter className="px-6 py-4">
+          <Button variant="outline" onClick={onClose} disabled={loading}>
             {dict.common.cancel}
           </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
+          <Button onClick={handleSubmit} disabled={loading} className="min-w-28">
             {loading ? i18n.creating : i18n.createAction}
           </Button>
         </DialogFooter>

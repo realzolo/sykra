@@ -136,12 +136,22 @@ export async function GET() {
             placeholder: '0.7',
             help: 'Value between 0 and 1. Not applicable to reasoning models (o1, o3, o4-mini, etc.).',
           },
+          {
+            key: 'reasoningEffort',
+            label: 'Reasoning Effort',
+            type: 'select',
+            required: false,
+            placeholder: 'Select effort (optional)',
+            help: 'Use for OpenAI reasoning-capable models on official OpenAI base URL. "none" keeps provider default.',
+            options: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+          },
         ],
         docs: null,  // no single docs URL — provider-specific (e.g. platform.openai.com, console.anthropic.com)
         presets: [
           // Anthropic
           {
             name: 'Claude Opus 4.6',
+            category: 'anthropic',
             config: {
               baseUrl: 'https://api.anthropic.com',
               model: 'claude-opus-4-6',
@@ -149,6 +159,7 @@ export async function GET() {
           },
           {
             name: 'Claude Sonnet 4.6',
+            category: 'anthropic',
             config: {
               baseUrl: 'https://api.anthropic.com',
               model: 'claude-sonnet-4-6',
@@ -156,6 +167,7 @@ export async function GET() {
           },
           {
             name: 'Claude Haiku 4.5',
+            category: 'anthropic',
             config: {
               baseUrl: 'https://api.anthropic.com',
               model: 'claude-haiku-4-5-20251001',
@@ -164,6 +176,7 @@ export async function GET() {
           // OpenAI — GPT
           {
             name: 'GPT-4.1',
+            category: 'openai-gpt',
             config: {
               baseUrl: 'https://api.openai.com/v1',
               model: 'gpt-4.1',
@@ -171,6 +184,7 @@ export async function GET() {
           },
           {
             name: 'GPT-4.1 mini',
+            category: 'openai-gpt',
             config: {
               baseUrl: 'https://api.openai.com/v1',
               model: 'gpt-4.1-mini',
@@ -178,6 +192,7 @@ export async function GET() {
           },
           {
             name: 'GPT-4o',
+            category: 'openai-gpt',
             config: {
               baseUrl: 'https://api.openai.com/v1',
               model: 'gpt-4o',
@@ -185,36 +200,70 @@ export async function GET() {
           },
           {
             name: 'GPT-4o mini',
+            category: 'openai-gpt',
             config: {
               baseUrl: 'https://api.openai.com/v1',
               model: 'gpt-4o-mini',
             },
           },
+          {
+            name: 'GPT-5.4',
+            category: 'openai-reasoning',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'gpt-5.4',
+              reasoningEffort: 'medium',
+            },
+          },
+          {
+            name: 'GPT-5.4 (xhigh)',
+            category: 'openai-reasoning',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'gpt-5.4',
+              reasoningEffort: 'xhigh',
+            },
+          },
           // OpenAI — reasoning
           {
             name: 'o3',
+            category: 'openai-reasoning',
             config: {
               baseUrl: 'https://api.openai.com/v1',
               model: 'o3',
+              reasoningEffort: 'medium',
             },
           },
           {
             name: 'o4-mini',
+            category: 'openai-reasoning',
             config: {
               baseUrl: 'https://api.openai.com/v1',
               model: 'o4-mini',
+              reasoningEffort: 'medium',
             },
           },
           {
             name: 'o3-mini',
+            category: 'openai-reasoning',
             config: {
               baseUrl: 'https://api.openai.com/v1',
               model: 'o3-mini',
+              reasoningEffort: 'medium',
             },
           },
           // OpenAI — Codex
           {
+            name: 'Codex (codex-latest)',
+            category: 'openai-codex',
+            config: {
+              baseUrl: 'https://api.openai.com/v1',
+              model: 'codex-latest',
+            },
+          },
+          {
             name: 'Codex mini (codex-mini-latest)',
+            category: 'openai-codex',
             config: {
               baseUrl: 'https://api.openai.com/v1',
               model: 'codex-mini-latest',
@@ -223,6 +272,7 @@ export async function GET() {
           // Google Gemini
           {
             name: 'Gemini 2.5 Pro',
+            category: 'google-gemini',
             config: {
               baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
               model: 'gemini-2.5-pro-preview-05-06',
@@ -230,6 +280,7 @@ export async function GET() {
           },
           {
             name: 'Gemini 2.5 Flash',
+            category: 'google-gemini',
             config: {
               baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
               model: 'gemini-2.5-flash-preview-04-17',
@@ -237,6 +288,7 @@ export async function GET() {
           },
           {
             name: 'Gemini 2.0 Flash',
+            category: 'google-gemini',
             config: {
               baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
               model: 'gemini-2.0-flash',
@@ -245,6 +297,7 @@ export async function GET() {
           // DeepSeek
           {
             name: 'DeepSeek V3',
+            category: 'deepseek',
             config: {
               baseUrl: 'https://api.deepseek.com/v1',
               model: 'deepseek-chat',
@@ -252,6 +305,7 @@ export async function GET() {
           },
           {
             name: 'DeepSeek R1',
+            category: 'deepseek',
             config: {
               baseUrl: 'https://api.deepseek.com/v1',
               model: 'deepseek-reasoner',
@@ -260,6 +314,7 @@ export async function GET() {
           // Mistral
           {
             name: 'Mistral Large',
+            category: 'mistral',
             config: {
               baseUrl: 'https://api.mistral.ai/v1',
               model: 'mistral-large-latest',
@@ -267,6 +322,7 @@ export async function GET() {
           },
           {
             name: 'Mistral Small',
+            category: 'mistral',
             config: {
               baseUrl: 'https://api.mistral.ai/v1',
               model: 'mistral-small-latest',
@@ -274,6 +330,7 @@ export async function GET() {
           },
           {
             name: 'Codestral',
+            category: 'mistral',
             config: {
               baseUrl: 'https://codestral.mistral.ai/v1',
               model: 'codestral-latest',
@@ -282,6 +339,7 @@ export async function GET() {
           // Meta Llama (via Groq)
           {
             name: 'Llama 4 Scout (Groq)',
+            category: 'llama-groq',
             config: {
               baseUrl: 'https://api.groq.com/openai/v1',
               model: 'meta-llama/llama-4-scout-17b-16e-instruct',
@@ -289,6 +347,7 @@ export async function GET() {
           },
           {
             name: 'Llama 3.3 70B (Groq)',
+            category: 'llama-groq',
             config: {
               baseUrl: 'https://api.groq.com/openai/v1',
               model: 'llama-3.3-70b-versatile',
@@ -297,6 +356,7 @@ export async function GET() {
           // xAI Grok
           {
             name: 'Grok 3',
+            category: 'xai-grok',
             config: {
               baseUrl: 'https://api.x.ai/v1',
               model: 'grok-3',
@@ -304,6 +364,7 @@ export async function GET() {
           },
           {
             name: 'Grok 3 mini',
+            category: 'xai-grok',
             config: {
               baseUrl: 'https://api.x.ai/v1',
               model: 'grok-3-mini',

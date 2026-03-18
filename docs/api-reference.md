@@ -203,6 +203,7 @@ Get configuration templates for all supported providers.
       "presets": [
         {
           "name": "Anthropic Claude",
+          "category": "anthropic",
           "config": {
             "baseUrl": "https://api.anthropic.com",
             "model": "claude-sonnet-4-6"
@@ -239,6 +240,15 @@ Get configuration templates for all supported providers.
 - `model` (required): Model identifier
 - `maxTokens` (optional): Maximum tokens
 - `temperature` (optional): Temperature (0-1)
+- `reasoningEffort` (optional): `none | minimal | low | medium | high | xhigh`
+
+**Preset Metadata**:
+- `presets[].category` (optional): Provider/model family used by UI for category filtering
+- Presets are convenience templates only; users can always manually enter any valid model ID in `config.model`
+
+**Execution Routing**:
+- Official OpenAI base URL (`https://api.openai.com/v1`) + reasoning-capable model (`gpt-5*`, `o*`, `codex*`) uses `/responses`
+- Other OpenAI-compatible providers continue using `/chat/completions`
 
 ## Error Responses
 
@@ -298,6 +308,30 @@ const response = await fetch('/api/integrations', {
     },
     secret: 'sk-ant-xxxxxxxxxxxx',
     isDefault: true
+  })
+});
+
+const integration = await response.json();
+```
+
+### Create OpenAI GPT-5.4 Integration with xhigh Effort
+
+```typescript
+const response = await fetch('/api/integrations', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    type: 'ai',
+    provider: 'openai-api',
+    name: 'GPT-5.4 xhigh',
+    config: {
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      maxTokens: 4096
+    },
+    secret: 'sk-xxxxxxxxxxxx',
+    isDefault: false
   })
 });
 
