@@ -268,6 +268,16 @@ EMAIL_PROVIDER=             # Email provider for notifications: console|resend
 EMAIL_FROM=                 # From address (required for resend)
 RESEND_API_KEY=             # Resend API key (required when EMAIL_PROVIDER=resend)
 STUDIO_BASE_URL=            # Public base URL for links included in emails (optional)
+REDIS_URL=                  # Redis URL used by BullMQ and analyze admission control (recommended in production)
+ANALYZE_RATE_LIMIT_WINDOW_MS=          # Analyze rate-limit window in ms (default 60000)
+ANALYZE_RATE_LIMIT_USER_PROJECT_MAX=   # Max analyze requests/window per org+user+project (default 6)
+ANALYZE_RATE_LIMIT_ORG_MAX=            # Max analyze requests/window per org (default 60)
+ANALYZE_RATE_LIMIT_IP_MAX=             # Auxiliary max analyze requests/window per IP hash (default 120)
+ANALYZE_DEDUPE_TTL_SEC=                # Identical analyze request result reuse TTL in seconds (default 180)
+ANALYZE_DEDUPE_LOCK_TTL_SEC=           # In-flight dedupe lock TTL in seconds (default 15)
+ANALYZE_BACKPRESSURE_PROJECT_ACTIVE_MAX= # Max active (pending/analyzing) reports per project before 503 (default 6)
+ANALYZE_BACKPRESSURE_ORG_ACTIVE_MAX=     # Max active (pending/analyzing) reports per org before 503 (default 60)
+ANALYZE_BACKPRESSURE_RETRY_AFTER_SEC=    # Retry-After hint for backpressure rejections (default 15)
 ```
 
 **Runner env (apps/runner):**
@@ -331,6 +341,8 @@ Environment files for Studio live under `apps/studio` (e.g. `apps/studio/.env`).
 - Add/Edit AI Integration modals provide quick `maxTokens` profiles for common workloads (quick review, deep review, log analysis, auto-fix) while still allowing manual override
 - For official OpenAI endpoint (`https://api.openai.com/v1`), reasoning-capable models (for example `gpt-5*`, `o*`, `codex*`) use `/responses`; other providers remain on `/chat/completions`
 - Non-sensitive config → `org_integrations` table; secrets → encrypted in `vault_secret_name`
+- Secret encryption format is strict AES-256-GCM with 12-byte nonce and 16-byte tag: `iv:authTag:salt:ciphertext`
+- Studio and Runner both enforce this format for integration secrets; if old secrets were produced with non-standard nonce/tag size, re-save/recreate those integrations to rotate ciphertext
 - Priority: project-specific > org default (no env var fallback)
 
 ## Common Commands
@@ -355,9 +367,14 @@ If new install warnings appear, approve the dependency and update the allowlist.
 
 ## AI Analysis Flow
 
-1. `POST /api/analyze` → returns `{ reportId }` immediately, enqueues runner task
-2. Runner: fetch diff by commit SHA → AI analysis → sync `analysis_issues` → update status
-3. Frontend: SSE on `/api/reports/[id]/stream`, fallback to polling every 2.5s
+1. `POST /api/analyze` (auth required) applies admission control before enqueue:
+   - request dedupe by semantic fingerprint (`org + project + commits + rules + mode`) with short Redis TTL
+   - distributed rate limits (`org+user+project`, `org`, auxiliary IP hash)
+   - queue backpressure guard based on active `analysis_reports` (`pending`/`analyzing`) counts
+2. On accepted request, Studio creates `analysis_reports` row and enqueues runner task
+3. API returns `{ reportId, status: "queued", taskId }` (or deduped existing report/task when applicable)
+4. Runner: fetch diff by commit SHA → AI analysis → sync `analysis_issues` → update status
+5. Frontend: SSE on `/api/reports/[id]/stream`, fallback to polling every 2.5s
 
 ## Pipeline Engine (CI/CD)
 

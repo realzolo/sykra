@@ -5,7 +5,7 @@
 import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 16;
+const IV_LENGTH = 12;
 const SALT_LENGTH = 64;
 
 /**
@@ -32,7 +32,7 @@ function getEncryptionKey(): Buffer {
 export function encrypt(text: string): string {
   const key = getEncryptionKey();
 
-  // Generate random IV and salt
+// Generate random 12-byte nonce (GCM standard) and salt
   const iv = crypto.randomBytes(IV_LENGTH);
   const salt = crypto.randomBytes(SALT_LENGTH);
 
@@ -83,6 +83,12 @@ export function decrypt(encryptedData: string): string {
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
     const encrypted = encryptedHex;
+    if (iv.length !== IV_LENGTH) {
+      throw new Error(`Invalid nonce length: ${iv.length}`);
+    }
+    if (authTag.length !== 16) {
+      throw new Error(`Invalid auth tag length: ${authTag.length}`);
+    }
 
     // Create decipher
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);

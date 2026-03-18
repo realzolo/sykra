@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { getProjectById, getRulesBySetId, createReport, updateReport } from '@/services/db';
+import { randomUUID } from 'crypto';
+import { getRulesBySetId, createReport, updateReport } from '@/services/db';
 import { shouldUseIncrementalAnalysis } from '@/services/incremental';
 import { buildReportCommits } from '@/services/analyzeTask';
 import { query } from '@/lib/db';
@@ -8,26 +9,29 @@ import { enqueueAnalyze } from '@/services/runnerClient';
 import { logger } from '@/services/logger';
 import { analyzeRequestSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireProjectAccess } from '@/services/orgs';
+import {
+  buildAnalyzeFingerprint,
+  claimAnalyzeDedupeLock,
+  checkAnalyzeBackpressure,
+  enforceAnalyzeRateLimit,
+  getAnalyzeDedupeResult,
+  releaseAnalyzeDedupeLock,
+  storeAnalyzeDedupeResult,
+  waitForAnalyzeDedupeResult,
+} from '@/services/analyzeAdmission';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.analyze);
-
 export async function POST(request: NextRequest) {
-  // Rate limit
-  const rateLimitResponse = rateLimiter(request);
-  if (rateLimitResponse) {
-    return rateLimitResponse;
-  }
-
   const user = await requireUser();
   if (!user) {
     return unauthorized();
   }
+
+  let dedupeLock: { fingerprint: string; owner: string } | null = null;
 
   try {
     const body = await request.json();
@@ -36,22 +40,16 @@ export async function POST(request: NextRequest) {
 
     logger.setContext({ projectId });
 
-    // Validate project exists
-    await withRetry(() => requireProjectAccess(projectId, user.id));
-    const project = await withRetry(() => getProjectById(projectId));
-    if (!project) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
-    }
-    if (!project.org_id) {
-      return NextResponse.json({ error: 'Project is not associated with an organization' }, { status: 400 });
-    }
+    // Validate project exists + org access
+    const project = await withRetry(() => requireProjectAccess(projectId, user.id));
 
-    if (!project.ruleset_id) {
+    const ruleSetId = project.ruleset_id;
+    if (!ruleSetId) {
       return NextResponse.json({ error: 'Project has no rule set configured' }, { status: 400 });
     }
 
     // Get rule set
-    const rules = await withRetry(() => getRulesBySetId(project.ruleset_id));
+    const rules = await withRetry(() => getRulesBySetId(ruleSetId));
     if (!rules.length) {
       return NextResponse.json({ error: 'No enabled rules in rule set' }, { status: 400 });
     }
@@ -78,6 +76,87 @@ export async function POST(request: NextRequest) {
     const useIncremental =
       !forceFullAnalysis &&
       shouldUseIncrementalAnalysis(project, selectedHashes, recentReports || []);
+
+    // Build dedupe fingerprint once all semantic inputs are resolved.
+    const analyzeFingerprint = buildAnalyzeFingerprint({
+      orgId: project.org_id,
+      projectId,
+      commits: selectedHashes,
+      rules: rules.map((rule) => ({
+        category: String(rule.category ?? ''),
+        name: String(rule.name ?? ''),
+        prompt: String(rule.prompt ?? ''),
+        severity: String(rule.severity ?? ''),
+      })),
+      forceFullAnalysis,
+      useIncremental,
+    });
+
+    const existingResult = await getAnalyzeDedupeResult(analyzeFingerprint);
+    if (existingResult) {
+      return NextResponse.json(
+        {
+          reportId: existingResult.reportId,
+          incrementalAnalysis: existingResult.incrementalAnalysis,
+          status: existingResult.status,
+          taskId: existingResult.taskId,
+          deduplicated: true,
+        },
+        { status: 202 }
+      );
+    }
+
+    const lockOwner = randomUUID();
+    const lockAcquired = await claimAnalyzeDedupeLock(analyzeFingerprint, lockOwner);
+
+    if (!lockAcquired) {
+      const waitResult = await waitForAnalyzeDedupeResult(analyzeFingerprint, 2000, 200);
+      if (waitResult) {
+        return NextResponse.json(
+          {
+            reportId: waitResult.reportId,
+            incrementalAnalysis: waitResult.incrementalAnalysis,
+            status: waitResult.status,
+            taskId: waitResult.taskId,
+            deduplicated: true,
+          },
+          { status: 202 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          error: 'Identical analysis request is already being processed',
+          code: 'ANALYZE_DUPLICATE_IN_PROGRESS',
+        },
+        { status: 409, headers: { 'Retry-After': '2' } }
+      );
+    }
+
+    dedupeLock = { fingerprint: analyzeFingerprint, owner: lockOwner };
+
+    const clientInfo = extractClientInfo(request);
+
+    const rateLimitResult = await enforceAnalyzeRateLimit({
+      orgId: project.org_id,
+      userId: user.id,
+      projectId,
+      ipAddress: clientInfo.ipAddress,
+    });
+    if (rateLimitResult) {
+      return NextResponse.json(rateLimitResult.body, {
+        status: rateLimitResult.status,
+        headers: rateLimitResult.headers,
+      });
+    }
+
+    const backpressureResult = await checkAnalyzeBackpressure(project.org_id, projectId);
+    if (backpressureResult) {
+      return NextResponse.json(backpressureResult.body, {
+        status: backpressureResult.status,
+        headers: backpressureResult.headers,
+      });
+    }
 
     // Create report
     const report = await withRetry(() =>
@@ -112,7 +191,16 @@ export async function POST(request: NextRequest) {
       throw err;
     }
 
-    const clientInfo = extractClientInfo(request);
+    await storeAnalyzeDedupeResult(analyzeFingerprint, {
+      reportId: report.id,
+      taskId,
+      status: 'queued',
+      projectId,
+      orgId: project.org_id,
+      incrementalAnalysis: useIncremental,
+      createdAt: Date.now(),
+    });
+
     await auditLogger.log({
       action: 'analyze',
       entityType: 'project',
@@ -133,6 +221,9 @@ export async function POST(request: NextRequest) {
     logger.error('Analysis request failed', err instanceof Error ? err : undefined);
     return NextResponse.json({ error }, { status: statusCode });
   } finally {
+    if (dedupeLock) {
+      await releaseAnalyzeDedupeLock(dedupeLock.fingerprint, dedupeLock.owner);
+    }
     logger.clearContext();
   }
 }

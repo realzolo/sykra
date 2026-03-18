@@ -43,6 +43,12 @@ func DecryptSecret(encrypted string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid ciphertext: %w", err)
 	}
+	if len(iv) != 12 {
+		return "", fmt.Errorf("invalid iv length: %d", len(iv))
+	}
+	if len(authTag) != 16 {
+		return "", fmt.Errorf("invalid auth tag length: %d", len(authTag))
+	}
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -53,7 +59,9 @@ func DecryptSecret(encrypted string) (string, error) {
 		return "", fmt.Errorf("gcm init failed: %w", err)
 	}
 
-	combined := append(cipherText, authTag...)
+	combined := make([]byte, len(cipherText)+len(authTag))
+	copy(combined, cipherText)
+	copy(combined[len(cipherText):], authTag)
 	plain, err := gcm.Open(nil, iv, combined, nil)
 	if err != nil {
 		return "", fmt.Errorf("decrypt failed: %w", err)
