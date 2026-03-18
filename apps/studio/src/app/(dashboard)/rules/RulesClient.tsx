@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Plus, Shield, ChevronRight } from 'lucide-react';
+import { Plus, Shield, ChevronRight, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,14 @@ import { useOrgRole } from '@/lib/useOrgRole';
 import { Skeleton } from '@/components/ui/skeleton';
 
 type RuleSet = { id: string; name: string; description?: string; is_global: boolean; rules?: unknown[] };
+
+type TemplateSummary = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  ruleCount: number;
+};
 
 export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets?: RuleSet[]; dict: Dictionary }) {
   const router = useRouter();
@@ -27,6 +35,10 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
   const { isAdmin } = useOrgRole();
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [importingId, setImportingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialRuleSets) return;
@@ -70,6 +82,50 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
     const updated = await fetch('/api/rules/sets').then(r => r.json());
     setRuleSets(updated);
   }
+
+  async function openTemplateDialog() {
+    setTemplateDialogOpen(true);
+    if (templates.length > 0) return;
+    setTemplatesLoading(true);
+    try {
+      const res = await fetch('/api/rules/templates');
+      const data = res.ok ? await res.json() : [];
+      setTemplates(Array.isArray(data) ? data : []);
+    } catch {
+      // ignore
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }
+
+  async function handleImportTemplate(templateId: string) {
+    setImportingId(templateId);
+    try {
+      const res = await fetch(`/api/rules/templates/${templateId}/import`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'import_failed');
+      toast.success(dict.rules.templates.importSuccess);
+      setTemplateDialogOpen(false);
+      const updated = await fetch('/api/rules/sets').then(r => r.json());
+      setRuleSets(updated);
+      // Navigate to the newly created ruleset
+      if (data.id) {
+        router.push(withOrgPrefix(pathname, `/rules/${data.id}`));
+      }
+    } catch {
+      toast.error(dict.rules.templates.importFailed);
+    } finally {
+      setImportingId(null);
+    }
+  }
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    react: dict.rules.templates.category.react,
+    go: dict.rules.templates.category.go,
+    security: dict.rules.templates.category.security,
+    python: dict.rules.templates.category.python,
+    performance: dict.rules.templates.category.performance,
+  };
 
   if (loading) {
     return (
@@ -124,10 +180,16 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
             <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">{dict.rules.description}</p>
           </div>
           {isAdmin && (
-            <Button onClick={() => setDialogOpen(true)} size="sm" className="gap-1.5 text-sm">
-              <Plus className="size-4" />
-              {dict.rules.newRuleSet}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={openTemplateDialog} size="sm" variant="outline" className="gap-1.5 text-sm">
+                <Download className="size-4" />
+                {dict.rules.templates.title}
+              </Button>
+              <Button onClick={() => setDialogOpen(true)} size="sm" className="gap-1.5 text-sm">
+                <Plus className="size-4" />
+                {dict.rules.newRuleSet}
+              </Button>
+            </div>
           )}
         </div>
 
@@ -208,6 +270,56 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
                 <Button type="submit" disabled={creating}>{creating ? dict.rules.creating : dict.rules.create}</Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Template marketplace dialog */}
+      {isAdmin && (
+        <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>{dict.rules.templates.title}</DialogTitle>
+              <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-1">{dict.rules.templates.description}</p>
+            </DialogHeader>
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {templatesLoading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] p-4">
+                    <Skeleton className="h-4 w-48 mb-2" />
+                    <Skeleton className="h-3 w-64" />
+                  </div>
+                ))
+              ) : templates.map(t => (
+                <div
+                  key={t.id}
+                  className="flex items-start justify-between gap-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] px-4 py-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-medium">{t.name}</span>
+                      <Badge size="sm" variant="secondary">
+                        {CATEGORY_LABELS[t.category] ?? t.category}
+                      </Badge>
+                    </div>
+                    <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">{t.description}</div>
+                    <div className="text-[11px] text-[hsl(var(--ds-text-2))] mt-1">{t.ruleCount} rules</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleImportTemplate(t.id)}
+                    disabled={importingId === t.id}
+                    className="shrink-0"
+                  >
+                    {importingId === t.id ? dict.rules.templates.importing : dict.rules.templates.import}
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setTemplateDialogOpen(false)}>{dict.common.close}</Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       )}

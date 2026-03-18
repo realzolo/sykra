@@ -95,6 +95,45 @@ func mergeEnv(overrides map[string]string) []string {
 	return result
 }
 
+// ── Docker executor ────────────────────────────────────────────────────────
+
+type DockerExecutor struct{}
+
+func (e *DockerExecutor) Execute(ctx context.Context, step PipelineStep, env map[string]string, workingDir string, log io.Writer) (int, error) {
+	image := step.DockerImage
+	if image == "" {
+		return 1, fmt.Errorf("dockerImage is required for docker step type")
+	}
+
+	args := []string{"run", "--rm", "-w", "/workspace"}
+
+	if workingDir != "" {
+		args = append(args, "-v", workingDir+":/workspace")
+	}
+
+	for k, v := range env {
+		args = append(args, "-e", k+"="+v)
+	}
+
+	args = append(args, image, "/bin/sh", "-c", step.Script)
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Stdout = log
+	cmd.Stderr = log
+
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	err := cmd.Wait()
+	if err == nil {
+		return 0, nil
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode(), err
+	}
+	return 1, err
+}
+
 // ── Source checkout executor ───────────────────────────────────────────────
 // Runs git clone/pull for the project's repository.
 // The repo URL is fetched from Studio API using the projectId and studioToken.

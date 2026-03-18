@@ -389,7 +389,12 @@ func (e *Engine) runStep(
 			GateEnabled: job.MinScore > 0,
 		}
 	default:
-		executor = e.Executors.Get("shell")
+		// For user-defined steps, check step-level type
+		if step.Type == "docker" {
+			executor = &DockerExecutor{}
+		} else {
+			executor = e.Executors.Get("shell")
+		}
 	}
 
 	if executor == nil {

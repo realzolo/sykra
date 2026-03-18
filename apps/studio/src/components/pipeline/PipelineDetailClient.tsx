@@ -1149,6 +1149,52 @@ export default function PipelineDetailClient({
                       </>
                     )}
                   </div>
+
+                  {/* Concurrency Mode */}
+                  <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-4 space-y-3">
+                    <div>
+                      <div className="text-sm font-medium">{p.concurrencyMode.label}</div>
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
+                        {p.concurrencyMode.help}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      {(['allow', 'queue', 'cancel_previous'] as const).map((mode) => {
+                        const active = (pipeline?.concurrency_mode ?? 'allow') === mode;
+                        const label = mode === 'allow' ? p.concurrencyMode.allow : mode === 'queue' ? p.concurrencyMode.queue : p.concurrencyMode.cancelPrevious;
+                        const help = mode === 'allow' ? p.concurrencyMode.allowHelp : mode === 'queue' ? p.concurrencyMode.queueHelp : p.concurrencyMode.cancelPreviousHelp;
+                        return (
+                          <button
+                            key={mode}
+                            onClick={async () => {
+                              if (!isAdmin || !pipeline) return;
+                              try {
+                                const res = await fetch(`/api/pipelines/${pipelineId}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ concurrency_mode: mode }),
+                                });
+                                if (!res.ok) throw new Error('save failed');
+                                setPipeline(prev => prev ? { ...prev, concurrency_mode: mode } : prev);
+                                toast.success(p.saveSuccess);
+                              } catch {
+                                toast.error(p.saveFailed);
+                              }
+                            }}
+                            disabled={!isAdmin}
+                            className={`flex-1 min-w-[120px] py-2 px-3 rounded-[8px] border text-left text-xs transition-colors ${
+                              active
+                                ? 'border-foreground bg-muted text-foreground'
+                                : 'border-[hsl(var(--ds-border-1))] text-[hsl(var(--ds-text-2))] hover:border-foreground/40'
+                            } ${!isAdmin ? 'opacity-60 cursor-not-allowed' : ''}`}
+                          >
+                            <div className="font-medium">{label}</div>
+                            <div className="text-[11px] opacity-70 mt-0.5">{help}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1411,6 +1457,31 @@ function ConfigStepEditor({
                   <Trash2 className="size-3.5" />
                 </button>
               </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-[hsl(var(--ds-text-2))] w-20 shrink-0">{p.steps.typeLabel}</span>
+                <div className="flex gap-1">
+                  {(['shell', 'docker'] as const).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => onUpdate(step.id, { type: t, ...(t === 'shell' ? { dockerImage: undefined } : {}) })}
+                      className={`px-2.5 py-1 text-[11px] rounded-[4px] border transition-colors ${(step.type ?? 'shell') === t ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-[hsl(var(--ds-border-1))] text-[hsl(var(--ds-text-2))] hover:bg-muted/40'}`}
+                    >
+                      {t === 'shell' ? p.steps.typeShell : p.steps.typeDocker}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {(step.type === 'docker') && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-[hsl(var(--ds-text-2))] w-20 shrink-0">{p.steps.dockerImage}</span>
+                  <Input
+                    value={step.dockerImage ?? ''}
+                    onChange={(e) => onUpdate(step.id, { dockerImage: e.target.value })}
+                    placeholder={p.steps.dockerImagePlaceholder}
+                    className="h-7 text-xs flex-1"
+                  />
+                </div>
+              )}
               <Textarea
                 value={step.script}
                 onChange={(e) => onUpdate(step.id, { script: e.target.value })}

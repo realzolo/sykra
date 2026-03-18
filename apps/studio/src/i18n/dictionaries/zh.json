@@ -453,7 +453,24 @@
     },
     "runs": "运行记录",
     "noLogs": "暂无日志",
-    "selectStep": "选择步骤查看日志"
+    "selectStep": "选择步骤查看日志",
+    "concurrencyMode": {
+      "label": "并发模式",
+      "allow": "允许",
+      "queue": "排队",
+      "cancelPrevious": "取消上次",
+      "help": "控制当另一个运行正在进行时触发运行时的行为。",
+      "allowHelp": "允许多个运行同时执行。",
+      "queueHelp": "如果已有运行在进行中，新运行将被拒绝（409）。",
+      "cancelPreviousHelp": "启动新运行前取消正在进行的运行。"
+    },
+    "steps": {
+      "typeLabel": "步骤类型",
+      "typeShell": "Shell",
+      "typeDocker": "Docker",
+      "dockerImage": "Docker 镜像",
+      "dockerImagePlaceholder": "例如 node:22-alpine"
+    }
   },
   "dashboard": {
     "overview": "概览",
@@ -476,7 +493,14 @@
     "emptyTitle": "开始使用 Spec-Axis",
     "emptyDescription": "连接代码仓库，运行您的第一次 AI 代码评审。",
     "emptyCreateProject": "创建第一个项目",
-    "emptySetupIntegration": "配置集成"
+    "emptySetupIntegration": "配置集成",
+    "pipelineSuccessRate": "流水线成功率",
+    "quickActions": "快捷操作",
+    "triggerAnalysis": "触发分析",
+    "createPipeline": "创建流水线",
+    "projectScores": "项目质量评分",
+    "projectScoresDescription": "各项目最新评分（过去 14 天）",
+    "noProjectScores": "最近 14 天内无评分报告"
   },
   "reports": {
     "title": "报告",
@@ -531,7 +555,21 @@
     "deleteFilterSuccess": "筛选器已删除",
     "savingFilter": "保存中...",
     "exportFailed": "导出失败",
-    "exportSuccess": "报告已导出"
+    "exportSuccess": "报告已导出",
+    "compare": {
+      "title": "对比报告",
+      "selectReports": "选择两份报告进行对比",
+      "newIssues": "新增问题",
+      "resolvedIssues": "已修复问题",
+      "persistingIssues": "持续存在问题",
+      "scoreDelta": "评分变化",
+      "reportA": "报告 A（较旧）",
+      "reportB": "报告 B（较新）",
+      "noNewIssues": "无新增问题",
+      "noResolvedIssues": "无已修复问题",
+      "noPersistingIssues": "无持续问题",
+      "compareButton": "对比"
+    }
   },
   "rules": {
     "title": "规则集",
@@ -582,7 +620,23 @@
       "maintainability": "可维护性"
     },
     "allSeverities": "所有严重级别",
-    "weight": "权重"
+    "weight": "权重",
+    "templates": {
+      "title": "导入模板",
+      "description": "从预置规则集模板开始",
+      "import": "导入",
+      "importing": "导入中...",
+      "importSuccess": "模板导入成功",
+      "importFailed": "模板导入失败",
+      "categoryLabel": "分类",
+      "category": {
+        "react": "React",
+        "go": "Go",
+        "security": "安全",
+        "python": "Python",
+        "performance": "性能"
+      }
+    }
   },
   "settings": {
     "title": "设置",

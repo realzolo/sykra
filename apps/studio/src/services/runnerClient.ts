@@ -161,3 +161,15 @@ export async function getPipelineStepLog(runId: string, stepId: string, offset =
   const nextOffset = Number(res.headers.get('X-Log-Next-Offset') ?? 0);
   return { data, nextOffset };
 }
+
+export async function cancelPipelineRun(runId: string) {
+  const res = await fetch(`${runnerBaseUrl()}/v1/pipeline-runs/${runId}/cancel`, {
+    method: 'POST',
+    headers: runnerHeaders(),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Runner cancel run failed: ${res.status} ${text}`);
+  }
+  return (await res.json()) as RunnerPipelineResponse<unknown>;
+}

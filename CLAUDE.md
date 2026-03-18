@@ -32,6 +32,14 @@ Backend: PostgreSQL for core data, Go runner executes analysis jobs and pipeline
 Monorepo layout: `apps/studio` (Next.js), `apps/runner` (Go runner), `packages/*` (shared contracts).
 Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 
+**Key platform features:**
+- AI code review with configurable rule sets, quality gate scoring, and issue tracking
+- Rule set template marketplace: 5 built-in templates (React, Go, Security/OWASP, Python, Performance) importable via `GET /api/rules/templates` + `POST /api/rules/templates/[id]/import`
+- Report comparison view: diff two reports side-by-side (new / resolved / persisting issues) at `/o/:orgId/projects/:id/reports/compare?a=...&b=...`
+- Pipeline concurrency control: `allow | queue | cancel_previous` modes stored in `pipelines.concurrency_mode` column (requires migration `docs/db/migrations/add_concurrency_mode.sql`)
+- Notification settings UI at `/o/:orgId/settings/notifications` backed by `/api/notification-settings`
+- Dashboard org home page (`/o/:orgId`) shows 4 stat cards (projects, avg score, open issues, pipeline success rate), quick actions, per-project score list, and recent activity
+
 ## Organization Model & Routing
 
 Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on signup.
@@ -198,42 +206,77 @@ apps/
         auth/callback/          # OAuth callback
         (dashboard)/            # Protected pages + Sidebar
           layout.tsx
-          projects/             # ProjectsClient
-            [id]/               # CommitsClient + EnhancedProjectDetail + Tabs
-          pipelines/            # PipelinesClient + DAG builder
-            [id]/               # PipelineDetailClient (builder + runs)
-          reports/              # ReportsClient
-            [id]/               # EnhancedReportDetailClient (primary), ReportDetailClient (legacy)
-          rules/                # RulesClient
+          rules/                # RulesClient (rule sets + template marketplace)
             [id]/               # RuleSetDetailClient
           settings/integrations/
           settings/security/
-        o/[orgId]/              # Org-prefixed wrappers for dashboard routes
+          settings/notifications/ # Notification settings UI
+        o/[orgId]/              # Org-prefixed wrappers (all dashboard routes live here)
+          page.tsx              # Org home: stats, quick actions, project scores, activity
+          projects/
+            page.tsx            # ProjectsClient
+            [id]/
+              layout.tsx        # Fetches project, wraps in ProjectDataProvider
+              commits/          # CommitsClient
+              reports/
+                page.tsx        # ProjectReportsView (with multi-select + compare)
+                [rid]/          # EnhancedReportDetailClient
+                compare/        # ReportCompareClient (?a=reportId&b=reportId)
+              pipelines/
+                page.tsx        # ProjectPipelinesView
+                [pid]/          # PipelineDetailClient (builder + runs + concurrency mode)
+              codebase/         # CodebaseClient
+              settings/         # ProjectConfigPanel
+          rules/                # Org-level rule sets
+          settings/notifications/
         api/
           analyze/              # POST → enqueue runner task
-          pipelines/            # CRUD + runs (proxy to runner)
-          pipeline-runs/         # Run detail + logs (proxy to runner)
-          tasks/run/            # Deprecated (runner handles tasks)
-          commits/ projects/ reports/ rules/ stats/ github/ stream/
+          pipelines/[id]/       # GET/PUT/PATCH (PATCH updates concurrency_mode)
+          pipelines/[id]/runs/  # GET list + POST (enforces concurrency gate)
+          pipeline-runs/        # Run detail + logs (proxy to runner)
+          reports/[id]/         # Report CRUD + issues + stream + chat + export
+          rules/
+            templates/          # GET list of built-in templates
+            templates/[id]/import/ # POST import template → new ruleset
+          notification-settings/ # GET/PUT notification preferences
+          runner/events/        # POST (Runner → Studio callbacks)
+          commits/ projects/ stats/ github/ stream/ webhooks/
         layout.tsx providers.tsx globals.css
       components/
-        layout/Sidebar.tsx
-        project/ProjectCard, AddProjectModal, EditProjectModal, ProjectConfigPanel
-        report/EnhancedIssueCard, AIChat, TrendChart, ExportButton
+        layout/Sidebar.tsx, Topbar.tsx
+        project/ProjectCard, ProjectCommitsView, ProjectReportsView, ProjectPipelinesView
+                ProjectCodebaseView, ProjectSettingsView
+        report/EnhancedIssueCard, AIChat, TrendChart, ExportButton, ReportCompareClient
+        pipeline/PipelineDetailClient  # Builder, runs, concurrency mode, docker step editor
         dashboard/DashboardStats.tsx
         common/LanguageSwitcher.tsx
       i18n/
         index.ts                # getDictionary(), Dictionary type (inferred from en.json)
         dictionaries/           # en.json zh.json
-      lib/locale.ts             # getLocale() — reads NEXT_LOCALE cookie
-      lib/orgPath.ts            # /o/:orgId path helpers
-      lib/useOrgRole.ts         # client hook for org role + admin gating
-      services/db.ts github.ts claude.ts taskQueue.ts analyzeTask.ts ...
+      lib/
+        locale.ts               # getLocale() — reads NEXT_LOCALE cookie
+        orgPath.ts              # /o/:orgId path helpers
+        useOrgRole.ts           # client hook for org role + admin gating
+        projectContext.tsx      # ProjectDataProvider + useProject() hook
+        ruleTemplates.ts        # Static built-in rule template data
+      services/
+        db.ts github.ts claude.ts taskQueue.ts analyzeTask.ts
+        pipelineTypes.ts        # PipelineStep (type/dockerImage), PipelineSummary (concurrency_mode)
+        runnerClient.ts         # cancelPipelineRun() + other runner proxy functions
       proxy.ts                  # Legacy auth middleware (unused)
     middleware.ts               # Org cookie sync + dashboard redirect (Next.js middleware)
   runner/
     cmd/runner/                 # Go runner entrypoint
-    internal/pipeline/          # Pipeline engine, executors, storage, API
+    internal/pipeline/
+      executor.go               # ShellExecutor, DockerExecutor, SourceCheckoutExecutor, ReviewGateExecutor
+      engine.go                 # runStep() routes to DockerExecutor when step.Type == "docker"
+      types.go                  # PipelineStep: Type, DockerImage fields
+      storage.go, api.go, graph.go, service.go
+docs/
+  db/
+    init.sql                    # Full schema initialization
+    migrations/
+      add_concurrency_mode.sql  # ALTER TABLE pipelines ADD COLUMN concurrency_mode
 packages/
   contracts/                    # Shared API/contracts (future)
 ```
@@ -342,11 +385,12 @@ If new install warnings appear, approve the dependency and update the allowlist.
 ## Pipeline Engine (CI/CD)
 
 - **Studio** ships a drag-and-drop DAG builder under `/pipelines` with stage/job/step configuration.
-- **Pipelines** are org-scoped and may be created without linking a project (`project_id` is nullable).
+- **Pipelines** always belong to a project (`project_id` is required, never null).
 - **Pipeline config** is versioned in `pipeline_versions` and linked from `pipelines.current_version_id`.
 - **Pipeline secrets** are stored in `pipeline_secrets` encrypted at rest (AES-256-GCM, `ENCRYPTION_KEY`) and injected into every step as environment variables (write-only in UI).
 - **Execution model**: jobs form a DAG via `needs`; steps run sequentially inside a job.
-- **Runner** executes **shell** steps only (for now) with per-step timeouts, retries, and status events.
+- **Step types**: `shell` (default) runs via `/bin/sh -c`; `docker` runs `docker run --rm -w /workspace -v {workingDir}:/workspace {envFlags} {image} /bin/sh -c "{script}"`. Set `type: "docker"` and `dockerImage` on a step to use Docker.
+- **Concurrency modes**: each pipeline has a `concurrency_mode` column (`allow` / `queue` / `cancel_previous`). Studio API enforces this before creating a new run. Requires migration: `docs/db/migrations/add_concurrency_mode.sql`.
 - **Events** are appended to `pipeline_run_events` for UI polling and audit.
 - **Logs** and **artifacts** are stored locally under `RUNNER_DATA_DIR`:
   - `logs/{run_id}/{job_key}/{step_key}.log`
@@ -407,6 +451,22 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - Public pages accessible without login: `/`, `/login`, `/verify`, `/reset`, `/auth/*`, `/invite/*`, `/terms`, `/privacy`
 - Dashboard routes must be accessed via `/o/:orgId/...` (middleware rewrites internally)
 - Project detail tabs support deep links via query params: `?tab=commits|codebase|stats|config`. Codebase supports `ref`, `path`, `line` for jump-to-location.
+- `PATCH /api/pipelines/[id]` updates `concurrency_mode` in Studio DB (requires `add_concurrency_mode.sql` migration applied)
+- `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling runner (409 if `queue` mode and run active)
+- `GET /api/rules/templates` returns static template list; `POST /api/rules/templates/[id]/import` is admin-only
+- Report compare page: `/o/:orgId/projects/:id/reports/compare?a=reportIdA&b=reportIdB`
+
+## DB Migrations
+
+Incremental migrations live in `docs/db/migrations/`. Apply them manually after `init.sql`:
+
+```bash
+psql "$DATABASE_URL" -f docs/db/migrations/add_concurrency_mode.sql
+```
+
+| File | Description |
+|------|-------------|
+| `add_concurrency_mode.sql` | Adds `concurrency_mode TEXT NOT NULL DEFAULT 'allow'` to `pipelines` table |
 
 ## FAQ
 

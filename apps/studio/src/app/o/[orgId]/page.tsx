@@ -6,7 +6,7 @@ import { getLocale } from '@/lib/locale';
 import { getDictionary } from '@/i18n';
 import { requireUser } from '@/services/auth';
 import { requireOrgAccess } from '@/services/orgs';
-import { FolderOpen, Settings, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { FolderOpen, Settings, TrendingUp, TrendingDown, Minus, Zap, Plus } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +36,8 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
     prevAvgScoreRow,
     recentReports,
     recentRuns,
+    pipelineSuccessRow,
+    projectScores,
   ] = await Promise.all([
     queryOne<{ count: string }>(
       `select count(*)::text as count
@@ -119,6 +121,27 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
        limit 8`,
       [orgId]
     ),
+    // Pipeline success rate last 14 days
+    queryOne<{ total: string; success: string }>(
+      `select count(*)::text as total,
+              count(*) filter (where status = 'success')::text as success
+       from pipeline_runs
+       where org_id = $1
+         and created_at >= now() - interval '14 days'
+         and status in ('success', 'failed', 'timed_out', 'canceled')`,
+      [orgId]
+    ),
+    // Per-project latest score
+    query<{ project_id: string; project_name: string; score: number; created_at: string }>(
+      `select distinct on (r.project_id)
+              r.project_id, p.name as project_name, r.score, r.created_at
+       from analysis_reports r
+       join code_projects p on p.id = r.project_id
+       where r.org_id = $1 and r.status = 'done' and r.score is not null
+         and r.created_at >= now() - interval '14 days'
+       order by r.project_id, r.created_at desc`,
+      [orgId]
+    ),
   ]);
 
   const totalProjects = Number(projectCountRow?.count ?? 0);
@@ -127,6 +150,10 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
   const averageScore = Math.round(avgScoreRow?.avg ?? 0);
   const prevOpenIssues = Number(prevOpenIssuesRow?.count ?? 0);
   const prevAvgScore = Math.round(prevAvgScoreRow?.avg ?? 0);
+
+  const pipelineTotal = Number(pipelineSuccessRow?.total ?? 0);
+  const pipelineSuccess = Number(pipelineSuccessRow?.success ?? 0);
+  const pipelineSuccessRate = pipelineTotal > 0 ? Math.round((pipelineSuccess / pipelineTotal) * 100) : null;
 
   const dateFmt = new Intl.DateTimeFormat(locale, {
     month: 'short',
@@ -216,7 +243,7 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
           </div>
         ) : (
           <>
-            {/* Stat row */}
+            {/* Stat row — 4 cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {/* Total Projects */}
               <div className="rounded-[8px] border border-border bg-[hsl(var(--ds-background-2))] px-4 py-4">
@@ -270,10 +297,40 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
                 )}
               </div>
 
-              {/* Active Runs */}
+              {/* Pipeline Success Rate */}
               <div className="rounded-[8px] border border-border bg-[hsl(var(--ds-background-2))] px-4 py-4">
-                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1.5">{dict.dashboard.activeRuns}</div>
-                <div className="text-[22px] font-semibold tracking-tight">{activeRuns}</div>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1.5">{dict.dashboard.pipelineSuccessRate}</div>
+                <div className={['text-[22px] font-semibold tracking-tight', pipelineSuccessRate !== null ? (pipelineSuccessRate >= 80 ? 'text-success' : pipelineSuccessRate >= 60 ? 'text-warning' : 'text-danger') : ''].filter(Boolean).join(' ')}>
+                  {pipelineSuccessRate !== null ? `${pipelineSuccessRate}%` : '—'}
+                </div>
+                {pipelineTotal > 0 && (
+                  <div className="text-[11px] text-[hsl(var(--ds-text-2))] mt-1">
+                    {pipelineSuccess}/{pipelineTotal} runs
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div>
+              <div className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider mb-2">
+                {dict.dashboard.quickActions}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Link
+                  href={`/o/${orgId}/projects`}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-border px-3 text-[13px] font-medium text-foreground hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
+                >
+                  <Zap className="size-3.5" />
+                  {dict.dashboard.triggerAnalysis}
+                </Link>
+                <Link
+                  href={`/o/${orgId}/projects`}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-border px-3 text-[13px] font-medium text-foreground hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
+                >
+                  <Plus className="size-3.5" />
+                  {dict.dashboard.createPipeline}
+                </Link>
               </div>
             </div>
 
@@ -367,6 +424,40 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
               </div>
 
             </div>
+
+            {/* Per-project quality scores */}
+            {projectScores.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="text-[13px] font-medium text-foreground">{dict.dashboard.projectScores}</div>
+                    <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.dashboard.projectScoresDescription}</div>
+                  </div>
+                </div>
+                <div className="rounded-[8px] border border-border overflow-hidden">
+                  {projectScores.map(p => (
+                    <Link
+                      key={p.project_id}
+                      href={`/o/${orgId}/projects/${p.project_id}/reports`}
+                      className="flex items-center justify-between gap-4 px-4 py-2.5 border-b border-border last:border-0 hover:bg-[hsl(var(--ds-surface-1))] transition-colors duration-100"
+                    >
+                      <div className="text-[13px] font-medium text-foreground truncate">{p.project_name}</div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={['h-full rounded-full', p.score >= 85 ? 'bg-success' : p.score >= 70 ? 'bg-warning' : 'bg-danger'].join(' ')}
+                            style={{ width: `${p.score}%` }}
+                          />
+                        </div>
+                        <span className={['text-[13px] font-semibold tabular-nums w-8 text-right', scoreColor(p.score)].join(' ')}>
+                          {p.score}
+                        </span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -374,3 +465,4 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
     </div>
   );
 }
+

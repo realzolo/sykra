@@ -4,7 +4,8 @@ import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
-import { createPipelineRun, listPipelineRuns, getPipeline } from '@/services/runnerClient';
+import { createPipelineRun, listPipelineRuns, getPipeline, cancelPipelineRun } from '@/services/runnerClient';
+import { queryOne, query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +63,34 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (pipeline.org_id && pipeline.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+
+    // Check concurrency mode from Studio DB
+    const pipelineRow = await queryOne<{ concurrency_mode: string }>(
+      `SELECT concurrency_mode FROM pipelines WHERE id = $1`,
+      [id]
+    );
+    const concurrencyMode = pipelineRow?.concurrency_mode ?? 'allow';
+
+    if (concurrencyMode === 'queue' || concurrencyMode === 'cancel_previous') {
+      // Find active runs for this pipeline
+      const activeRuns = await query<{ id: string; status: string }>(
+        `SELECT id, status FROM pipeline_runs WHERE pipeline_id = $1 AND status IN ('queued', 'running') ORDER BY created_at ASC`,
+        [id]
+      );
+
+      if (activeRuns.length > 0) {
+        if (concurrencyMode === 'queue') {
+          return NextResponse.json(
+            { error: 'Pipeline run already in progress', mode: 'queue' },
+            { status: 409 }
+          );
+        } else if (concurrencyMode === 'cancel_previous') {
+          // Cancel all active runs before proceeding
+          await Promise.allSettled(activeRuns.map(r => cancelPipelineRun(r.id)));
+        }
+      }
+    }
+
     const payload = {
       triggerType: body?.triggerType ?? 'manual',
       triggeredBy: user.id,
@@ -76,3 +105,4 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error }, { status: statusCode });
   }
 }
+

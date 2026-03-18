@@ -451,7 +451,24 @@
     },
     "runs": "Runs",
     "noLogs": "No logs yet",
-    "selectStep": "Select a step to view logs"
+    "selectStep": "Select a step to view logs",
+    "concurrencyMode": {
+      "label": "Concurrency Mode",
+      "allow": "Allow",
+      "queue": "Queue",
+      "cancelPrevious": "Cancel Previous",
+      "help": "Controls what happens when a run is triggered while another is already active.",
+      "allowHelp": "Multiple runs may execute concurrently.",
+      "queueHelp": "New runs are rejected (409) if another run is already active.",
+      "cancelPreviousHelp": "Active runs are canceled before starting a new one."
+    },
+    "steps": {
+      "typeLabel": "Step Type",
+      "typeShell": "Shell",
+      "typeDocker": "Docker",
+      "dockerImage": "Docker Image",
+      "dockerImagePlaceholder": "e.g. node:22-alpine"
+    }
   },
   "dashboard": {
     "overview": "Overview",
@@ -474,7 +491,14 @@
     "emptyTitle": "Get started with Spec-Axis",
     "emptyDescription": "Connect a repository and run your first AI code review.",
     "emptyCreateProject": "Create your first project",
-    "emptySetupIntegration": "Set up an integration"
+    "emptySetupIntegration": "Set up an integration",
+    "pipelineSuccessRate": "Pipeline Success Rate",
+    "quickActions": "Quick Actions",
+    "triggerAnalysis": "Trigger Analysis",
+    "createPipeline": "Create Pipeline",
+    "projectScores": "Project Quality Scores",
+    "projectScoresDescription": "Latest score per project (last 14 days)",
+    "noProjectScores": "No scored reports in the last 14 days"
   },
   "reports": {
     "title": "Reports",
@@ -529,7 +553,21 @@
     "deleteFilterSuccess": "Filter deleted",
     "savingFilter": "Saving...",
     "exportFailed": "Export failed",
-    "exportSuccess": "Report exported"
+    "exportSuccess": "Report exported",
+    "compare": {
+      "title": "Compare Reports",
+      "selectReports": "Select two reports to compare",
+      "newIssues": "New Issues",
+      "resolvedIssues": "Resolved Issues",
+      "persistingIssues": "Persisting Issues",
+      "scoreDelta": "Score Change",
+      "reportA": "Report A (older)",
+      "reportB": "Report B (newer)",
+      "noNewIssues": "No new issues",
+      "noResolvedIssues": "No resolved issues",
+      "noPersistingIssues": "No persisting issues",
+      "compareButton": "Compare"
+    }
   },
   "rules": {
     "title": "Rule Sets",
@@ -580,7 +618,23 @@
       "maintainability": "Maintainability"
     },
     "allSeverities": "All severities",
-    "weight": "Weight"
+    "weight": "Weight",
+    "templates": {
+      "title": "Import Template",
+      "description": "Start from a pre-built rule set template",
+      "import": "Import",
+      "importing": "Importing...",
+      "importSuccess": "Template imported successfully",
+      "importFailed": "Failed to import template",
+      "categoryLabel": "Category",
+      "category": {
+        "react": "React",
+        "go": "Go",
+        "security": "Security",
+        "python": "Python",
+        "performance": "Performance"
+      }
+    }
   },
   "settings": {
     "title": "Settings",

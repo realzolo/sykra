@@ -38,9 +38,9 @@ type SourceStage struct {
 }
 
 type ReviewStage struct {
-	Enabled              bool `json:"enabled"`
-	QualityGateEnabled   bool `json:"qualityGateEnabled"`
-	QualityGateMinScore  int  `json:"qualityGateMinScore"`
+	Enabled             bool `json:"enabled"`
+	QualityGateEnabled  bool `json:"qualityGateEnabled"`
+	QualityGateMinScore int  `json:"qualityGateMinScore"`
 }
 
 type BuildStage struct {
@@ -70,6 +70,9 @@ type PipelineStep struct {
 	WorkingDir      string            `json:"workingDir,omitempty"`
 	TimeoutSeconds  *int              `json:"timeoutSeconds,omitempty"`
 	ContinueOnError bool              `json:"continueOnError,omitempty"`
+	// Docker step fields
+	Type        string `json:"type,omitempty"`        // "shell" (default) | "docker"
+	DockerImage string `json:"dockerImage,omitempty"` // e.g. "node:22-alpine"
 }
 
 // ── Internal job representation (used by engine) ─────────────────────────
@@ -106,7 +109,7 @@ type PipelineStage struct {
 // ── InternalPlan: four-stage config translated to a job DAG ───────────────
 
 type InternalPlan struct {
-	Jobs   []PipelineJob  `json:"jobs"`
+	Jobs   []PipelineJob   `json:"jobs"`
 	Stages []PipelineStage `json:"stages"`
 }
 

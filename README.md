@@ -1,303 +1,192 @@
 # spec-axis
 
-An AI-powered code review + CI/CD pipeline platform built with Next.js 16 + React 19 + TypeScript. It integrates GitHub/GitLab repository management, commit-based analysis, configurable AI models (Claude, GPT-4, etc.), custom rule sets, quality scoring, and a drag-and-drop pipeline DAG builder. The UI follows a modern dashboard style using HeroUI v3 (beta) and Tailwind CSS v4. The backend runs analysis and pipeline jobs in a Go runner via a Redis-backed queue and streams updates via SSE. The repo is a monorepo with `apps/studio` (Next.js console) and `apps/runner` (Go runner).
+AI-powered code review and CI/CD pipeline platform. Connect GitHub/GitLab repositories, run Claude AI analysis against configurable rule sets, track quality scores over time, and automate builds and deploys with a drag-and-drop pipeline builder.
 
-## ✨ Features
+## Features
 
-- **Multi-VCS Support**: GitHub, GitLab, and generic Git repositories
-- **AI-Powered Analysis**: Claude, GPT-4, DeepSeek, and other OpenAI-compatible models
-- **Smart Task Queue**: Go runner with Redis-backed queue and SSE updates
-- **Configurable Rule Sets**: Custom code quality rules per project
-- **Quality Scoring**: Detailed reports with severity-based metrics
-- **Pipeline DAG Builder**: Drag-and-drop jobs, stages, and shell steps
-- **Local Logs & Artifacts**: Run logs and artifacts stored on the runner node
-- **Multi-Tenant**: Complete user isolation with secure integration storage
-- **Modern UI**: Dashboard-style interface with HeroUI v3 components
+- **AI Code Review** — Submit commits for analysis. Issues are ranked by severity, scored 0–100, and tracked across reports.
+- **Rule Set Template Marketplace** — Import pre-built rule sets for React, Go, Security (OWASP Top 10), Python, and Performance. Rules > Import Template.
+- **Report Comparison** — Select any two reports and diff them side-by-side: new issues, resolved issues, persisting issues, score delta.
+- **CI/CD Pipelines** — Four-stage DAG builder (Source → Review → Build → Deploy). Shell and Docker step types, per-step timeouts, secrets injection, concurrency modes (Allow / Queue / Cancel Previous).
+- **Notification Settings** — Email notifications on complete, on critical issues, and score threshold. Settings > Notifications.
+- **Dashboard Overview** — Pipeline success rate, per-project quality scores, quick actions, and recent activity on the org home page.
+- **Multi-VCS & AI** — GitHub, GitLab, Generic Git; Claude, GPT-4, DeepSeek, and other OpenAI-compatible models.
+- **Multi-Tenant** — Org-scoped resources with role-based access (owner / admin / reviewer / member).
+- **Codebase Browser** — Browse Git mirrors with line-level comments and AI chat.
 
-## 🚀 Quick Start
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 16 (App Router, Turbopack) + React 19 + TypeScript |
+| UI | HeroUI v3 (beta) + Tailwind CSS v4 + Geist font |
+| AI | Anthropic Claude SDK (supports custom `ANTHROPIC_BASE_URL`) |
+| Database | PostgreSQL 14+ |
+| Queue | Redis + Asynq |
+| Runner | Go 1.24 |
+| Auth | Session cookies + email verification |
+
+## Monorepo Layout
+
+```
+apps/
+  studio/     Next.js web app (port 8109 in dev)
+  runner/     Go runner service (port 8200 in dev)
+docs/
+  db/         init.sql schema + incremental migrations
+```
+
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 18+
-- pnpm
+- Node.js 20+, pnpm
+- Go 1.24+
 - PostgreSQL 14+
-- Go 1.22 (runner)
-- Redis (queue)
+- Redis
 
-### Installation
+### 1. Install dependencies
 
-1. **Clone and install dependencies**:
 ```bash
-git clone <your-repo-url>
-cd spec-axis
 pnpm install
 ```
 
-2. **Setup environment variables**:
-```bash
-cp apps/studio/.env.example apps/studio/.env
-```
+### 2. Configure Studio
 
-Edit `apps/studio/.env` and add your database + runner settings:
-```bash
-DATABASE_URL=postgres://...
-ENCRYPTION_KEY=<generated-key>  # See encryption setup below
+Create `apps/studio/.env`:
+
+```env
+DATABASE_URL=postgres://user:pass@localhost/specaxis
+ENCRYPTION_KEY=<64-char hex>          # openssl rand -hex 32
 RUNNER_BASE_URL=http://localhost:8200
-RUNNER_TOKEN=your_runner_token
+RUNNER_TOKEN=dev-runner
+EMAIL_PROVIDER=console
+EMAIL_VERIFICATION_REQUIRED=false
 ```
 
-3. **Generate encryption key** (required for secure storage):
-```bash
-node -e "console.log('ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('hex'))"
-```
+### 3. Initialize the database
 
-Add the output to your `apps/studio/.env` file.
-
-4. **Setup runner config**:
-```bash
-cp apps/runner/config.example.toml apps/runner/config.toml
-```
-
-Edit `apps/runner/config.toml` and add:
-```toml
-[runner]
-token = "your_runner_token"
-
-[database]
-url = "postgres://..."
-
-[redis]
-url = "redis://..."
-
-[pipeline]
-queue = "pipelines"
-concurrency = 4
-run_timeout = "2h"
-log_retention_days = 30
-artifact_retention_days = 30
-
-[security]
-encryption_key = "<same as studio>"
-```
-
-5. **Initialize database schema**:
-
-Run the unified init script (core + pipeline tables):
 ```bash
 psql "$DATABASE_URL" -f docs/db/init.sql
+# Incremental migrations:
+psql "$DATABASE_URL" -f docs/db/migrations/add_concurrency_mode.sql
 ```
 
-6. **Start development server**:
+### 4. Configure the Runner
+
+Create `apps/runner/config.toml`:
+
+```toml
+[runner]
+port = "8200"
+token = "dev-runner"
+
+[database]
+url = "postgres://user:pass@localhost/specaxis"
+
+[redis]
+url = "redis://localhost:6379"
+
+[security]
+encryption_key = "<same key as Studio>"
+
+[studio]
+url = "http://localhost:8109"
+token = "dev-runner"
+```
+
+### 5. Start
+
 ```bash
+# Terminal 1
 pnpm dev
+
+# Terminal 2
+cd apps/runner && go run ./cmd/runner
 ```
 
-Open [http://localhost:8109](http://localhost:8109) to see the application.
+Open [http://localhost:8109](http://localhost:8109).
 
-7. **Start runner service**:
-```bash
-cd apps/runner
-go run ./cmd/runner
-```
-
-## 📚 Documentation
-
-### Getting Started
-- **[Quick Setup Guide](./docs/quick-setup-guide.md)** - 5-minute setup walkthrough
-- **[Encryption Setup](./docs/custom-encryption-setup.md)** - AES-256-GCM encryption setup
-
-### System Documentation
-- **[Integration System](./docs/integration-system-implementation.md)** - Complete integration architecture
-- **[Implementation Progress](./docs/implementation-progress.md)** - Current status and roadmap
-- **[API Reference](./docs/api-reference.md)** - Integration API documentation
-
-### Technical Reference
-- **[CLAUDE.md](./CLAUDE.md)** - Project guide, HeroUI v3 patterns, and coding standards
-
-## 🔧 Environment Variables
-
-### Required
-```bash
-# Database
-DATABASE_URL=postgres://...
-
-# Encryption (for secure token storage)
-ENCRYPTION_KEY=<64-hex-characters>
-
-# Runner
-RUNNER_BASE_URL=http://localhost:8200
-RUNNER_TOKEN=your-runner-token
-```
-
-### Optional
-```bash
-# Internal task endpoints (optional)
-TASK_RUNNER_TOKEN=your-secure-token
-```
-
-### Runner (apps/runner)
-```bash
-RUNNER_PORT=8200
-RUNNER_TOKEN=your-runner-token
-DATABASE_URL=postgres://...
-REDIS_URL=redis://...
-ENCRYPTION_KEY=<same as studio>
-PIPELINE_QUEUE=pipelines
-PIPELINE_CONCURRENCY=4
-PIPELINE_RUN_TIMEOUT=2h
-RUNNER_DATA_DIR=data
-PIPELINE_LOG_RETENTION_DAYS=30
-PIPELINE_ARTIFACT_RETENTION_DAYS=30
-```
-
-**Note**: VCS (GitHub/GitLab) and AI (Claude/GPT-4) integrations are configured through the web UI at **Settings > Integrations**, not via environment variables. See [Quick Setup Guide](./docs/quick-setup-guide.md) for details.
-
-## 🏗️ Architecture
-
-### Integration System
-
-The platform uses a multi-layer integration system:
-
-```
-User Interface (Settings > Integrations)
-    ↓
-API Layer (/api/integrations)
-    ↓
-Service Layer (apps/studio/src/services/integrations/)
-    ↓
-Database (org_integrations table + Encrypted secrets)
-```
-
-**Configuration Priority**:
-```
-Project-specific integration > Org default integration > Error (must configure)
-```
-
-**Supported Providers**:
-- **VCS**: GitHub, GitLab, Generic Git
-- **AI**: OpenAI-compatible APIs (Anthropic Claude, OpenAI GPT-4, DeepSeek, etc.)
-
-### Pipeline Engine
-
-- **Studio** provides a drag-and-drop DAG builder for stages, jobs, and shell steps.
-- **Runner** executes pipeline runs via Redis queue with job-level concurrency.
-- **Events** are appended to `pipeline_run_events` for polling/streaming.
-- **Logs & artifacts** are stored locally under `RUNNER_DATA_DIR`.
-
-### Security
-
-- **AES-256-GCM Encryption**: All tokens and API keys encrypted at rest
-- **Encrypted Secrets**: Stored in Postgres and decrypted server-side only
-- **App-Level Enforcement**: Multi-tenant isolation enforced in API layer
-- **No Client Exposure**: Sensitive data never sent to browser
-
-See [Integration System Implementation](./docs/integration-system-implementation.md) for complete architecture details.
-
-## ⚙️ Scripts
+## Common Commands
 
 ```bash
-pnpm dev     # Studio dev server (port 8109)
-pnpm build   # Studio production build with TypeScript check
-pnpm start   # Studio production server
-pnpm lint    # Studio ESLint analysis
-cd apps/runner && go run ./cmd/runner   # Runner service
+pnpm dev                                  # Studio dev server
+pnpm build                                # Production build + TypeScript check
+pnpm lint                                 # ESLint
+cd apps/runner && go build ./...          # Build runner
+cd apps/runner && go run ./cmd/runner     # Start runner
+psql "$DATABASE_URL" -f docs/db/init.sql  # Reset schema
 ```
 
-## 🌐 API Endpoints
+## Pipeline Step Types
 
-### Core APIs
-- `POST /api/analyze` - Trigger AI code analysis (returns immediately, queues task)
-- `GET /api/stream` - Server-Sent Events for real-time report updates
-- `GET /api/reports/[id]` - Get analysis report details
-- `GET /api/commits` - Fetch commits from VCS provider
+| Type | Config | Behavior |
+|------|--------|----------|
+| `shell` (default) | — | Runs script via `/bin/sh -c` |
+| `docker` | `dockerImage: "node:22-alpine"` | `docker run --rm -w /workspace -v {workingDir}:/workspace {image} /bin/sh -c "{script}"` |
 
-### Integration Management
-- `GET /api/integrations` - List org integrations
-- `POST /api/integrations` - Create new integration
-- `PUT /api/integrations/:id` - Update integration
-- `DELETE /api/integrations/:id` - Delete integration
-- `POST /api/integrations/:id/test` - Test connection
-- `POST /api/integrations/:id/set-default` - Set as default
-- `GET /api/integrations/providers` - Get provider templates
+Set step type in the pipeline editor (Build / Deploy tab > step > Step Type).
 
-See [API Reference](./docs/api-reference.md) for complete endpoint documentation.
+## Pipeline Concurrency Modes
 
-## 📁 Project Structure
+| Mode | Behavior |
+|------|----------|
+| `allow` | Multiple runs run simultaneously (default) |
+| `queue` | New trigger rejected with HTTP 409 while a run is active |
+| `cancel_previous` | Active runs cancelled before new run starts |
 
-```
-spec-axis/
-├── apps/
-│   ├── studio/                # Next.js console
-│   │   └── src/               # App Router, components, services, libs
-│   └── runner/                # Go runner service
-│       ├── internal/pipeline  # Pipeline engine + executors
-│       └── cmd/               # Runner entrypoint
-├── packages/
-│   └── contracts/             # Shared API/contracts (future)
-├── docs/                     # Documentation
-│   └── db/                   # Database schema + init SQL
-├── CLAUDE.md                 # Development guide
-└── README.md                 # This file
-```
+Configure per-pipeline in the pipeline settings tab. Requires the `add_concurrency_mode.sql` migration.
 
-## 🚢 Deployment
+## Rule Template Marketplace
 
-### Vercel
+| Template | Rules |
+|----------|-------|
+| React Best Practices | 6 — hooks, keys, useEffect deps, a11y, performance |
+| Go Best Practices | 6 — error handling, goroutine leaks, context, mutex |
+| Security (OWASP Top 10) | 7 — SQL injection, XSS, secrets, auth, path traversal |
+| Python Best Practices | 5 — type hints, bare except, mutable defaults, resources |
+| Performance | 6 — N+1 queries, memory leaks, blocking I/O, caching |
 
-Deploy to Vercel with one click. The analysis API is configured for 300s timeout in `vercel.json`.
+Import via **Rules > Import Template** (admin only).
 
-### Production Checklist
+## Report Comparison
 
-- [ ] Generate production encryption key
-- [ ] Initialize database schema (`docs/db/init.sql`)
-- [ ] Configure environment variables
-- [ ] Test in staging environment first
-- [ ] Set up monitoring and alerts
-- [ ] Document encryption key backup procedure
+1. Go to a project's Reports tab.
+2. Click the checkbox on two report rows (max 2).
+3. Click **Compare** in the header.
 
-See [Quick Setup Guide](./docs/quick-setup-guide.md#production-deployment) for deployment details.
+Issues are matched by `file + rule + category`. The diff shows new (red), resolved (green), and persisting issues with a score delta badge.
 
-## 🧪 Testing
+## Environment Variables
 
-### Integration Testing Checklist
+VCS and AI integrations are configured in the web UI (Settings > Integrations), not via env vars.
 
-- [ ] VCS integrations (GitHub, GitLab)
-- [ ] AI integrations (Anthropic, OpenAI)
-- [ ] First-time onboarding flow
-- [ ] Project-level vs org-level integration priority
-- [ ] Multi-tenant data isolation
-- [ ] Task queue execution
-- [ ] SSE report updates
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | Studio Postgres connection string |
+| `ENCRYPTION_KEY` | AES-256-GCM key (32 bytes hex) — same value for Studio and Runner |
+| `RUNNER_BASE_URL` | Runner HTTP base URL |
+| `RUNNER_TOKEN` | Shared auth token (Studio → Runner) |
+| `EMAIL_PROVIDER` | `console` or `resend` |
+| `EMAIL_VERIFICATION_REQUIRED` | `true` or `false` |
 
-## 🛠️ Troubleshooting
+Runner also needs `REDIS_URL`, `STUDIO_URL`, `STUDIO_TOKEN`. See [CLAUDE.md](./CLAUDE.md) for the full list.
 
-### Common Issues
+## Deployment
 
-**Error: "ENCRYPTION_KEY environment variable is not set"**
-- Solution: Add `ENCRYPTION_KEY` to `apps/studio/.env` and restart server
+- Studio deploys to Vercel. The `/api/analyze` route is configured for a 300s timeout in `vercel.json`.
+- Runner runs as a standalone Go binary on any server with access to Postgres and Redis.
+- Apply `docs/db/init.sql` and all migration files in `docs/db/migrations/` before deploying.
 
-**Error: "relation org_integrations does not exist"**
-- Solution: Initialize the schema with `psql "$DATABASE_URL" -f docs/db/init.sql`
+## Documentation
 
-**Onboarding modal doesn't appear**
-- Solution: Clear browser cache or try incognito mode
+| Document | Description |
+|----------|-------------|
+| [CLAUDE.md](./CLAUDE.md) | Developer guide: routing, components, env vars, API contracts, i18n, HeroUI v3 patterns |
+| [docs/db/init.sql](./docs/db/init.sql) | Full database schema |
+| [docs/db/migrations/](./docs/db/migrations/) | Incremental schema migrations |
+| [docs/README.md](./docs/README.md) | Integration system documentation |
 
-For more issues, see [Quick Setup Guide](./docs/quick-setup-guide.md#troubleshooting).
+## License
 
-## 📖 Additional Resources
-
-- [HeroUI v3 Documentation](https://heroui.com/docs) (beta)
-- [Next.js 16 Documentation](https://nextjs.org/docs)
-- [Tailwind CSS v4 Documentation](https://tailwindcss.com/docs)
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read our development guidelines in [CLAUDE.md](./CLAUDE.md) before contributing.
-
-## 📄 License
-
-This project is proprietary software. All rights reserved.
-
----
-
-**Need Help?** Check out our documentation in the [`docs`](./docs/) folder or refer to [CLAUDE.md](./CLAUDE.md) for development guidelines.
+Proprietary. All rights reserved.

@@ -9,6 +9,8 @@ export type PipelineStep = {
   id: string;
   name: string;
   script: string;
+  type?: 'shell' | 'docker';
+  dockerImage?: string;
   continueOnError?: boolean;
   timeoutSeconds?: number;
   env?: Record<string, string>;
@@ -78,6 +80,7 @@ export type PipelineSummary = {
   current_version_id?: string | null;
   latest_version: number;
   last_run?: PipelineRunSummary | null;
+  concurrency_mode?: 'allow' | 'queue' | 'cancel_previous';
   created_at: string;
   updated_at: string;
 };

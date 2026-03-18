@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { FileText, Trash2 } from 'lucide-react';
+import { FileText, GitCompare, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -63,6 +63,7 @@ export default function ProjectReportsView({
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -85,12 +86,25 @@ export default function ProjectReportsView({
       const res = await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
       setReports(prev => prev.filter(r => r.id !== reportId));
+      setSelectedIds(prev => prev.filter(id => id !== reportId));
       toast.success(dict.reports.reportDeleted);
     } catch {
       toast.error(dict.reports.deleteFailed);
     } finally {
       setDeleting(null);
     }
+  }
+
+  function toggleSelect(reportId: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    setSelectedIds(prev =>
+      prev.includes(reportId) ? prev.filter(id => id !== reportId) : [...prev, reportId].slice(-2)
+    );
+  }
+
+  function handleCompare() {
+    if (selectedIds.length !== 2) return;
+    router.push(withOrgPrefix(pathname, `/projects/${projectId}/reports/compare?a=${selectedIds[0]}&b=${selectedIds[1]}`));
   }
 
   return (
@@ -104,16 +118,24 @@ export default function ProjectReportsView({
               {dict.reports.description ?? 'AI code review reports'}
             </div>
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-36 h-8 text-[13px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_ITEMS.map(s => (
-                <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            {selectedIds.length === 2 && (
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCompare}>
+                <GitCompare className="size-3.5" />
+                {dict.reports.compare.compareButton}
+              </Button>
+            )}
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-36 h-8 text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_ITEMS.map(s => (
+                  <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -153,12 +175,22 @@ export default function ProjectReportsView({
             const firstCommit = Array.isArray(report.commits) && report.commits.length > 0
               ? (report.commits[0] as { sha?: string; message?: string })
               : null;
+            const isSelected = selectedIds.includes(report.id);
+            const isDisabled = !isSelected && selectedIds.length === 2;
             return (
               <div
                 key={report.id}
-                className="flex items-center px-6 py-3 gap-4 border-b border-[hsl(var(--ds-border-1))] hover:bg-[hsl(var(--ds-surface-1))] cursor-pointer group transition-colors duration-100"
+                className={`flex items-center px-6 py-3 gap-4 border-b border-[hsl(var(--ds-border-1))] cursor-pointer group transition-colors duration-100 ${isSelected ? 'bg-primary/5 hover:bg-primary/8' : 'hover:bg-[hsl(var(--ds-surface-1))]'} ${isDisabled ? 'opacity-50' : ''}`}
                 onClick={() => router.push(withOrgPrefix(pathname, `/projects/${projectId}/reports/${report.id}`))}
               >
+                <div
+                  className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary' : 'border-[hsl(var(--ds-border-1))] hover:border-primary/50'}`}
+                  onClick={e => toggleSelect(report.id, e)}
+                  role="checkbox"
+                  aria-checked={isSelected}
+                >
+                  {isSelected && <span className="block w-2 h-2 rounded-sm bg-white" />}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] text-foreground truncate">
                     {firstCommit?.message ?? report.id.slice(0, 8)}
