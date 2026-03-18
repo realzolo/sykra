@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ArrowLeft, Send, User, Clock, CheckCircle2, FileText } from 'lucide-react';
 import Link from 'next/link';
@@ -10,14 +10,153 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
 import { withOrgPrefix } from '@/lib/orgPath';
-import CodeEditor from '@/components/codebase/CodeEditor';
+import ReactDiffViewer from 'react-diff-viewer-continued';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatLocalDate } from '@/lib/dateFormat';
 
 type Commit = { sha: string; message: string; author: string; date: string };
 type Project = { id: string; name: string; repo: string; default_branch: string; ruleset_id?: string };
+type FileStatus = 'A' | 'M' | 'D' | 'R' | 'C';
+type ParsedDiffFile = {
+  key: string;
+  oldPath: string;
+  newPath: string;
+  displayPath: string;
+  status: FileStatus;
+  oldValue: string;
+  newValue: string;
+};
 
 const PER_PAGE = 30;
+const STATUS_STYLES: Record<FileStatus, string> = {
+  A: 'text-success border-success/30 bg-success/10',
+  M: 'text-warning border-warning/30 bg-warning/10',
+  D: 'text-danger border-danger/30 bg-danger/10',
+  R: 'text-accent border-accent/30 bg-accent/10',
+  C: 'text-primary border-primary/30 bg-primary/10',
+};
+
+function normalizeDiffPath(pathToken: string) {
+  const value = pathToken.trim();
+  if (value === '/dev/null') return '';
+  if (value.startsWith('a/') || value.startsWith('b/')) return value.slice(2);
+  return value;
+}
+
+function parseUnifiedDiff(diff: string): ParsedDiffFile[] {
+  if (!diff.trim()) return [];
+
+  const lines = diff.split('\n');
+  const files: ParsedDiffFile[] = [];
+
+  type Working = {
+    oldPath: string;
+    newPath: string;
+    status: FileStatus;
+    inHunk: boolean;
+    oldLines: string[];
+    newLines: string[];
+  };
+
+  let current: Working | null = null;
+
+  const pushCurrent = () => {
+    if (!current) return;
+    const oldPath = current.oldPath;
+    const newPath = current.newPath;
+    const status = current.status;
+    const displayPath = status === 'D'
+      ? oldPath
+      : status === 'R' || status === 'C'
+        ? `${oldPath} -> ${newPath}`
+        : newPath;
+    files.push({
+      key: `${oldPath}:${newPath}:${files.length}`,
+      oldPath,
+      newPath,
+      displayPath,
+      status,
+      oldValue: current.oldLines.join('\n'),
+      newValue: current.newLines.join('\n'),
+    });
+  };
+
+  for (const line of lines) {
+    if (line.startsWith('diff --git ')) {
+      pushCurrent();
+      const match = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+      current = {
+        oldPath: match?.[1] ?? '',
+        newPath: match?.[2] ?? '',
+        status: 'M',
+        inHunk: false,
+        oldLines: [],
+        newLines: [],
+      };
+      continue;
+    }
+    if (!current) continue;
+
+    if (line.startsWith('new file mode')) {
+      current.status = 'A';
+      continue;
+    }
+    if (line.startsWith('deleted file mode')) {
+      current.status = 'D';
+      continue;
+    }
+    if (line.startsWith('rename from ')) {
+      current.status = 'R';
+      current.oldPath = normalizeDiffPath(line.slice('rename from '.length));
+      continue;
+    }
+    if (line.startsWith('rename to ')) {
+      current.status = 'R';
+      current.newPath = normalizeDiffPath(line.slice('rename to '.length));
+      continue;
+    }
+    if (line.startsWith('copy from ')) {
+      current.status = 'C';
+      current.oldPath = normalizeDiffPath(line.slice('copy from '.length));
+      continue;
+    }
+    if (line.startsWith('copy to ')) {
+      current.status = 'C';
+      current.newPath = normalizeDiffPath(line.slice('copy to '.length));
+      continue;
+    }
+    if (line.startsWith('--- ')) {
+      current.oldPath = normalizeDiffPath(line.slice(4));
+      continue;
+    }
+    if (line.startsWith('+++ ')) {
+      current.newPath = normalizeDiffPath(line.slice(4));
+      continue;
+    }
+    if (line.startsWith('@@ ')) {
+      current.inHunk = true;
+      continue;
+    }
+    if (!current.inHunk) continue;
+    if (line.startsWith('\\ No newline at end of file')) continue;
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      current.newLines.push(line.slice(1));
+      continue;
+    }
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      current.oldLines.push(line.slice(1));
+      continue;
+    }
+    if (line.startsWith(' ')) {
+      const content = line.slice(1);
+      current.oldLines.push(content);
+      current.newLines.push(content);
+    }
+  }
+
+  pushCurrent();
+  return files;
+}
 
 export default function CommitsClient({ project, branches, dict }: { project: Project; branches: string[]; dict: Dictionary }) {
   const router = useRouter();
@@ -36,6 +175,8 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailCommit, setDetailCommit] = useState<Commit | null>(null);
   const [detailDiff, setDetailDiff] = useState('');
+  const [detailFiles, setDetailFiles] = useState<ParsedDiffFile[]>([]);
+  const [activeFileKey, setActiveFileKey] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState(false);
 
@@ -98,11 +239,20 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
     setDetailLoading(true);
     setDetailError(false);
     setDetailDiff('');
+    setDetailFiles([]);
+    setActiveFileKey('');
     try {
       const res = await fetch(`/api/commits/${commit.sha}?repo=${project.repo}&project_id=${project.id}`);
       if (!res.ok) throw new Error('diff_fetch_failed');
       const data = await res.json();
-      setDetailDiff((data?.diff as string) || '');
+      const rawDiff = (data?.diff as string) || '';
+      setDetailDiff(rawDiff);
+      const parsedFiles = parseUnifiedDiff(rawDiff);
+      setDetailFiles(parsedFiles);
+      const firstFile = parsedFiles.at(0);
+      if (firstFile) {
+        setActiveFileKey(firstFile.key);
+      }
     } catch {
       setDetailError(true);
     } finally {
@@ -122,6 +272,10 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
 
   const branchItems = branches.map(b => ({ id: b, label: b }));
   const authorItems = [{ id: 'all', label: dict.commits.allAuthors }, ...authors.map(a => ({ id: a, label: a }))];
+  const activeDiffFile = useMemo(
+    () => detailFiles.find((file) => file.key === activeFileKey) ?? detailFiles[0] ?? null,
+    [activeFileKey, detailFiles],
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -300,7 +454,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
       </Dialog>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-5xl">
+        <DialogContent className="w-[96vw] max-w-[1400px] max-h-[92vh]">
           <DialogHeader>
             <DialogTitle>{dict.commits.commitChanges}</DialogTitle>
           </DialogHeader>
@@ -325,13 +479,59 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
             {!detailLoading && detailError && (
               <div className="p-6 text-[13px] text-[hsl(var(--ds-text-2))]">{dict.commits.diffFailed}</div>
             )}
-            {!detailLoading && !detailError && detailDiff && (
-              <div className="h-[60vh]">
-                <CodeEditor value={detailDiff} language="diff" className="h-full" />
+            {!detailLoading && !detailError && detailFiles.length > 0 && (
+              <div className="h-[72vh] grid grid-cols-[280px_minmax(0,1fr)]">
+                <aside className="border-r border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] overflow-y-auto">
+                  <div className="px-3 py-2 border-b border-[hsl(var(--ds-border-1))] text-[11px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
+                    {dict.commits.filesChanged.replace('{{count}}', String(detailFiles.length))}
+                  </div>
+                  <div className="p-2 space-y-1">
+                    {detailFiles.map((file) => {
+                      const isActive = (activeDiffFile?.key ?? '') === file.key;
+                      return (
+                        <button
+                          key={file.key}
+                          type="button"
+                          onClick={() => setActiveFileKey(file.key)}
+                          className={[
+                            'w-full text-left rounded-[6px] px-2.5 py-2 border transition-colors',
+                            isActive
+                              ? 'bg-[hsl(var(--ds-accent-7)/0.12)] border-[hsl(var(--ds-accent-7)/0.3)]'
+                              : 'bg-transparent border-transparent hover:bg-[hsl(var(--ds-surface-1))] hover:border-[hsl(var(--ds-border-1))]',
+                          ].join(' ')}
+                        >
+                          <div className="flex items-start gap-2">
+                            <span className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-[4px] border text-[11px] font-semibold ${STATUS_STYLES[file.status]}`}>
+                              {file.status}
+                            </span>
+                            <span className="text-[12px] leading-5 break-all">{file.displayPath}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </aside>
+                <div className="overflow-auto bg-[hsl(var(--ds-background-1))]">
+                  {activeDiffFile ? (
+                    <ReactDiffViewer
+                      oldValue={activeDiffFile.oldValue}
+                      newValue={activeDiffFile.newValue}
+                      splitView
+                      showDiffOnly={false}
+                      leftTitle={`${dict.commits.original} · ${activeDiffFile.oldPath || '/dev/null'}`}
+                      rightTitle={`${dict.commits.modified} · ${activeDiffFile.newPath || '/dev/null'}`}
+                    />
+                  ) : (
+                    <div className="p-6 text-[13px] text-[hsl(var(--ds-text-2))]">{dict.commits.selectFileToView}</div>
+                  )}
+                </div>
               </div>
             )}
             {!detailLoading && !detailError && !detailDiff && (
               <div className="p-6 text-[13px] text-[hsl(var(--ds-text-2))]">{dict.commits.diffEmpty}</div>
+            )}
+            {!detailLoading && !detailError && detailDiff && detailFiles.length === 0 && (
+              <div className="p-6 text-[13px] text-[hsl(var(--ds-text-2))]">{dict.commits.noParsedFiles}</div>
             )}
           </div>
           <DialogFooter>

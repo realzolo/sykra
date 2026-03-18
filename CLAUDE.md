@@ -79,6 +79,7 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 | Geist Font | 1.7.x | Geist Sans/Mono via `geist` package |
 | Radix UI Primitives | ^2.1.4 | `@radix-ui/react-primitive` (Radix Select/Popper dependency) |
 | CodeMirror | 6.x | Read-only codebase editor preview |
+| react-diff-viewer-continued | ^4.2.0 | Split diff viewer for commit detail modal (IDE-style review UI) |
 | React Flow (XYFlow) | ^12.7 | Pipeline DAG builder |
 | PostgreSQL | 14+ | Primary database (self-managed) |
 | Octokit | `^5.0.5` | GitHub API |
