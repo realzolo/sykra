@@ -6,6 +6,7 @@ import { getLocale } from '@/lib/locale';
 import { getDictionary } from '@/i18n';
 import { requireUser } from '@/services/auth';
 import { requireOrgAccess } from '@/services/orgs';
+import { FolderOpen, Settings, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,9 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
     openIssuesRow,
     activeRunsRow,
     avgScoreRow,
+    // Previous 14-day period for trends
+    prevOpenIssuesRow,
+    prevAvgScoreRow,
     recentReports,
     recentRuns,
   ] = await Promise.all([
@@ -55,7 +59,26 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
     queryOne<{ avg: number | null }>(
       `select avg(score)::float as avg
        from analysis_reports
-       where org_id = $1 and status = 'done' and score is not null`,
+       where org_id = $1 and status = 'done' and score is not null
+         and created_at >= now() - interval '14 days'`,
+      [orgId]
+    ),
+    // Open issues created in previous 14-day window (14–28 days ago)
+    queryOne<{ count: string }>(
+      `select count(*)::text as count
+       from analysis_issues i
+       join analysis_reports r on r.id = i.report_id
+       where r.org_id = $1 and r.status = 'done' and i.status = 'open'
+         and r.created_at >= now() - interval '28 days'
+         and r.created_at < now() - interval '14 days'`,
+      [orgId]
+    ),
+    queryOne<{ avg: number | null }>(
+      `select avg(score)::float as avg
+       from analysis_reports
+       where org_id = $1 and status = 'done' and score is not null
+         and created_at >= now() - interval '28 days'
+         and created_at < now() - interval '14 days'`,
       [orgId]
     ),
     query<{
@@ -102,6 +125,8 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
   const openIssues = Number(openIssuesRow?.count ?? 0);
   const activeRuns = Number(activeRunsRow?.count ?? 0);
   const averageScore = Math.round(avgScoreRow?.avg ?? 0);
+  const prevOpenIssues = Number(prevOpenIssuesRow?.count ?? 0);
+  const prevAvgScore = Math.round(prevAvgScoreRow?.avg ?? 0);
 
   const dateFmt = new Intl.DateTimeFormat(locale, {
     month: 'short',
@@ -129,17 +154,25 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
     return 'muted';
   }
 
-  const stats = [
-    { label: dict.dashboard.totalProjects, value: String(totalProjects) },
-    {
-      label: dict.dashboard.averageScore,
-      value: averageScore > 0 ? averageScore : '—',
-      className: averageScore > 0 ? scoreColor(averageScore) : undefined,
-      suffix: averageScore > 0 ? '/ 100' : undefined,
-    },
-    { label: dict.dashboard.openIssues, value: String(openIssues) },
-    { label: dict.dashboard.activeRuns, value: String(activeRuns) },
-  ];
+  // Trend: positive delta is good for score, bad for openIssues
+  type TrendDir = 'up' | 'down' | 'flat';
+  function issueTrend(curr: number, prev: number): { dir: TrendDir; delta: number } {
+    if (prev === 0 && curr === 0) return { dir: 'flat', delta: 0 };
+    const delta = curr - prev;
+    if (delta === 0) return { dir: 'flat', delta: 0 };
+    return { dir: delta > 0 ? 'up' : 'down', delta };
+  }
+  function scoreTrend(curr: number, prev: number): { dir: TrendDir; delta: number } {
+    if (prev === 0 && curr === 0) return { dir: 'flat', delta: 0 };
+    const delta = curr - prev;
+    if (delta === 0) return { dir: 'flat', delta: 0 };
+    return { dir: delta > 0 ? 'up' : 'down', delta };
+  }
+
+  const issueTrendData = issueTrend(openIssues, prevOpenIssues);
+  const scoreTrendData = averageScore > 0 ? scoreTrend(averageScore, prevAvgScore) : null;
+
+  const isEmpty = totalProjects === 0;
 
   return (
     <div className="flex-1 overflow-auto">
@@ -155,116 +188,188 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
           </p>
         </div>
 
-        {/* Stat row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {stats.map((stat, i) => (
-            <div
-              key={i}
-              className="rounded-[8px] border border-border bg-[hsl(var(--ds-background-2))] px-4 py-4"
-            >
-              <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1.5">{stat.label}</div>
-              <div className="flex items-baseline gap-1">
-                <span className={['text-[22px] font-semibold tracking-tight', stat.className].filter(Boolean).join(' ')}>
-                  {stat.value}
-                </span>
-                {stat.suffix && (
-                  <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{stat.suffix}</span>
+        {isEmpty ? (
+          /* Empty / onboarding state */
+          <div className="rounded-[8px] border border-border bg-[hsl(var(--ds-background-2))] px-8 py-12 flex flex-col items-start gap-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-muted">
+              <FolderOpen className="size-5 text-[hsl(var(--ds-text-2))]" />
+            </div>
+            <div>
+              <div className="text-[15px] font-semibold text-foreground">{dict.dashboard.emptyTitle}</div>
+              <div className="text-[13px] text-[hsl(var(--ds-text-2))] mt-1">{dict.dashboard.emptyDescription}</div>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Link
+                href={`/o/${orgId}/projects`}
+                className="inline-flex h-8 items-center gap-1.5 rounded-[6px] bg-foreground px-3 text-[13px] font-medium text-background hover:bg-foreground/90 transition-colors"
+              >
+                {dict.dashboard.emptyCreateProject}
+              </Link>
+              <Link
+                href={`/o/${orgId}/settings/integrations`}
+                className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-border px-3 text-[13px] font-medium text-foreground hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
+              >
+                <Settings className="size-3.5" />
+                {dict.dashboard.emptySetupIntegration}
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Stat row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* Total Projects */}
+              <div className="rounded-[8px] border border-border bg-[hsl(var(--ds-background-2))] px-4 py-4">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1.5">{dict.dashboard.totalProjects}</div>
+                <div className="text-[22px] font-semibold tracking-tight">{totalProjects}</div>
+              </div>
+
+              {/* Average Score with trend */}
+              <div className="rounded-[8px] border border-border bg-[hsl(var(--ds-background-2))] px-4 py-4">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1.5">{dict.dashboard.averageScore}</div>
+                <div className="flex items-baseline gap-1">
+                  <span className={['text-[22px] font-semibold tracking-tight', averageScore > 0 ? scoreColor(averageScore) : ''].filter(Boolean).join(' ')}>
+                    {averageScore > 0 ? averageScore : '—'}
+                  </span>
+                  {averageScore > 0 && (
+                    <span className="text-[12px] text-[hsl(var(--ds-text-2))]">/ 100</span>
+                  )}
+                </div>
+                {scoreTrendData && scoreTrendData.dir !== 'flat' && (
+                  <div className={['flex items-center gap-0.5 mt-1 text-[11px]', scoreTrendData.dir === 'up' ? 'text-success' : 'text-danger'].join(' ')}>
+                    {scoreTrendData.dir === 'up'
+                      ? <TrendingUp className="size-3" />
+                      : <TrendingDown className="size-3" />}
+                    <span>{scoreTrendData.delta > 0 ? '+' : ''}{scoreTrendData.delta} pts</span>
+                  </div>
+                )}
+                {scoreTrendData && scoreTrendData.dir === 'flat' && (
+                  <div className="flex items-center gap-0.5 mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                    <Minus className="size-3" /><span>{dict.dashboard.noChange}</span>
+                  </div>
                 )}
               </div>
-            </div>
-          ))}
-        </div>
 
-        {/* Two-column activity */}
-        <div className="grid gap-4 lg:grid-cols-2">
-
-          {/* Recent reports */}
-          <div className="rounded-[8px] border border-border overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <span className="text-[13px] font-medium text-foreground">{dict.dashboard.recentReports}</span>
-              <Link
-                href={`/o/${orgId}/projects`}
-                className="text-[12px] text-[hsl(var(--ds-text-2))] hover:text-foreground transition-colors duration-100"
-              >
-                {dict.dashboard.viewAll}
-              </Link>
-            </div>
-            {recentReports.length === 0 ? (
-              <div className="px-4 py-6 text-[13px] text-[hsl(var(--ds-text-2))]">
-                {dict.reports.noReportsDescription}
+              {/* Open Issues with trend */}
+              <div className="rounded-[8px] border border-border bg-[hsl(var(--ds-background-2))] px-4 py-4">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1.5">{dict.dashboard.openIssues}</div>
+                <div className="text-[22px] font-semibold tracking-tight">{openIssues}</div>
+                {issueTrendData.dir !== 'flat' && (
+                  /* For issues: up (more issues) is bad = danger; down (fewer) is good = success */
+                  <div className={['flex items-center gap-0.5 mt-1 text-[11px]', issueTrendData.dir === 'up' ? 'text-danger' : 'text-success'].join(' ')}>
+                    {issueTrendData.dir === 'up'
+                      ? <TrendingUp className="size-3" />
+                      : <TrendingDown className="size-3" />}
+                    <span>{issueTrendData.delta > 0 ? '+' : ''}{issueTrendData.delta}</span>
+                  </div>
+                )}
+                {issueTrendData.dir === 'flat' && (
+                  <div className="flex items-center gap-0.5 mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                    <Minus className="size-3" /><span>{dict.dashboard.noChange}</span>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {recentReports.map(r => (
+
+              {/* Active Runs */}
+              <div className="rounded-[8px] border border-border bg-[hsl(var(--ds-background-2))] px-4 py-4">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1.5">{dict.dashboard.activeRuns}</div>
+                <div className="text-[22px] font-semibold tracking-tight">{activeRuns}</div>
+              </div>
+            </div>
+
+            {/* Two-column activity */}
+            <div className="grid gap-4 lg:grid-cols-2">
+
+              {/* Recent reports */}
+              <div className="rounded-[8px] border border-border overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                  <span className="text-[13px] font-medium text-foreground">{dict.dashboard.recentReports}</span>
                   <Link
-                    key={r.id}
-                    href={`/o/${orgId}/projects/${r.project_id}/reports/${r.id}`}
-                    className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-[hsl(var(--ds-surface-1))] transition-colors duration-100"
+                    href={`/o/${orgId}/projects`}
+                    className="text-[12px] text-[hsl(var(--ds-text-2))] hover:text-foreground transition-colors duration-100"
                   >
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-medium text-foreground truncate">{r.project_name}</div>
-                      <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{formatDateTime(r.created_at)}</div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant="muted" size="sm">
-                        {dict.reports.status[r.status]}
-                      </Badge>
-                      {r.status === 'done' && r.score != null && (
-                        <span className={['text-[13px] font-semibold tabular-nums', scoreColor(r.score)].join(' ')}>
-                          {r.score}
-                        </span>
-                      )}
-                    </div>
+                    {dict.dashboard.viewAll}
                   </Link>
-                ))}
+                </div>
+                {recentReports.length === 0 ? (
+                  <div className="px-4 py-6 text-[13px] text-[hsl(var(--ds-text-2))]">
+                    {dict.reports.noReportsDescription}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {recentReports.map(r => (
+                      <Link
+                        key={r.id}
+                        href={`/o/${orgId}/projects/${r.project_id}/reports/${r.id}`}
+                        className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-[hsl(var(--ds-surface-1))] transition-colors duration-100"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-medium text-foreground truncate">{r.project_name}</div>
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{formatDateTime(r.created_at)}</div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant="muted" size="sm">
+                            {dict.reports.status[r.status]}
+                          </Badge>
+                          {r.status === 'done' && r.score != null && (
+                            <span className={['text-[13px] font-semibold tabular-nums', scoreColor(r.score)].join(' ')}>
+                              {r.score}
+                            </span>
+                          )}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Recent pipeline runs */}
-          <div className="rounded-[8px] border border-border overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <span className="text-[13px] font-medium text-foreground">{dict.dashboard.recentRuns}</span>
-              <Link
-                href={`/o/${orgId}/projects`}
-                className="text-[12px] text-[hsl(var(--ds-text-2))] hover:text-foreground transition-colors duration-100"
-              >
-                {dict.dashboard.viewAll}
-              </Link>
-            </div>
-            {recentRuns.length === 0 ? (
-              <div className="px-4 py-6 text-[13px] text-[hsl(var(--ds-text-2))]">
-                {dict.pipelines.detail.noRuns}
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {recentRuns.map(run => (
+              {/* Recent pipeline runs */}
+              <div className="rounded-[8px] border border-border overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                  <span className="text-[13px] font-medium text-foreground">{dict.dashboard.recentRuns}</span>
                   <Link
-                    key={run.id}
-                    href={`/o/${orgId}/projects/${run.project_id}/pipelines/${run.pipeline_id}`}
-                    className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-[hsl(var(--ds-surface-1))] transition-colors duration-100"
+                    href={`/o/${orgId}/projects`}
+                    className="text-[12px] text-[hsl(var(--ds-text-2))] hover:text-foreground transition-colors duration-100"
                   >
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-medium text-foreground truncate">{run.pipeline_name}</div>
-                      <div className="text-[12px] text-[hsl(var(--ds-text-2))] truncate">
-                        {(run.project_name ?? dict.reports.unknownProject) + ' · ' + formatDateTime(run.created_at)}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant={runStatusVariant(run.status)} size="sm">
-                        {dict.pipelines.status[run.status] ?? run.status}
-                      </Badge>
-                      {run.branch && (
-                        <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{run.branch}</span>
-                      )}
-                    </div>
+                    {dict.dashboard.viewAll}
                   </Link>
-                ))}
+                </div>
+                {recentRuns.length === 0 ? (
+                  <div className="px-4 py-6 text-[13px] text-[hsl(var(--ds-text-2))]">
+                    {dict.pipelines.detail.noRuns}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {recentRuns.map(run => (
+                      <Link
+                        key={run.id}
+                        href={`/o/${orgId}/projects/${run.project_id}/pipelines/${run.pipeline_id}?tab=runs&runId=${run.id}`}
+                        className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-[hsl(var(--ds-surface-1))] transition-colors duration-100"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-medium text-foreground truncate">{run.pipeline_name}</div>
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))] truncate">
+                            {(run.project_name ?? dict.reports.unknownProject) + ' · ' + formatDateTime(run.created_at)}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant={runStatusVariant(run.status)} size="sm">
+                            {dict.pipelines.status[run.status] ?? run.status}
+                          </Badge>
+                          {run.branch && (
+                            <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{run.branch}</span>
+                          )}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-        </div>
+            </div>
+          </>
+        )}
+
       </div>
     </div>
   );

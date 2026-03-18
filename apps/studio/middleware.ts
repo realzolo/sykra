@@ -5,7 +5,7 @@ const ORG_PATH_PREFIX = '/o';
 const ORG_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Bare dashboard paths (without org prefix) that should redirect to /o/:orgId/...
-const DASHBOARD_PREFIXES = ['/projects', '/rules', '/settings'];
+const DASHBOARD_PREFIXES = ['/projects', '/rules', '/analytics', '/settings'];
 const PUBLIC_PREFIXES = ['/login', '/auth', '/invite', '/privacy', '/terms', '/verify', '/reset'];
 
 function isPublicPath(pathname: string) {

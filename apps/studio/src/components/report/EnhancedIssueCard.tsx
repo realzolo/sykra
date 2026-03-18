@@ -1,8 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { ChevronDown, ChevronUp, AlertTriangle, AlertCircle, Info, Zap, Copy, Check, MessageCircle, FileCode } from 'lucide-react';
+import {
+  ChevronDown, ChevronUp, AlertTriangle, AlertCircle, Info, Zap,
+  Copy, Check, MessageCircle, FileCode, Send, User,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
@@ -22,19 +25,47 @@ type Issue = {
   estimatedEffort?: string;
 };
 
+type Comment = {
+  id: string;
+  author: string;
+  content: string;
+  created_at: string;
+};
+
+function timeAgo(value: string) {
+  const ms = Date.now() - new Date(value).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 export default function EnhancedIssueCard({
   issue,
+  issueId,
+  reportId,
   onChat,
   codebaseHref,
   dict,
 }: {
   issue: Issue;
+  issueId?: string;
+  reportId?: string;
   onChat?: () => void;
   codebaseHref?: string;
   dict: Dictionary;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Comment thread state
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const SEV_CONFIG = {
     critical: { icon: AlertCircle, iconClass: 'text-danger', badgeClass: 'bg-danger/10 text-danger', label: dict.reportDetail.severity.critical },
@@ -54,10 +85,54 @@ export default function EnhancedIssueCard({
     setTimeout(() => setCopied(false), 2000);
   }
 
+  const loadComments = useCallback(async () => {
+    if (!issueId || !reportId || commentsLoaded) return;
+    setCommentsLoading(true);
+    try {
+      const res = await fetch(`/api/reports/${reportId}/issues/${issueId}`);
+      if (!res.ok) throw new Error('failed');
+      const data = await res.json();
+      setComments(Array.isArray(data.issue_comments) ? data.issue_comments : []);
+      setCommentsLoaded(true);
+    } catch {
+      // silently ignore
+    } finally {
+      setCommentsLoading(false);
+    }
+  }, [issueId, reportId, commentsLoaded]);
+
+  function handleExpand() {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !commentsLoaded && issueId && reportId) {
+      void loadComments();
+    }
+  }
+
+  async function handleSubmitComment() {
+    if (!commentText.trim() || !issueId || !reportId) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/reports/${reportId}/issues/${issueId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author: 'You', content: commentText.trim() }),
+      });
+      if (!res.ok) throw new Error('failed');
+      const newComment = await res.json();
+      setComments(prev => [...prev, newComment]);
+      setCommentText('');
+    } catch {
+      toast.error('Failed to post comment');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="bg-[hsl(var(--ds-background-2))] border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden mb-3 shadow-sm hover:shadow-md transition-all duration-200">
       <div
-        onClick={() => setExpanded(e => !e)}
+        onClick={handleExpand}
         className="flex items-start gap-3 px-5 py-4 cursor-pointer hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
       >
         <div className="shrink-0 mt-0.5">
@@ -109,10 +184,10 @@ export default function EnhancedIssueCard({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs font-semibold text-[hsl(var(--ds-text-2))]">{dict.reportDetail.codeSnippetLabel}</div>
-              <Button variant="ghost" size="sm" className="h-7 text-xs rounded-[8px]" onClick={() => handleCopy(issue.codeSnippet!)}>
-                {copied ? <Check className="size-3.5 mr-1" /> : <Copy className="size-3.5 mr-1" />}
-                {dict.common.copy}
-              </Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs rounded-[8px]" onClick={() => handleCopy(issue.codeSnippet!)}>
+                  {copied ? <Check className="size-3.5 mr-1" /> : <Copy className="size-3.5 mr-1" />}
+                  {dict.common.copy}
+                </Button>
               </div>
               <pre className="text-xs font-mono bg-[hsl(var(--ds-background-2))] border border-[hsl(var(--ds-border-1))] rounded-[8px] p-3 overflow-x-auto">
                 {issue.codeSnippet}
@@ -133,10 +208,10 @@ export default function EnhancedIssueCard({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs font-semibold text-[hsl(var(--ds-text-2))]">🔧 {dict.reportDetail.fixPatchLabel}</div>
-              <Button variant="ghost" size="sm" className="h-7 text-xs rounded-[8px]" onClick={() => handleCopy(issue.fixPatch!)}>
-                {copied ? <Check className="size-3.5 mr-1" /> : <Copy className="size-3.5 mr-1" />}
-                {dict.common.copy}
-              </Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs rounded-[8px]" onClick={() => handleCopy(issue.fixPatch!)}>
+                  {copied ? <Check className="size-3.5 mr-1" /> : <Copy className="size-3.5 mr-1" />}
+                  {dict.common.copy}
+                </Button>
               </div>
               <pre className="text-xs font-mono bg-[hsl(var(--ds-background-2))] border border-[hsl(var(--ds-border-1))] rounded-[8px] p-3 overflow-x-auto">
                 {issue.fixPatch}
@@ -160,6 +235,73 @@ export default function EnhancedIssueCard({
                   {dict.reportDetail.discussIssue}
                 </Button>
               )}
+            </div>
+          )}
+
+          {/* ── Comment Thread ─────────────────────────────── */}
+          {issueId && reportId && (
+            <div className="pt-2 border-t border-[hsl(var(--ds-border-1))]">
+              <div className="text-xs font-semibold text-[hsl(var(--ds-text-2))] mb-3 flex items-center gap-1.5">
+                <MessageCircle className="size-3.5" />
+                Discussion
+                {comments.length > 0 && (
+                  <span className="ml-1 rounded-full bg-[hsl(var(--ds-surface-2))] px-1.5 py-0.5 text-[10px]">{comments.length}</span>
+                )}
+              </div>
+
+              {commentsLoading && (
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] py-2">Loading comments…</div>
+              )}
+
+              {!commentsLoading && comments.length > 0 && (
+                <div className="space-y-3 mb-3">
+                  {comments.map(c => (
+                    <div key={c.id} className="flex gap-2.5">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--ds-surface-2))] shrink-0 mt-0.5">
+                        <User className="size-3 text-[hsl(var(--ds-text-2))]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-[12px] font-medium text-foreground">{c.author}</span>
+                          <span className="text-[11px] text-[hsl(var(--ds-text-2))]">{timeAgo(c.created_at)}</span>
+                        </div>
+                        <div className="text-[13px] text-foreground leading-relaxed whitespace-pre-wrap">{c.content}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!commentsLoading && comments.length === 0 && (
+                <p className="text-[12px] text-[hsl(var(--ds-text-2))] mb-3">No comments yet. Be the first to discuss this issue.</p>
+              )}
+
+              {/* Comment input */}
+              <div className="flex gap-2">
+                <textarea
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      void handleSubmitComment();
+                    }
+                  }}
+                  placeholder="Leave a comment… (⌘+Enter to submit)"
+                  rows={2}
+                  className="flex-1 text-[13px] rounded-[6px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-[hsl(var(--ds-border-2))] placeholder:text-[hsl(var(--ds-text-2))]"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-auto px-3 self-end rounded-[6px]"
+                  disabled={!commentText.trim() || submitting}
+                  onClick={handleSubmitComment}
+                  aria-label="Post comment"
+                >
+                  <Send className="size-3.5" />
+                </Button>
+              </div>
             </div>
           )}
         </div>

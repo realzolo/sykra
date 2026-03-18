@@ -38,6 +38,7 @@
     "home": "首页",
     "projects": "项目",
     "rules": "规则",
+    "analytics": "数据分析",
     "settings": "设置",
     "logout": "退出",
     "workspaceDefault": "个人工作区",
@@ -469,7 +470,13 @@
     "recentReports": "最近报告",
     "recentRuns": "最近流水线运行",
     "viewAll": "查看全部",
-    "last14Days": "最近 14 天"
+    "last14Days": "最近 14 天",
+    "vsLastPeriod": "对比上 14 天",
+    "noChange": "无变化",
+    "emptyTitle": "开始使用 Spec-Axis",
+    "emptyDescription": "连接代码仓库，运行您的第一次 AI 代码评审。",
+    "emptyCreateProject": "创建第一个项目",
+    "emptySetupIntegration": "配置集成"
   },
   "reports": {
     "title": "报告",

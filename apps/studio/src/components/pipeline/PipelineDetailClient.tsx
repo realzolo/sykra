@@ -33,6 +33,7 @@ import {
   AlertCircle,
   Plus,
   Trash2,
+  Package,
 } from "lucide-react";
 import type { Dictionary } from "@/i18n";
 import type {
@@ -131,6 +132,19 @@ export default function PipelineDetailClient({
   const [secretDeleting, setSecretDeleting] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
+  type Artifact = {
+    id: string;
+    job_id: string | null;
+    step_id: string | null;
+    path: string;
+    storage_path: string;
+    size_bytes: string;
+    sha256: string | null;
+    created_at: string;
+    expires_at: string | null;
+  };
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+
   // ── Data loading ───────────────────────────────────────────────────────────
 
   const loadPipeline = useCallback(async () => {
@@ -176,11 +190,19 @@ export default function PipelineDetailClient({
     }
   }, [pipelineId, p.settingsTab.loadFailed]);
 
+  const loadArtifacts = useCallback(async (runId: string) => {
+    try {
+      const res = await fetch(`/api/pipeline-runs/${runId}/artifacts`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setArtifacts(Array.isArray(data?.artifacts) ? data.artifacts : []);
+    } catch {/* ignore */}
+  }, []);
+
   useEffect(() => {
     loadPipeline();
     loadRuns();
   }, [loadPipeline, loadRuns]);
-
   useEffect(() => {
     if (tab !== "configure") return;
     if (configStageTab !== "settings") return;
@@ -194,6 +216,13 @@ export default function PipelineDetailClient({
       setSelectedRunId(runs[0].id);
     }
   }, [runs, selectedRunId]);
+
+  // Load artifacts when run changes
+  useEffect(() => {
+    if (!selectedRunId) return;
+    setArtifacts([]);
+    void loadArtifacts(selectedRunId);
+  }, [selectedRunId, loadArtifacts]);
 
   // Poll run detail while running
   useEffect(() => {
@@ -807,6 +836,46 @@ export default function PipelineDetailClient({
                         </div>
                       )}
                     </div>
+
+                    {/* Artifacts panel */}
+                    {artifacts.length > 0 && (
+                      <div className="border-t border-[hsl(var(--ds-border-1))] bg-[#0d0d0d]">
+                        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-[hsl(var(--ds-border-1))]">
+                          <Package className="size-3 text-[hsl(var(--ds-text-2))]" />
+                          <span className="text-[11px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wide">
+                            Artifacts ({artifacts.length})
+                          </span>
+                        </div>
+                        <div className="max-h-40 overflow-y-auto">
+                          {artifacts.map((a) => {
+                            const sizeKb = Math.round(Number(a.size_bytes) / 1024);
+                            const sizeLabel = sizeKb >= 1024
+                              ? `${(sizeKb / 1024).toFixed(1)} MB`
+                              : `${sizeKb} KB`;
+                            const filename = a.path.split('/').pop() ?? a.path;
+                            return (
+                              <div
+                                key={a.id}
+                                className="flex items-center gap-3 px-4 py-2 border-b border-[hsl(var(--ds-border-1))]/30 hover:bg-white/5 transition-colors"
+                              >
+                                <Package className="size-3 text-[hsl(var(--ds-text-2))] shrink-0" />
+                                <span className="flex-1 font-mono text-[11px] text-green-300 truncate" title={a.path}>
+                                  {filename}
+                                </span>
+                                <span className="text-[10px] text-[hsl(var(--ds-text-2))] shrink-0 w-16 text-right">
+                                  {sizeLabel}
+                                </span>
+                                {a.sha256 && (
+                                  <span className="text-[10px] font-mono text-[hsl(var(--ds-text-2))] shrink-0 w-16 text-right" title={a.sha256}>
+                                    {a.sha256.slice(0, 8)}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </>
               )}

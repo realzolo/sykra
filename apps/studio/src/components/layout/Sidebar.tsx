@@ -13,6 +13,7 @@ import {
   LogOut,
   User,
   ChevronsUpDown,
+  BarChart3,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -75,6 +76,7 @@ export default function Sidebar({ dict }: SidebarProps) {
   const router = useRouter();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   const { orgId: pathOrgId } = extractOrgFromPath(pathname);
   const basePath = stripOrgPrefix(pathname);
@@ -85,18 +87,20 @@ export default function Sidebar({ dict }: SidebarProps) {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([fetch('/api/orgs'), fetch('/api/orgs/active')])
-      .then(([orgRes, activeRes]) =>
+    Promise.all([fetch('/api/orgs'), fetch('/api/orgs/active'), fetch('/api/auth/me')])
+      .then(([orgRes, activeRes, meRes]) =>
         Promise.all([
           orgRes.ok ? orgRes.json() : [],
           activeRes.ok ? activeRes.json() : null,
+          meRes.ok ? meRes.json() : null,
         ]),
       )
-      .then(([orgData, activeData]) => {
+      .then(([orgData, activeData, meData]) => {
         if (!alive) return;
         const list = Array.isArray(orgData) ? orgData : [];
         setOrgs(list);
         setActiveOrgId(activeData?.orgId ?? list[0]?.id ?? null);
+        setUserEmail(meData?.user?.email ?? null);
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -145,6 +149,7 @@ export default function Sidebar({ dict }: SidebarProps) {
   const orgNav = [
     { base: '/', label: dict.nav.home, icon: Home },
     { base: '/projects', label: dict.nav.projects, icon: FolderOpen },
+    { base: '/analytics', label: dict.nav.analytics, icon: BarChart3 },
     { base: '/rules', label: dict.nav.rules, icon: Shield },
     { base: '/settings', label: dict.nav.settings, icon: Settings },
   ];
@@ -215,7 +220,7 @@ export default function Sidebar({ dict }: SidebarProps) {
               <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-[hsl(var(--ds-surface-3))] shrink-0">
                 <User className="size-3 text-[hsl(var(--ds-text-2))]" />
               </span>
-              <span className="flex-1 text-left text-[13px] text-foreground truncate">Account</span>
+              <span className="flex-1 text-left text-[13px] text-foreground truncate">{userEmail ?? 'Account'}</span>
               <ChevronDown className="size-3.5 text-[hsl(var(--ds-text-2))] shrink-0" />
             </button>
           </DropdownMenuTrigger>

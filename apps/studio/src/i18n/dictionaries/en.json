@@ -38,6 +38,7 @@
     "home": "Home",
     "projects": "Projects",
     "rules": "Rules",
+    "analytics": "Analytics",
     "settings": "Settings",
     "logout": "Logout",
     "workspaceDefault": "Personal Workspace",
@@ -467,7 +468,13 @@
     "recentReports": "Recent Reports",
     "recentRuns": "Recent Pipeline Runs",
     "viewAll": "View all",
-    "last14Days": "Last 14 days"
+    "last14Days": "Last 14 days",
+    "vsLastPeriod": "vs last 14 days",
+    "noChange": "No change",
+    "emptyTitle": "Get started with Spec-Axis",
+    "emptyDescription": "Connect a repository and run your first AI code review.",
+    "emptyCreateProject": "Create your first project",
+    "emptySetupIntegration": "Set up an integration"
   },
   "reports": {
     "title": "Reports",
