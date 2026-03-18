@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { getRulesBySetId, createReport, updateReport } from '@/services/db';
 import { shouldUseIncrementalAnalysis } from '@/services/incremental';
 import { buildReportCommits } from '@/services/analyzeTask';
-import { query } from '@/lib/db';
+import { query, queryOne } from '@/lib/db';
 import { enqueueAnalyze } from '@/services/runnerClient';
 import { logger } from '@/services/logger';
 import { analyzeRequestSchema } from '@/services/validation';
@@ -12,6 +12,7 @@ import { withRetry, formatErrorResponse } from '@/services/retry';
 import { requireUser, unauthorized } from '@/services/auth';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireProjectAccess } from '@/services/orgs';
+import { resolveAIIntegration } from '@/services/integrations';
 import {
   buildAnalyzeFingerprint,
   claimAnalyzeDedupeLock,
@@ -63,6 +64,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Specified commits not found' }, { status: 400 });
     }
 
+    // Preflight AI integration decryptability/config validity before creating report/task.
+    await withRetry(() => resolveAIIntegration(projectId));
+
     // Check whether to use incremental analysis
     const recentReports = await query(
       `select *
@@ -94,16 +98,22 @@ export async function POST(request: NextRequest) {
 
     const existingResult = await getAnalyzeDedupeResult(analyzeFingerprint);
     if (existingResult) {
-      return NextResponse.json(
-        {
-          reportId: existingResult.reportId,
-          incrementalAnalysis: existingResult.incrementalAnalysis,
-          status: existingResult.status,
-          taskId: existingResult.taskId,
-          deduplicated: true,
-        },
-        { status: 202 }
+      const reportStatus = await queryOne<{ status: string }>(
+        `select status from analysis_reports where id = $1`,
+        [existingResult.reportId]
       );
+      if (reportStatus && (reportStatus.status === 'pending' || reportStatus.status === 'analyzing')) {
+        return NextResponse.json(
+          {
+            reportId: existingResult.reportId,
+            incrementalAnalysis: existingResult.incrementalAnalysis,
+            status: reportStatus.status,
+            taskId: existingResult.taskId,
+            deduplicated: true,
+          },
+          { status: 202 }
+        );
+      }
     }
 
     const lockOwner = randomUUID();
@@ -112,16 +122,22 @@ export async function POST(request: NextRequest) {
     if (!lockAcquired) {
       const waitResult = await waitForAnalyzeDedupeResult(analyzeFingerprint, 2000, 200);
       if (waitResult) {
-        return NextResponse.json(
-          {
-            reportId: waitResult.reportId,
-            incrementalAnalysis: waitResult.incrementalAnalysis,
-            status: waitResult.status,
-            taskId: waitResult.taskId,
-            deduplicated: true,
-          },
-          { status: 202 }
+        const reportStatus = await queryOne<{ status: string }>(
+          `select status from analysis_reports where id = $1`,
+          [waitResult.reportId]
         );
+        if (reportStatus && (reportStatus.status === 'pending' || reportStatus.status === 'analyzing')) {
+          return NextResponse.json(
+            {
+              reportId: waitResult.reportId,
+              incrementalAnalysis: waitResult.incrementalAnalysis,
+              status: reportStatus.status,
+              taskId: waitResult.taskId,
+              deduplicated: true,
+            },
+            { status: 202 }
+          );
+        }
       }
 
       return NextResponse.json(

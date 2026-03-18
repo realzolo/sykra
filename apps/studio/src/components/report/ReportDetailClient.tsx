@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  ArrowLeft, AlertCircle, RefreshCw, Github, ChevronDown, ChevronUp,
+  ArrowLeft, AlertCircle, AlertTriangle, RefreshCw, Github, ChevronDown, ChevronUp, Square,
   TrendingUp, Shield, Zap, Code2, FileCode, MessageCircle, BarChart3, Lightbulb
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 import IssueCard from '@/components/report/IssueCard';
 import AIChat from '@/components/report/AIChat';
 import TrendChart from '@/components/report/TrendChart';
+import ConfirmDialog from '@/components/ui/confirm-dialog';
 import type { Dictionary } from '@/i18n';
 import { withOrgPrefix } from '@/lib/orgPath';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -37,6 +38,21 @@ type Issue = {
   impactScope?: string; estimatedEffort?: string;
 };
 type CommitMeta = { sha: string; message: string; author: string; date: string };
+type AnalysisProgress = {
+  phase?: string;
+  message?: string;
+  currentFile?: string;
+  filesProcessed?: number;
+  filesTotal?: number;
+  startedAt?: string;
+  updatedAt?: string;
+  completedAt?: string;
+};
+type TokenUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
 type Report = {
   id: string; status: string; score?: number;
   category_scores?: Record<string, number>;
@@ -73,6 +89,11 @@ type Report = {
     changeType: string; businessImpact: string; riskLevel: string;
     affectedModules: string[]; breakingChanges: boolean;
   };
+  analysis_progress?: AnalysisProgress | null;
+  token_usage?: TokenUsage | null;
+  tokens_used?: number | null;
+  analysis_duration_ms?: number | null;
+  model_version?: string | null;
 };
 
 function scoreColorClass(s: number) {
@@ -201,6 +222,8 @@ export default function ReportDetailClient({
   const [sevFilter, setSevFilter] = useState('all');
   const [catFilter, setCatFilter] = useState('all');
   const [retrying, setRetrying] = useState(false);
+  const [terminating, setTerminating] = useState(false);
+  const [terminateOpen, setTerminateOpen] = useState(false);
   const [commitsExpanded, setCommitsExpanded] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatIssueId, setChatIssueId] = useState<string | undefined>();
@@ -279,6 +302,10 @@ export default function ReportDetailClient({
                 ...(prev ?? report),
                 status: payload.status ?? prev?.status ?? report.status,
                 score: payload.score ?? prev?.score ?? report.score,
+                error_message: payload.errorMessage ?? prev?.error_message ?? report.error_message,
+                analysis_progress: payload.analysisProgress ?? prev?.analysis_progress ?? report.analysis_progress,
+                token_usage: payload.tokenUsage ?? prev?.token_usage ?? report.token_usage,
+                tokens_used: payload.tokensUsed ?? prev?.tokens_used ?? report.tokens_used,
               }));
               if (payload.status === 'done' || payload.status === 'failed') {
                 pollReport(report.id);
@@ -331,15 +358,72 @@ export default function ReportDetailClient({
     const commitShas = report.commits.map(c => c.sha);
     if (!commitShas.length) { toast.error(dict.reportDetail.noCommitsToRetry); return; }
     setRetrying(true);
-    const res = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: report.project_id, commits: commitShas }),
-    });
-    const data = await res.json();
-    setRetrying(false);
-    if (!res.ok) { toast.error(data.error ?? dict.reportDetail.retryFailed); return; }
-    router.push(withOrgPrefix(pathname, `/projects/${report.project_id}/reports/${data.reportId}`));
+    const loadingToastId = toast.loading(dict.reportDetail.reanalyzing);
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: report.project_id, commits: commitShas }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const error = (data as { error?: string }).error ?? dict.reportDetail.retryFailed;
+        throw new Error(error);
+      }
+
+      const nextReportId = (data as { reportId?: string }).reportId;
+      if (!nextReportId) {
+        throw new Error(dict.reportDetail.retryFailed);
+      }
+
+      toast.success(dict.reportDetail.reanalyzeQueued, { id: loadingToastId });
+
+      if (nextReportId === report.id) {
+        await pollReport(report.id);
+        router.refresh();
+        return;
+      }
+      router.push(withOrgPrefix(pathname, `/projects/${report.project_id}/reports/${nextReportId}`));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : dict.reportDetail.retryFailed;
+      toast.error(message, { id: loadingToastId });
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  async function handleTerminate() {
+    if (!report) return;
+    setTerminating(true);
+    try {
+      const res = await fetch(`/api/reports/${report.id}/terminate`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const error = (data as { error?: string }).error ?? dict.reportDetail.terminateFailed;
+        throw new Error(error);
+      }
+
+      setReport((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: 'failed',
+          error_message: (data as { error_message?: string }).error_message ?? dict.reportDetail.terminatedMessage,
+        };
+      });
+      toast.success(dict.reportDetail.terminateSuccess);
+
+      const warning = (data as { warning?: string }).warning;
+      if (warning) {
+        toast.warning(warning);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : dict.reportDetail.terminateFailed;
+      toast.error(message);
+    } finally {
+      setTerminating(false);
+      setTerminateOpen(false);
+    }
   }
 
   const allIssues = report.issues ?? [];
@@ -376,7 +460,7 @@ export default function ReportDetailClient({
     failed:    { variant: 'danger' as const,  label: dict.reports.status.failed },
     pending:   { variant: 'muted' as const, label: dict.reports.status.pending },
     analyzing: { variant: 'accent' as const,  label: dict.reports.status.analyzing },
-  }[report.status] ?? { variant: 'muted' as const, label: report.status };
+  }[retrying ? 'analyzing' : report.status] ?? { variant: 'muted' as const, label: retrying ? dict.reports.status.analyzing : report.status };
 
   function openChat(issueFile?: string) {
     setChatIssueId(issueFile);
@@ -401,6 +485,12 @@ export default function ReportDetailClient({
     if (score >= 70) return dict.reportDetail.good;
     return dict.reportDetail.needsImprovement;
   };
+
+  const progress = report.analysis_progress;
+  const tokenUsage = report.token_usage;
+  const inputTokens = tokenUsage?.inputTokens ?? 0;
+  const outputTokens = tokenUsage?.outputTokens ?? 0;
+  const totalTokens = tokenUsage?.totalTokens ?? report.tokens_used ?? 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -432,8 +522,20 @@ export default function ReportDetailClient({
             )}
             {(report.status === 'done' || report.status === 'failed') && (
               <Button variant="outline" size="sm" disabled={retrying} onClick={handleRetry} className="gap-2">
-                <RefreshCw className="size-3.5" />
-                {dict.reportDetail.reanalyze}
+                <RefreshCw className={retrying ? 'size-3.5 animate-spin' : 'size-3.5'} />
+                {retrying ? dict.reportDetail.reanalyzing : dict.reportDetail.reanalyze}
+              </Button>
+            )}
+            {(report.status === 'pending' || report.status === 'analyzing') && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={terminating}
+                onClick={() => setTerminateOpen(true)}
+                className="gap-2"
+              >
+                <Square className="size-3.5" />
+                {terminating ? dict.reportDetail.terminating : dict.reportDetail.terminateAction}
               </Button>
             )}
             <Badge variant={statusChip.variant}>{statusChip.label}</Badge>
@@ -442,36 +544,90 @@ export default function ReportDetailClient({
       </div>
 
       {/* Analyzing */}
-      {(report.status === 'pending' || report.status === 'analyzing') && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-4">
-          <div className="space-y-2 text-center">
-            <Skeleton className="h-4 w-56 mx-auto" />
-            <Skeleton className="h-3 w-80 mx-auto" />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <Skeleton className="h-20 w-24 rounded-[8px]" />
-            <Skeleton className="h-20 w-24 rounded-[8px]" />
-            <Skeleton className="h-20 w-24 rounded-[8px]" />
+      {(retrying || report.status === 'pending' || report.status === 'analyzing') && (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="w-full max-w-3xl rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-6 space-y-5">
+            <div>
+              <div className="text-base font-semibold">
+                {progress?.message ?? dict.reportDetail.analyzing}
+              </div>
+              <div className="text-[13px] text-[hsl(var(--ds-text-2))] mt-1">
+                {dict.reportDetail.analyzingSubtext}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.progressPhase}</div>
+                <div className="text-sm font-medium mt-1">{progress?.phase ?? report.status}</div>
+              </div>
+              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.scannedFiles}</div>
+                <div className="text-sm font-medium mt-1">
+                  {(progress?.filesProcessed ?? 0)} / {(progress?.filesTotal ?? 0)}
+                </div>
+              </div>
+              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.tokensUsed}</div>
+                <div className="text-sm font-medium mt-1">{totalTokens}</div>
+              </div>
+            </div>
+            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3">
+              <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.reportDetail.currentFile}</div>
+              <code className="text-xs font-mono text-foreground break-all">
+                {progress?.currentFile ?? dict.reportDetail.pendingCurrentFile}
+              </code>
+            </div>
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+              {dict.reportDetail.tokenBreakdown
+                .replace('{{input}}', String(inputTokens))
+                .replace('{{output}}', String(outputTokens))
+                .replace('{{total}}', String(totalTokens))}
+            </div>
           </div>
         </div>
       )}
 
       {/* Failed */}
-      {report.status === 'failed' && (
+      {report.status === 'failed' && !retrying && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <AlertCircle className="size-12 text-danger" />
           <div className="text-sm font-semibold">{dict.reportDetail.analysisFailed}</div>
           <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{report.error_message}</div>
           <Button disabled={retrying} onClick={handleRetry} className="mt-2 gap-2">
-            <RefreshCw className="size-4" />{dict.reportDetail.reanalyze}
+            <RefreshCw className={retrying ? 'size-4 animate-spin' : 'size-4'} />
+            {retrying ? dict.reportDetail.reanalyzing : dict.reportDetail.reanalyze}
           </Button>
         </div>
       )}
 
       {/* Done */}
-      {report.status === 'done' && (
+      {report.status === 'done' && !retrying && (
         <div className="flex-1 overflow-auto">
           <div className="p-6 space-y-6 max-w-[1200px] mx-auto">
+            <Card>
+              <CardContent className="px-6 py-4 flex flex-wrap gap-4">
+                <div className="text-sm">
+                  <span className="text-[hsl(var(--ds-text-2))]">{dict.reportDetail.modelLabel}: </span>
+                  <strong>{report.model_version ?? '-'}</strong>
+                </div>
+                <div className="text-sm">
+                  <span className="text-[hsl(var(--ds-text-2))]">{dict.reportDetail.durationLabel}: </span>
+                  <strong>{report.analysis_duration_ms ?? 0} ms</strong>
+                </div>
+                <div className="text-sm">
+                  <span className="text-[hsl(var(--ds-text-2))]">{dict.reportDetail.tokensUsed}: </span>
+                  <strong>{totalTokens}</strong>
+                </div>
+                <div className="text-sm">
+                  <span className="text-[hsl(var(--ds-text-2))]">{dict.reportDetail.tokenInputLabel}: </span>
+                  <strong>{inputTokens}</strong>
+                </div>
+                <div className="text-sm">
+                  <span className="text-[hsl(var(--ds-text-2))]">{dict.reportDetail.tokenOutputLabel}: </span>
+                  <strong>{outputTokens}</strong>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Score Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -850,6 +1006,21 @@ export default function ReportDetailClient({
           <TrendChart projectId={report.project_id} dict={dict} />
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={terminateOpen}
+        onOpenChange={setTerminateOpen}
+        title={dict.reportDetail.terminateConfirmTitle}
+        description={dict.reportDetail.terminateConfirmDescription}
+        confirmLabel={dict.reportDetail.terminateAction}
+        cancelLabel={dict.common.cancel}
+        onConfirm={() => {
+          void handleTerminate();
+        }}
+        loading={terminating}
+        danger
+        icon={<AlertTriangle className="size-4 text-warning" />}
+      />
     </div>
   );
 }

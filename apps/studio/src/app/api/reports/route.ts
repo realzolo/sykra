@@ -9,6 +9,7 @@ import { getActiveOrgId } from '@/services/orgs';
 import { isRunnerAuthorized } from '@/services/runnerAuth';
 import { projectIdSchema } from '@/services/validation';
 import { query } from '@/lib/db';
+import { failTimedOutReports } from '@/services/reportTimeout';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,8 @@ export async function GET(request: NextRequest) {
 
     const user = await requireUser();
     if (!user) return unauthorized();
+
+    await failTimedOutReports();
 
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
     const data = await withRetry(() => getReports(orgId));

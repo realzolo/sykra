@@ -6,6 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,7 +22,37 @@ type ProjectConfig = {
   quality_threshold: number | null;
   auto_analyze: boolean;
   webhook_url: string | null;
+  ai_integration_id: string | null;
 };
+
+type AIIntegrationOption = {
+  id: string;
+  name: string;
+  model: string | null;
+};
+
+function parseAIIntegrationOptions(payload: unknown): AIIntegrationOption[] {
+  if (!Array.isArray(payload)) return [];
+  return payload
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const id = typeof row.id === 'string' ? row.id : null;
+      const name = typeof row.name === 'string' ? row.name : null;
+      if (!id || !name) return null;
+
+      const config = row.config;
+      const configRecord = config && typeof config === 'object' ? (config as Record<string, unknown>) : null;
+      const model = configRecord && typeof configRecord.model === 'string' ? configRecord.model : null;
+
+      return {
+        id,
+        name,
+        model,
+      } satisfies AIIntegrationOption;
+    })
+    .filter((option): option is AIIntegrationOption => !!option);
+}
 
 export default function ProjectConfigPanel({ projectId, dict }: { projectId: string; dict: Dictionary }) {
   const [config, setConfig] = useState<ProjectConfig>({
@@ -23,25 +60,57 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
     quality_threshold: null,
     auto_analyze: false,
     webhook_url: null,
+    ai_integration_id: null,
   });
+  const [aiIntegrations, setAiIntegrations] = useState<AIIntegrationOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [ignoreText, setIgnoreText] = useState('');
   const loadConfigFailed = dict.projects.loadConfigFailed;
+  const loadAIIntegrationsFailed = dict.projects.aiIntegrationLoadFailed;
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/config`)
-      .then(r => r.json())
-      .then(data => {
-        setConfig(data);
-        setIgnoreText((data.ignore_patterns || []).join('\n'));
-        setLoading(false);
-      })
-      .catch(() => {
+    async function loadConfig() {
+      try {
+        const [configRes, aiRes] = await Promise.all([
+          fetch(`/api/projects/${projectId}/config`),
+          fetch('/api/integrations?type=ai'),
+        ]);
+
+        if (!configRes.ok) {
+          throw new Error('project_config_fetch_failed');
+        }
+
+        const configData = (await configRes.json()) as ProjectConfig;
+        setConfig({
+          ignore_patterns: Array.isArray(configData.ignore_patterns) ? configData.ignore_patterns : [],
+          quality_threshold:
+            typeof configData.quality_threshold === 'number' ? configData.quality_threshold : null,
+          auto_analyze: configData.auto_analyze === true,
+          webhook_url: typeof configData.webhook_url === 'string' ? configData.webhook_url : null,
+          ai_integration_id:
+            typeof configData.ai_integration_id === 'string' ? configData.ai_integration_id : null,
+        });
+        setIgnoreText(
+          Array.isArray(configData.ignore_patterns) ? configData.ignore_patterns.join('\n') : ''
+        );
+
+        if (!aiRes.ok) {
+          toast.error(loadAIIntegrationsFailed);
+          setAiIntegrations([]);
+        } else {
+          const aiData = await aiRes.json();
+          setAiIntegrations(parseAIIntegrationOptions(aiData));
+        }
+      } catch {
         toast.error(loadConfigFailed);
+      } finally {
         setLoading(false);
-      });
-  }, [projectId, loadConfigFailed]);
+      }
+    }
+
+    void loadConfig();
+  }, [projectId, loadAIIntegrationsFailed, loadConfigFailed]);
 
   async function handleSave() {
     setSaving(true);
@@ -59,6 +128,7 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
         qualityThreshold: config.quality_threshold,
         autoAnalyze: config.auto_analyze,
         webhookUrl: config.webhook_url,
+        aiIntegrationId: config.ai_integration_id,
       }),
     });
 
@@ -72,6 +142,10 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
 
     toast.success(dict.projects.configSaved);
   }
+
+  const currentIntegrationMissing =
+    !!config.ai_integration_id && !aiIntegrations.some((item) => item.id === config.ai_integration_id);
+  const currentAIValue = config.ai_integration_id ?? 'default';
 
   if (loading) {
     return (
@@ -88,6 +162,11 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
         <div className="space-y-2">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-9 w-40" />
+          <Skeleton className="h-3 w-2/3" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-9 w-full" />
           <Skeleton className="h-3 w-2/3" />
         </div>
         <div className="flex items-center justify-between">
@@ -114,6 +193,40 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
       <div className="flex items-center gap-2">
         <Settings className="size-5" />
         <h3 className="text-lg font-semibold">{dict.projects.projectConfig}</h3>
+      </div>
+
+      {/* AI Integration Binding */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">{dict.projects.aiIntegrationLabel}</label>
+        <Select
+          value={currentAIValue}
+          onValueChange={(value) =>
+            setConfig((prev) => ({
+              ...prev,
+              ai_integration_id: value === 'default' ? null : value,
+            }))
+          }
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="default">{dict.projects.aiIntegrationDefaultOption}</SelectItem>
+            {aiIntegrations.map((item) => (
+              <SelectItem key={item.id} value={item.id}>
+                {item.model ? `${item.name} (${item.model})` : item.name}
+              </SelectItem>
+            ))}
+            {currentIntegrationMissing && config.ai_integration_id && (
+              <SelectItem value={config.ai_integration_id}>
+                {dict.projects.aiIntegrationMissing}
+              </SelectItem>
+            )}
+          </SelectContent>
+        </Select>
+        <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
+          {dict.projects.aiIntegrationHelp}
+        </p>
       </div>
 
       {/* Ignore Patterns */}

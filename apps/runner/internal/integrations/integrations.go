@@ -49,7 +49,7 @@ func ResolveVCSClient(ctx context.Context, st *store.Store, project *store.Proje
 
 	token, err := crypto.DecryptSecret(integration.VaultSecretName)
 	if err != nil {
-		return nil, err
+		return nil, wrapSecretDecryptError("VCS", err)
 	}
 
 	config := VCSConfig{
@@ -78,7 +78,7 @@ func ResolveAIClient(ctx context.Context, st *store.Store, project *store.Projec
 
 	apiKey, err := crypto.DecryptSecret(integration.VaultSecretName)
 	if err != nil {
-		return nil, err
+		return nil, wrapSecretDecryptError("AI", err)
 	}
 
 	config := AIConfig{
@@ -99,6 +99,16 @@ func ResolveAIClient(ctx context.Context, st *store.Store, project *store.Projec
 	default:
 		return nil, fmt.Errorf("unsupported AI provider: %s", integration.Provider)
 	}
+}
+
+func wrapSecretDecryptError(integrationType string, err error) error {
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "invalid iv length") ||
+		strings.Contains(lower, "invalid auth tag length") ||
+		strings.Contains(lower, "invalid encrypted data format") {
+		return fmt.Errorf("%s integration secret format is invalid. Re-save this integration secret in Studio Settings > Integrations", integrationType)
+	}
+	return err
 }
 
 func resolveIntegration(ctx context.Context, st *store.Store, project *store.Project, integrationType string) (*store.IntegrationRow, error) {
@@ -460,8 +470,8 @@ func (c *OpenAIAPIClient) analyzeAnthropic(prompt string, code string, timeout t
 		return domain.ReviewResult{}, err
 	}
 
-	var parsed map[string]any
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	parsed, err := parseJSONBody(raw, "anthropic")
+	if err != nil {
 		return domain.ReviewResult{}, err
 	}
 
@@ -471,7 +481,12 @@ func (c *OpenAIAPIClient) analyzeAnthropic(prompt string, code string, timeout t
 	}
 	first := content[0].(map[string]any)
 	text, _ := first["text"].(string)
-	return parseReviewResult(text)
+	result, err := parseReviewResult(text)
+	if err != nil {
+		return domain.ReviewResult{}, err
+	}
+	result.TokenUsage = parseTokenUsageFromAnthropic(parsed)
+	return result, nil
 }
 
 func (c *OpenAIAPIClient) analyzeOpenAI(prompt string, code string, timeout time.Duration) (domain.ReviewResult, error) {
@@ -514,8 +529,8 @@ func (c *OpenAIAPIClient) analyzeOpenAI(prompt string, code string, timeout time
 		return domain.ReviewResult{}, err
 	}
 
-	var parsed map[string]any
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	parsed, err := parseJSONBody(raw, "openai-chat-completions")
+	if err != nil {
 		return domain.ReviewResult{}, err
 	}
 	choices, _ := parsed["choices"].([]any)
@@ -525,7 +540,12 @@ func (c *OpenAIAPIClient) analyzeOpenAI(prompt string, code string, timeout time
 	first := choices[0].(map[string]any)
 	message, _ := first["message"].(map[string]any)
 	content, _ := message["content"].(string)
-	return parseReviewResult(content)
+	result, err := parseReviewResult(content)
+	if err != nil {
+		return domain.ReviewResult{}, err
+	}
+	result.TokenUsage = parseTokenUsageFromOpenAIChat(parsed)
+	return result, nil
 }
 
 func (c *OpenAIAPIClient) analyzeOpenAIResponses(prompt string, code string, timeout time.Duration) (domain.ReviewResult, error) {
@@ -566,8 +586,8 @@ func (c *OpenAIAPIClient) analyzeOpenAIResponses(prompt string, code string, tim
 		return domain.ReviewResult{}, err
 	}
 
-	var parsed map[string]any
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	parsed, err := parseJSONBody(raw, "openai-responses")
+	if err != nil {
 		return domain.ReviewResult{}, err
 	}
 
@@ -576,7 +596,87 @@ func (c *OpenAIAPIClient) analyzeOpenAIResponses(prompt string, code string, tim
 		return domain.ReviewResult{}, fmt.Errorf("openai responses missing output text")
 	}
 
-	return parseReviewResult(content)
+	result, err := parseReviewResult(content)
+	if err != nil {
+		return domain.ReviewResult{}, err
+	}
+	result.TokenUsage = parseTokenUsageFromOpenAIResponses(parsed)
+	return result, nil
+}
+
+func parseTokenUsageFromOpenAIChat(parsed map[string]any) *domain.TokenUsage {
+	usage, _ := parsed["usage"].(map[string]any)
+	if usage == nil {
+		return nil
+	}
+	prompt := readInt(usage["prompt_tokens"])
+	completion := readInt(usage["completion_tokens"])
+	total := readInt(usage["total_tokens"])
+	if total <= 0 {
+		total = prompt + completion
+	}
+	if total <= 0 {
+		return nil
+	}
+	return &domain.TokenUsage{
+		InputTokens:  prompt,
+		OutputTokens: completion,
+		TotalTokens:  total,
+	}
+}
+
+func parseTokenUsageFromOpenAIResponses(parsed map[string]any) *domain.TokenUsage {
+	usage, _ := parsed["usage"].(map[string]any)
+	if usage == nil {
+		return nil
+	}
+	input := readInt(usage["input_tokens"])
+	output := readInt(usage["output_tokens"])
+	total := readInt(usage["total_tokens"])
+	if total <= 0 {
+		total = input + output
+	}
+	if total <= 0 {
+		return nil
+	}
+	return &domain.TokenUsage{
+		InputTokens:  input,
+		OutputTokens: output,
+		TotalTokens:  total,
+	}
+}
+
+func parseTokenUsageFromAnthropic(parsed map[string]any) *domain.TokenUsage {
+	usage, _ := parsed["usage"].(map[string]any)
+	if usage == nil {
+		return nil
+	}
+	input := readInt(usage["input_tokens"])
+	output := readInt(usage["output_tokens"])
+	total := input + output
+	if total <= 0 {
+		return nil
+	}
+	return &domain.TokenUsage{
+		InputTokens:  input,
+		OutputTokens: output,
+		TotalTokens:  total,
+	}
+}
+
+func readInt(value any) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 func extractResponsesText(parsed map[string]any) string {
@@ -742,4 +842,19 @@ func extractJSON(content string) string {
 
 func readAll(resp *http.Response) ([]byte, error) {
 	return io.ReadAll(resp.Body)
+}
+
+func parseJSONBody(raw []byte, source string) (map[string]any, error) {
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		bodySnippet := strings.TrimSpace(string(raw))
+		if len(bodySnippet) > 180 {
+			bodySnippet = bodySnippet[:180]
+		}
+		if strings.HasPrefix(bodySnippet, "<") {
+			return nil, fmt.Errorf("%s upstream returned HTML instead of JSON. Check integration baseUrl and gateway routing", source)
+		}
+		return nil, fmt.Errorf("%s returned invalid JSON: %w", source, err)
+	}
+	return parsed, nil
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 type Store struct {
 	pool *pgxpool.Pool
 }
+
+var ErrReportNotAnalyzing = errors.New("report is not in analyzing status")
 
 type Project struct {
 	ID               string
@@ -32,6 +35,7 @@ type Report struct {
 	ID              string
 	ProjectID       string
 	OrgID           string
+	Status          string
 	RulesetSnapshot json.RawMessage
 	Commits         json.RawMessage
 }
@@ -47,24 +51,27 @@ type IntegrationRow struct {
 }
 
 type ReportAnalysisUpdate struct {
-	Status               string
-	Score                int
-	CategoryScores       json.RawMessage
-	Issues               json.RawMessage
-	Summary              string
-	ComplexityMetrics    json.RawMessage
-	DuplicationMetrics   json.RawMessage
-	DependencyMetrics    json.RawMessage
-	SecurityFindings     json.RawMessage
-	PerformanceFindings  json.RawMessage
-	AISuggestions        json.RawMessage
-	CodeExplanations     json.RawMessage
-	ContextAnalysis      json.RawMessage
-	TotalFiles           int
-	TotalAdditions       int
-	TotalDeletions       int
-	AnalysisDurationMs   int
-	ModelVersion         string
+	Status              string
+	Score               int
+	CategoryScores      json.RawMessage
+	Issues              json.RawMessage
+	Summary             string
+	ComplexityMetrics   json.RawMessage
+	DuplicationMetrics  json.RawMessage
+	DependencyMetrics   json.RawMessage
+	SecurityFindings    json.RawMessage
+	PerformanceFindings json.RawMessage
+	AISuggestions       json.RawMessage
+	CodeExplanations    json.RawMessage
+	ContextAnalysis     json.RawMessage
+	TotalFiles          int
+	TotalAdditions      int
+	TotalDeletions      int
+	AnalysisDurationMs  int
+	ModelVersion        string
+	TokensUsed          *int
+	TokenUsage          json.RawMessage
+	AnalysisProgress    json.RawMessage
 }
 
 func New(ctx context.Context, url string) (*Store, error) {
@@ -132,7 +139,7 @@ func (s *Store) GetProject(ctx context.Context, projectID string) (*Project, err
 func (s *Store) GetReport(ctx context.Context, reportID string) (*Report, error) {
 	row := s.pool.QueryRow(
 		ctx,
-		`select id, project_id, org_id, ruleset_snapshot, commits
+		`select id, project_id, org_id, status, ruleset_snapshot, commits
 		 from analysis_reports where id=$1`,
 		reportID,
 	)
@@ -142,6 +149,7 @@ func (s *Store) GetReport(ctx context.Context, reportID string) (*Report, error)
 		&report.ID,
 		&report.ProjectID,
 		&report.OrgID,
+		&report.Status,
 		&report.RulesetSnapshot,
 		&report.Commits,
 	)
@@ -162,12 +170,79 @@ func (s *Store) UpdateReportStatus(ctx context.Context, reportID string, status 
 	return err
 }
 
+func (s *Store) MarkReportAnalyzing(ctx context.Context, reportID string) error {
+	result, err := s.pool.Exec(
+		ctx,
+		`update analysis_reports
+		 set status='analyzing',
+		     error_message=null,
+		     analysis_progress=null,
+		     updated_at=now()
+		 where id=$1
+		   and status in ('pending', 'analyzing')`,
+		reportID,
+	)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ErrReportNotAnalyzing
+	}
+	return nil
+}
+
 func (s *Store) MarkReportFailed(ctx context.Context, reportID string, message string) error {
-	return s.UpdateReportStatus(ctx, reportID, "failed", &message)
+	result, err := s.pool.Exec(
+		ctx,
+		`update analysis_reports
+		 set status='failed',
+		     error_message=$2,
+		     analysis_progress=jsonb_build_object(
+		     	'phase', 'failed',
+		     	'message', $2,
+		     	'updatedAt', now()
+		     ),
+		     updated_at=now()
+		 where id=$1
+		   and status in ('pending', 'analyzing')`,
+		reportID,
+		message,
+	)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ErrReportNotAnalyzing
+	}
+	return nil
+}
+
+func (s *Store) UpdateReportProgress(ctx context.Context, reportID string, progress domain.AnalysisProgress) error {
+	raw, err := json.Marshal(progress)
+	if err != nil {
+		return err
+	}
+	result, err := s.pool.Exec(
+		ctx,
+		`update analysis_reports
+		 set analysis_progress=$2,
+		     updated_at=now()
+		 where id=$1
+		   and status in ('pending', 'analyzing')`,
+		reportID,
+		raw,
+	)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ErrReportNotAnalyzing
+	}
+	return nil
 }
 
 func (s *Store) UpdateReportAnalysis(ctx context.Context, reportID string, update ReportAnalysisUpdate) error {
-	_, err := s.pool.Exec(
+	result, err := s.pool.Exec(
 		ctx,
 		`update analysis_reports set
 			status=$2,
@@ -188,8 +263,11 @@ func (s *Store) UpdateReportAnalysis(ctx context.Context, reportID string, updat
 			total_deletions=$17,
 			analysis_duration_ms=$18,
 			model_version=$19,
+			tokens_used=$20,
+			token_usage=$21,
+			analysis_progress=$22,
 			error_message=null
-		  where id=$1`,
+		  where id=$1 and status='analyzing'`,
 		reportID,
 		update.Status,
 		update.Score,
@@ -209,8 +287,17 @@ func (s *Store) UpdateReportAnalysis(ctx context.Context, reportID string, updat
 		update.TotalDeletions,
 		update.AnalysisDurationMs,
 		update.ModelVersion,
+		update.TokensUsed,
+		update.TokenUsage,
+		update.AnalysisProgress,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ErrReportNotAnalyzing
+	}
+	return nil
 }
 
 func (s *Store) UpdateProjectLastAnalyzedAt(ctx context.Context, projectID string) error {

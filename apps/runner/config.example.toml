@@ -5,7 +5,7 @@ port = "8200"
 token = ""
 concurrency = 4
 queue = "analysis"
-analyze_timeout = "300s"
+analyze_timeout = "900s"
 data_dir = "data"
 
 [database]

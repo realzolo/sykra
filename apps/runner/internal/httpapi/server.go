@@ -14,13 +14,15 @@ import (
 type Server struct {
 	cfg         config.Config
 	client      *asynq.Client
+	inspector   *asynq.Inspector
 	pipelineAPI *pipeline.API
 }
 
-func New(cfg config.Config, client *asynq.Client, pipelineService *pipeline.Service) *Server {
+func New(cfg config.Config, client *asynq.Client, inspector *asynq.Inspector, pipelineService *pipeline.Service) *Server {
 	return &Server{
 		cfg:         cfg,
 		client:      client,
+		inspector:   inspector,
 		pipelineAPI: pipeline.NewAPI(pipelineService, func(r *http.Request) bool { return authorized(cfg.RunnerToken, r) }),
 	}
 }
@@ -38,6 +40,7 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("/v1/tasks/analyze", s.handleAnalyze)
+	mux.HandleFunc("/v1/tasks/analyze/", s.handleAnalyzeTaskControl)
 	s.pipelineAPI.Register(mux)
 
 	return mux

@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/hibiken/asynq"
 
@@ -56,4 +58,62 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"taskId": info.ID,
 	})
+}
+
+func (s *Server) handleAnalyzeTaskControl(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if !authorized(s.cfg.RunnerToken, r) {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	reportID, ok := parseAnalyzeCancelPath(r.URL.Path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if s.inspector == nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "inspector is not initialized")
+		return
+	}
+
+	taskID := "analyze:" + reportID
+	deleteErr := s.inspector.DeleteTask(s.cfg.Queue, taskID)
+	if deleteErr != nil &&
+		!errors.Is(deleteErr, asynq.ErrTaskNotFound) &&
+		!errors.Is(deleteErr, asynq.ErrQueueNotFound) {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to remove queued analyze task")
+		return
+	}
+
+	if err := s.inspector.CancelProcessing(taskID); err != nil &&
+		!errors.Is(err, asynq.ErrTaskNotFound) {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to cancel running analyze task")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"taskId": taskID,
+	})
+}
+
+func parseAnalyzeCancelPath(path string) (reportID string, ok bool) {
+	const prefix = "/v1/tasks/analyze/"
+	const suffix = "/cancel"
+
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return "", false
+	}
+
+	reportID = strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	reportID = strings.Trim(reportID, "/")
+	if reportID == "" || strings.Contains(reportID, "/") {
+		return "", false
+	}
+	return reportID, true
 }

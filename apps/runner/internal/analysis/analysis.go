@@ -38,19 +38,29 @@ func RunAnalyzeTask(
 	if report.ProjectID != "" && report.ProjectID != payload.ProjectID {
 		return fmt.Errorf("report project mismatch")
 	}
+	if report.Status != "pending" && report.Status != "analyzing" {
+		return store.ErrReportNotAnalyzing
+	}
 
 	project, err := st.GetProject(ctx, payload.ProjectID)
 	if err != nil {
 		return err
 	}
 
-	if err := st.UpdateReportStatus(ctx, payload.ReportID, "analyzing", nil); err != nil {
+	if err := st.MarkReportAnalyzing(ctx, payload.ReportID); err != nil {
+		return err
+	}
+	tracker := newProgressTracker(ctx, st, payload.ReportID)
+	if err := tracker.Update("preparing", "Preparing analysis environment", nil, 0, 0, false); err != nil {
 		return err
 	}
 	if publisher != nil {
 		publisher.ReportStatus(payload.ReportID, "analyzing", nil)
 	}
 
+	if err := tracker.Update("resolving_integrations", "Resolving project integrations", nil, 0, 0, false); err != nil {
+		return err
+	}
 	vcsClient, err := integrations.ResolveVCSClient(ctx, st, project)
 	if err != nil {
 		return err
@@ -61,7 +71,16 @@ func RunAnalyzeTask(
 		repo = project.Repo
 	}
 
-	diff, err := getCommitsDiff(vcsClient, repo, payload.Hashes)
+	if err := tracker.Update("fetching_diff", "Fetching commit diffs", nil, 0, 0, false); err != nil {
+		return err
+	}
+	diff, err := getCommitsDiff(vcsClient, repo, payload.Hashes, func(index int, total int, sha string) {
+		if index == 1 || index == total || index%2 == 0 {
+			message := fmt.Sprintf("Fetching commit diff (%d/%d)", index, total)
+			current := sha
+			_ = tracker.Update("fetching_diff", message, &current, 0, 0, false)
+		}
+	})
 	if err != nil {
 		return err
 	}
@@ -72,12 +91,30 @@ func RunAnalyzeTask(
 	}
 
 	stats := extractDiffStats(filtered)
+	changedFiles := extractChangedFiles(filtered)
+
+	if len(changedFiles) > 0 {
+		for idx, file := range changedFiles {
+			processed := idx + 1
+			if shouldEmitFileProgress(processed, len(changedFiles)) {
+				current := file
+				message := fmt.Sprintf("Scanning changed files (%d/%d)", processed, len(changedFiles))
+				if err := tracker.Update("scanning_files", message, &current, processed, len(changedFiles), false); err != nil {
+					return err
+				}
+			}
+		}
+	}
 
 	aiClient, err := integrations.ResolveAIClient(ctx, st, project)
 	if err != nil {
 		return err
 	}
 
+	analyzingMessage := fmt.Sprintf("Analyzing changes with model %s", aiClient.Model())
+	if err := tracker.Update("analyzing", analyzingMessage, nil, 0, len(changedFiles), false); err != nil {
+		return err
+	}
 	start := time.Now()
 	var result domain.ReviewResult
 	if payload.UseIncremental {
@@ -89,6 +126,7 @@ func RunAnalyzeTask(
 		return err
 	}
 	durationMs := int(time.Since(start).Milliseconds())
+	tokenUsageJSON, tokensUsed := marshalTokenUsage(result.TokenUsage)
 
 	if result.CategoryScores == nil {
 		result.CategoryScores = map[string]float64{}
@@ -96,6 +134,8 @@ func RunAnalyzeTask(
 
 	issuesJSON, _ := json.Marshal(result.Issues)
 	categoryScoresJSON, _ := json.Marshal(result.CategoryScores)
+	progressDone := tracker.Complete("completed", "Analysis completed", stats.TotalFiles, stats.TotalFiles)
+	progressDoneJSON, _ := json.Marshal(progressDone)
 
 	update := store.ReportAnalysisUpdate{
 		Status:              "done",
@@ -116,8 +156,14 @@ func RunAnalyzeTask(
 		TotalDeletions:      stats.TotalDeletions,
 		AnalysisDurationMs:  durationMs,
 		ModelVersion:        aiClient.Model(),
+		TokensUsed:          tokensUsed,
+		TokenUsage:          tokenUsageJSON,
+		AnalysisProgress:    progressDoneJSON,
 	}
 
+	if err := tracker.Update("finalizing", "Saving analysis result", nil, stats.TotalFiles, stats.TotalFiles, false); err != nil {
+		return err
+	}
 	if err := st.UpdateReportAnalysis(ctx, payload.ReportID, update); err != nil {
 		return err
 	}
@@ -541,9 +587,17 @@ func truncateDiff(diff string, max int) string {
 	return diff[:max]
 }
 
-func getCommitsDiff(client integrations.VCSClient, repo string, hashes []string) (string, error) {
+func getCommitsDiff(
+	client integrations.VCSClient,
+	repo string,
+	hashes []string,
+	onCommit func(index int, total int, sha string),
+) (string, error) {
 	var builder strings.Builder
-	for _, sha := range hashes {
+	for i, sha := range hashes {
+		if onCommit != nil {
+			onCommit(i+1, len(hashes), sha)
+		}
 		diff, err := client.GetCommitDiff(repo, sha)
 		if err != nil {
 			return "", err
@@ -554,6 +608,81 @@ func getCommitsDiff(client integrations.VCSClient, repo string, hashes []string)
 		builder.WriteString(diff)
 	}
 	return builder.String(), nil
+}
+
+func marshalTokenUsage(usage *domain.TokenUsage) (json.RawMessage, *int) {
+	if usage == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(usage)
+	if err != nil {
+		return nil, nil
+	}
+	total := usage.TotalTokens
+	return raw, &total
+}
+
+func shouldEmitFileProgress(processed int, total int) bool {
+	if processed <= 1 || processed == total {
+		return true
+	}
+	if total <= 20 {
+		return true
+	}
+	return processed%5 == 0
+}
+
+type progressTracker struct {
+	ctx      context.Context
+	store    *store.Store
+	reportID string
+	started  time.Time
+}
+
+func newProgressTracker(ctx context.Context, st *store.Store, reportID string) *progressTracker {
+	return &progressTracker{
+		ctx:      ctx,
+		store:    st,
+		reportID: reportID,
+		started:  time.Now().UTC(),
+	}
+}
+
+func (p *progressTracker) Update(
+	phase string,
+	message string,
+	currentFile *string,
+	filesProcessed int,
+	filesTotal int,
+	completed bool,
+) error {
+	progress := domain.AnalysisProgress{
+		Phase:          phase,
+		Message:        message,
+		CurrentFile:    currentFile,
+		FilesProcessed: filesProcessed,
+		FilesTotal:     filesTotal,
+		StartedAt:      p.started,
+		UpdatedAt:      time.Now().UTC(),
+	}
+	if completed {
+		now := time.Now().UTC()
+		progress.CompletedAt = &now
+	}
+	return p.store.UpdateReportProgress(p.ctx, p.reportID, progress)
+}
+
+func (p *progressTracker) Complete(phase string, message string, filesProcessed int, filesTotal int) domain.AnalysisProgress {
+	now := time.Now().UTC()
+	return domain.AnalysisProgress{
+		Phase:          phase,
+		Message:        message,
+		FilesProcessed: filesProcessed,
+		FilesTotal:     filesTotal,
+		StartedAt:      p.started,
+		UpdatedAt:      now,
+		CompletedAt:    &now,
+	}
 }
 
 func filterDiffByPatterns(diff string, patterns []string) string {

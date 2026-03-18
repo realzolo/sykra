@@ -1,6 +1,9 @@
 package domain
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Rule struct {
 	Category string `json:"category"`
@@ -37,10 +40,28 @@ type ReviewResult struct {
 	AISuggestions       json.RawMessage    `json:"aiSuggestions"`
 	CodeExplanations    json.RawMessage    `json:"codeExplanations"`
 	ContextAnalysis     json.RawMessage    `json:"contextAnalysis"`
+	TokenUsage          *TokenUsage        `json:"tokenUsage,omitempty"`
 }
 
 type DiffStats struct {
 	TotalFiles     int
 	TotalAdditions int
 	TotalDeletions int
+}
+
+type TokenUsage struct {
+	InputTokens  int `json:"inputTokens"`
+	OutputTokens int `json:"outputTokens"`
+	TotalTokens  int `json:"totalTokens"`
+}
+
+type AnalysisProgress struct {
+	Phase          string     `json:"phase"`
+	Message        string     `json:"message"`
+	CurrentFile    *string    `json:"currentFile,omitempty"`
+	FilesProcessed int        `json:"filesProcessed"`
+	FilesTotal     int        `json:"filesTotal"`
+	StartedAt      time.Time  `json:"startedAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+	CompletedAt    *time.Time `json:"completedAt,omitempty"`
 }

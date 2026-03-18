@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import { queryOne } from '@/lib/db';
 import { logger } from './logger';
+import { failTimedOutReport } from './reportTimeout';
 
 interface SSEClient {
   reportId: string;
@@ -14,15 +15,50 @@ interface SSEClient {
 
 const clients = new Map<string, SSEClient[]>();
 const pollers = new Map<string, NodeJS.Timeout>();
-const lastSnapshots = new Map<string, { status: string | null; score: number | null }>();
+const lastSnapshots = new Map<string, {
+  status: string | null;
+  score: number | null;
+  analysisProgressJson: string;
+  tokenUsageJson: string;
+  tokensUsed: number | null;
+  errorMessage: string | null;
+}>();
 
 /**
  * Create SSE response
  */
 export function createSSEResponse(reportId: string) {
+  let clientRef: SSEClient | null = null;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let cleanedUp = false;
+
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
+    if (clientRef) {
+      const clientList = clients.get(reportId);
+      if (clientList) {
+        const index = clientList.indexOf(clientRef);
+        if (index > -1) {
+          clientList.splice(index, 1);
+        }
+        if (clientList.length === 0) {
+          clients.delete(reportId);
+          stopPolling(reportId);
+        }
+      }
+    }
+    logger.info(`SSE client disconnected: ${reportId}`);
+  };
+
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const client: SSEClient = { reportId, controller };
+      clientRef = client;
 
       // Add client to list
       if (!clients.has(reportId)) {
@@ -37,29 +73,14 @@ export function createSSEResponse(reportId: string) {
       controller.enqueue(encoder.encode('data: {"type":"connected"}\n\n'));
 
       // Heartbeat to keep connection alive
-      const heartbeat = setInterval(() => {
+      heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(': heartbeat\n\n'));
-        } catch {
-          clearInterval(heartbeat);
+        } catch (err) {
+          logger.warn(`Failed to send heartbeat to ${reportId}`, err instanceof Error ? err : undefined);
+          cleanup();
         }
       }, 30000);
-
-      // Cleanup
-      const cleanup = () => {
-        clearInterval(heartbeat);
-        const clientList = clients.get(reportId);
-        if (clientList) {
-          const index = clientList.indexOf(client);
-          if (index > -1) {
-            clientList.splice(index, 1);
-          }
-          if (clientList.length === 0) {
-            clients.delete(reportId);
-          }
-        }
-        logger.info(`SSE client disconnected: ${reportId}`);
-      };
 
       // Handle client disconnect
       const abortHandler = () => cleanup();
@@ -72,6 +93,9 @@ export function createSSEResponse(reportId: string) {
       } catch {
         // Ignore if not supported
       }
+    },
+    cancel() {
+      cleanup();
     },
   });
 
@@ -98,13 +122,24 @@ export function broadcastUpdate(reportId: string, data: Record<string, unknown>)
   const message = `data: ${JSON.stringify(data)}\n\n`;
   const encoded = encoder.encode(message);
 
-  clientList.forEach((client) => {
+  for (let i = clientList.length - 1; i >= 0; i -= 1) {
+    const client = clientList[i];
+    if (!client) {
+      clientList.splice(i, 1);
+      continue;
+    }
     try {
       client.controller.enqueue(encoded);
     } catch (err) {
       logger.warn(`Failed to send SSE message to ${reportId}`, err instanceof Error ? err : undefined);
+      clientList.splice(i, 1);
     }
-  });
+  }
+
+  if (clientList.length === 0) {
+    clients.delete(reportId);
+    stopPolling(reportId);
+  }
 }
 
 /**
@@ -121,20 +156,52 @@ export async function watchReportStatus(reportId: string) {
       return;
     }
 
-    const row = await queryOne<{ status: string | null; score: number | null }>(
-      `select status, score from analysis_reports where id = $1`,
+    await failTimedOutReport(reportId);
+
+    const row = await queryOne<{
+      status: string | null;
+      score: number | null;
+      analysis_progress: unknown;
+      token_usage: unknown;
+      tokens_used: number | null;
+      error_message: string | null;
+    }>(
+      `select status, score, analysis_progress, token_usage, tokens_used, error_message
+       from analysis_reports
+       where id = $1`,
       [reportId]
     );
 
     if (!row) return;
 
+    const analysisProgressJson = JSON.stringify(row.analysis_progress ?? null);
+    const tokenUsageJson = JSON.stringify(row.token_usage ?? null);
     const previous = lastSnapshots.get(reportId);
-    if (!previous || previous.status !== row.status || previous.score !== row.score) {
-      lastSnapshots.set(reportId, { status: row.status, score: row.score });
+    if (
+      !previous ||
+      previous.status !== row.status ||
+      previous.score !== row.score ||
+      previous.analysisProgressJson !== analysisProgressJson ||
+      previous.tokenUsageJson !== tokenUsageJson ||
+      previous.tokensUsed !== row.tokens_used ||
+      previous.errorMessage !== row.error_message
+    ) {
+      lastSnapshots.set(reportId, {
+        status: row.status,
+        score: row.score,
+        analysisProgressJson,
+        tokenUsageJson,
+        tokensUsed: row.tokens_used,
+        errorMessage: row.error_message,
+      });
       broadcastUpdate(reportId, {
         type: 'status_update',
         status: row.status,
         score: row.score,
+        analysisProgress: row.analysis_progress ?? null,
+        tokenUsage: row.token_usage ?? null,
+        tokensUsed: row.tokens_used ?? null,
+        errorMessage: row.error_message ?? null,
         timestamp: new Date().toISOString(),
       });
       logger.info(`Report status updated: ${reportId} -> ${row.status}`);

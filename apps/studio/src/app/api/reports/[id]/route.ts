@@ -8,6 +8,7 @@ import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { requireReportAccess } from '@/services/orgs';
+import { failTimedOutReport } from '@/services/reportTimeout';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +33,7 @@ export async function GET(
     logger.setContext({ reportId });
 
     await withRetry(() => requireReportAccess(reportId, user.id));
+    await failTimedOutReport(reportId);
     const report = await withRetry(() => getReportById(reportId));
     if (!report) {
       return NextResponse.json({ error: 'Report not found' }, { status: 404 });

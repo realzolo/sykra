@@ -251,6 +251,7 @@ docs/
     migrations/
       004_api_tokens.sql        # Adds api_tokens table for existing DB upgrades
       add_concurrency_mode.sql  # Adds pipelines.concurrency_mode for existing DB upgrades
+      005_analysis_progress_and_token_usage.sql # Adds analysis progress/token usage fields
 packages/
   contracts/                    # Shared API/contracts (active)
 ```
@@ -278,6 +279,8 @@ ANALYZE_DEDUPE_LOCK_TTL_SEC=           # In-flight dedupe lock TTL in seconds (d
 ANALYZE_BACKPRESSURE_PROJECT_ACTIVE_MAX= # Max active (pending/analyzing) reports per project before 503 (default 6)
 ANALYZE_BACKPRESSURE_ORG_ACTIVE_MAX=     # Max active (pending/analyzing) reports per org before 503 (default 60)
 ANALYZE_BACKPRESSURE_RETRY_AFTER_SEC=    # Retry-After hint for backpressure rejections (default 15)
+ANALYZE_REPORT_TIMEOUT_MS=               # Auto-fail threshold for pending/analyzing reports (ms, default 1200000)
+ANALYZE_REPORT_TIMEOUT_SWEEP_INTERVAL_MS= # Min interval between timeout sweeps in Studio workers (ms, default 30000)
 ```
 
 **Runner env (apps/runner):**
@@ -308,7 +311,7 @@ port = "8200"
 token = ""
 concurrency = 4
 queue = "analysis"
-analyze_timeout = "300s"
+analyze_timeout = "900s"
 data_dir = "data"
 
 [database]
@@ -340,6 +343,7 @@ Environment files for Studio live under `apps/studio` (e.g. `apps/studio/.env`).
 - AI config supports `model` (manual model ID allowed), optional `maxTokens`, `temperature`, and optional `reasoningEffort` (`none|minimal|low|medium|high|xhigh`)
 - Add/Edit AI Integration modals provide quick `maxTokens` profiles for common workloads (quick review, deep review, log analysis, auto-fix) while still allowing manual override
 - For official OpenAI endpoint (`https://api.openai.com/v1`), reasoning-capable models (for example `gpt-5*`, `o*`, `codex*`) use `/responses`; other providers remain on `/chat/completions`
+- Project-level AI integration binding can be changed in **Project Settings > Project Configuration**; selecting "Use organization default" clears project override and falls back to org default.
 - Non-sensitive config → `org_integrations` table; secrets → encrypted in `vault_secret_name`
 - Secret encryption format is strict AES-256-GCM with 12-byte nonce and 16-byte tag: `iv:authTag:salt:ciphertext`
 - Studio and Runner both enforce this format for integration secrets; if old secrets were produced with non-standard nonce/tag size, re-save/recreate those integrations to rotate ciphertext
@@ -371,10 +375,13 @@ If new install warnings appear, approve the dependency and update the allowlist.
    - request dedupe by semantic fingerprint (`org + project + commits + rules + mode`) with short Redis TTL
    - distributed rate limits (`org+user+project`, `org`, auxiliary IP hash)
    - queue backpressure guard based on active `analysis_reports` (`pending`/`analyzing`) counts
-2. On accepted request, Studio creates `analysis_reports` row and enqueues runner task
-3. API returns `{ reportId, status: "queued", taskId }` (or deduped existing report/task when applicable)
-4. Runner: fetch diff by commit SHA → AI analysis → sync `analysis_issues` → update status
-5. Frontend: SSE on `/api/reports/[id]/stream`, fallback to polling every 2.5s
+2. Studio performs integration preflight (AI integration must decrypt/resolve successfully) before creating report/task.
+3. On accepted request, Studio creates `analysis_reports` row and enqueues runner task
+4. API returns `{ reportId, status: "queued", taskId }` (or deduped existing report/task when applicable)
+5. Reports support manual termination via `POST /api/reports/[id]/terminate` (Studio marks report failed and requests Runner task cancellation).
+6. Studio also auto-fails timed-out reports (`pending`/`analyzing`) based on `ANALYZE_REPORT_TIMEOUT_MS`.
+7. Runner: fetch diff by commit SHA → emit structured progress (`analysis_progress`) → AI analysis → sync `analysis_issues` → persist token usage (`tokens_used` + `token_usage`) → update status
+8. Frontend: SSE on `/api/reports/[id]/stream` (status + progress + token usage), fallback to polling every 2.5s
 
 ## Pipeline Engine (CI/CD)
 
@@ -450,6 +457,7 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling runner (409 if `queue` mode and run active)
 - Studio server calls Runner `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` (used by `cancel_previous` concurrency mode)
 - AI integration runtime routing: official OpenAI + reasoning-capable model (or explicit `reasoningEffort`) calls `/responses`; otherwise calls `/chat/completions` (Anthropic base URL uses Messages API)
+- Report stream payload (`type: "status_update"`) includes `status`, `score`, `analysisProgress`, `tokenUsage`, `tokensUsed`, and `errorMessage`
 - `GET /api/rules/templates` returns static template list; `POST /api/rules/templates/[id]/import` is admin-only
 - Report compare page: `/o/:orgId/projects/:id/reports/compare?a=reportIdA&b=reportIdB`
 
@@ -461,12 +469,14 @@ Incremental migrations live in `docs/db/migrations/` and are used to upgrade exi
 ```bash
 psql "$DATABASE_URL" -f docs/db/migrations/004_api_tokens.sql
 psql "$DATABASE_URL" -f docs/db/migrations/add_concurrency_mode.sql
+psql "$DATABASE_URL" -f docs/db/migrations/005_analysis_progress_and_token_usage.sql
 ```
 
 | File | Description |
 |------|-------------|
 | `004_api_tokens.sql` | Adds `api_tokens` table and related indexes |
 | `add_concurrency_mode.sql` | Adds `concurrency_mode TEXT NOT NULL DEFAULT 'allow'` to `pipelines` table |
+| `005_analysis_progress_and_token_usage.sql` | Adds `analysis_progress JSONB` and `token_usage JSONB` to `analysis_reports` |
 
 ## FAQ
 

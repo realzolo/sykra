@@ -30,6 +30,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("config error: %v", err)
 	}
+	log.Printf(
+		"runner config loaded: queue=%s analyze_timeout=%s pipeline_queue=%s pipeline_run_timeout=%s",
+		cfg.Queue,
+		cfg.AnalyzeTimeout,
+		cfg.PipelineQueue,
+		cfg.PipelineRunTimeout,
+	)
 
 	ctx := context.Background()
 	st, err := store.New(ctx, cfg.DatabaseURL)
@@ -86,6 +93,8 @@ func main() {
 
 	client := asynq.NewClient(redisOpt)
 	defer client.Close()
+	inspector := asynq.NewInspector(redisOpt)
+	defer inspector.Close()
 
 	pipelineService := &pipeline.Service{
 		Store:       st,
@@ -99,7 +108,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: httpapi.New(cfg, client, pipelineService).Handler(),
+		Handler: httpapi.New(cfg, client, inspector, pipelineService).Handler(),
 	}
 
 	go func() {

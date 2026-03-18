@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { FileText, GitCompare, Trash2 } from 'lucide-react';
+import { AlertTriangle, FileText, GitCompare, Square, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import ConfirmDialog from '@/components/ui/confirm-dialog';
 import {
   Select,
   SelectContent,
@@ -64,6 +65,8 @@ export default function ProjectReportsView({
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [terminating, setTerminating] = useState<string | null>(null);
+  const [terminateTargetId, setTerminateTargetId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -93,6 +96,27 @@ export default function ProjectReportsView({
       toast.error(dict.reports.deleteFailed);
     } finally {
       setDeleting(null);
+    }
+  }
+
+  async function handleTerminate(reportId: string) {
+    setTerminating(reportId);
+    try {
+      const res = await fetch(`/api/reports/${reportId}/terminate`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? 'terminate_failed');
+      setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: 'failed' } : r));
+      toast.success(dict.reports.terminateSuccess);
+      const warning = (data as { warning?: string }).warning;
+      if (warning) {
+        toast.warning(warning);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : dict.reports.terminateFailed;
+      toast.error(message || dict.reports.terminateFailed);
+    } finally {
+      setTerminating(null);
+      setTerminateTargetId(null);
     }
   }
 
@@ -239,22 +263,56 @@ export default function ProjectReportsView({
                   {formatLocalDateTime(report.created_at)}
                 </div>
                 <div className="w-8 flex justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={e => { e.stopPropagation(); handleDelete(report.id); }}
-                    disabled={deleting === report.id}
-                    aria-label={dict.common.delete}
-                  >
-                    <Trash2 className="size-3.5 text-[hsl(var(--ds-text-2))]" />
-                  </Button>
+                  {(report.status === 'pending' || report.status === 'analyzing') ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setTerminateTargetId(report.id);
+                      }}
+                      disabled={terminating === report.id}
+                      aria-label={dict.reports.terminateAction}
+                    >
+                      <Square className="size-3.5 text-[hsl(var(--ds-text-2))]" />
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={e => { e.stopPropagation(); handleDelete(report.id); }}
+                      disabled={deleting === report.id}
+                      aria-label={dict.common.delete}
+                    >
+                      <Trash2 className="size-3.5 text-[hsl(var(--ds-text-2))]" />
+                    </Button>
+                  )}
                 </div>
               </div>
             );
           })
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!terminateTargetId}
+        onOpenChange={(open) => {
+          if (!open) setTerminateTargetId(null);
+        }}
+        title={dict.reports.terminateConfirmTitle}
+        description={dict.reports.terminateConfirmDescription}
+        confirmLabel={dict.reports.terminateAction}
+        cancelLabel={dict.common.cancel}
+        onConfirm={() => {
+          if (!terminateTargetId) return;
+          void handleTerminate(terminateTargetId);
+        }}
+        loading={!!terminateTargetId && terminating === terminateTargetId}
+        danger
+        icon={<AlertTriangle className="size-4 text-warning" />}
+      />
     </div>
   );
 }

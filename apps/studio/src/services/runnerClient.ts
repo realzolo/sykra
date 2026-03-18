@@ -29,6 +29,7 @@ type AnalyzePayload = {
 };
 
 type RunnerResponse = { taskId: string };
+type CancelAnalyzeResponse = { ok: true; taskId: string };
 
 function runnerBaseUrl() {
   const baseUrl = process.env.RUNNER_BASE_URL?.replace(/\/+$/, '');
@@ -79,6 +80,18 @@ export async function enqueueAnalyze(payload: AnalyzePayload): Promise<RunnerRes
   }
 
   return (await res.json()) as RunnerResponse;
+}
+
+export async function cancelAnalyzeTask(reportId: string): Promise<CancelAnalyzeResponse> {
+  const res = await fetch(`${runnerBaseUrl()}/v1/tasks/analyze/${reportId}/cancel`, {
+    method: 'POST',
+    headers: runnerHeaders(),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Runner cancel analyze failed: ${res.status} ${text}`);
+  }
+  return (await res.json()) as CancelAnalyzeResponse;
 }
 
 export async function listPipelines(orgId: string, projectId?: string | null): Promise<RunnerPipeline[]> {

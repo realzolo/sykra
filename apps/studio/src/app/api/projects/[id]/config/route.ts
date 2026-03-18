@@ -25,7 +25,7 @@ export async function GET(
   const { id } = await params;
   await requireProjectAccess(id, user.id);
   const data = await queryOne<Record<string, unknown>>(
-    `select ignore_patterns, quality_threshold, auto_analyze, webhook_url
+    `select ignore_patterns, quality_threshold, auto_analyze, webhook_url, ai_integration_id
      from code_projects
      where id = $1`,
     [id]
@@ -53,7 +53,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { ignorePatterns, qualityThreshold, autoAnalyze, webhookUrl } = body;
+  const { ignorePatterns, qualityThreshold, autoAnalyze, webhookUrl, aiIntegrationId } = body;
 
   const project = await requireProjectAccess(id, user.id);
   if (project.org_id) {
@@ -67,6 +67,25 @@ export async function PATCH(
   if (qualityThreshold !== undefined) updateData.quality_threshold = qualityThreshold;
   if (autoAnalyze !== undefined) updateData.auto_analyze = autoAnalyze;
   if (webhookUrl !== undefined) updateData.webhook_url = webhookUrl;
+  if (aiIntegrationId !== undefined) {
+    if (aiIntegrationId === null || aiIntegrationId === '') {
+      updateData.ai_integration_id = null;
+    } else {
+      if (typeof aiIntegrationId !== 'string') {
+        return NextResponse.json({ error: 'Invalid AI integration' }, { status: 400 });
+      }
+      const integration = await queryOne<{ id: string }>(
+        `select id
+         from org_integrations
+         where id = $1 and org_id = $2 and type = 'ai'`,
+        [aiIntegrationId, project.org_id]
+      );
+      if (!integration) {
+        return NextResponse.json({ error: 'Invalid AI integration' }, { status: 400 });
+      }
+      updateData.ai_integration_id = aiIntegrationId;
+    }
+  }
 
   const fields = Object.keys(updateData);
   if (fields.length === 0) {
