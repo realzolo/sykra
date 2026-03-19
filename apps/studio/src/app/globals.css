@@ -69,6 +69,10 @@
     --terminal-background: 0 0% 7%;
     --terminal-foreground: 142 72% 58%;
     --terminal-muted: var(--ds-text-2);
+
+    --scrollbar-track: var(--ds-surface-1);
+    --scrollbar-thumb: 0 0% 28%;
+    --scrollbar-thumb-hover: 0 0% 36%;
   }
 
   :root[data-theme="light"] {
@@ -126,6 +130,10 @@
     --terminal-background: 220 27% 10%;
     --terminal-foreground: 152 64% 62%;
     --terminal-muted: var(--ds-text-2);
+
+    --scrollbar-track: var(--ds-surface-1);
+    --scrollbar-thumb: 215 14% 70%;
+    --scrollbar-thumb-hover: 215 15% 58%;
   }
 
   * {
@@ -155,6 +163,31 @@
   pre,
   .font-mono {
     font-family: var(--font-mono, "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--scrollbar-thumb)) hsl(var(--scrollbar-track));
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: hsl(var(--scrollbar-track));
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--scrollbar-thumb));
+    border: 2px solid hsl(var(--scrollbar-track));
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--scrollbar-thumb-hover));
   }
 }
 

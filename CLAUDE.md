@@ -133,6 +133,7 @@ Rules:
 - Primary async route segments should provide `loading.tsx` boundaries; avoid pure text placeholders as the only loading state.
 - Destructive actions in product UI must use in-app confirmation dialogs (`components/ui/confirm-dialog.tsx`), not native `window.confirm`.
 - In client UI, use shared date format helpers from `src/lib/dateFormat.ts` instead of direct `toLocaleString`/`toLocaleDateString` calls in feature components.
+- Dialogs follow a **single-scroll-container** rule: avoid outer `DialogContent` scrolling for complex modals; body/content panes should own scrolling to prevent nested or redundant scrollbars.
 
 ## UI Design Guidelines
 

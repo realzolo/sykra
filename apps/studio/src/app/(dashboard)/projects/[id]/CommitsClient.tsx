@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Copy,
   ExternalLink,
+  MoreHorizontal,
   MessageSquare,
   Check,
   X,
@@ -29,6 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
 import { withOrgPrefix } from '@/lib/orgPath';
@@ -91,6 +93,8 @@ type FileTreeNode = {
 const PER_PAGE = 30;
 const DIFF_PAGE_SIZE = 200;
 const MAX_HIGHLIGHT_LINES = 800;
+const TREE_INDENT_STEP = 12;
+const TREE_MAX_INDENT = 84;
 const DEFAULT_DIFF_OPTIONS: DiffOptions = {
   showDiffOnly: true,
   ignoreWhitespace: false,
@@ -767,6 +771,51 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
     );
     return lineCount <= MAX_HIGHLIGHT_LINES;
   }, [diffOptions.syntaxHighlight, diffLanguage, baseDiffContent]);
+  const diffViewerStyles = useMemo(() => {
+    const palette = {
+      diffViewerBackground: 'hsl(var(--ds-background-1))',
+      diffViewerTitleBackground: 'hsl(var(--ds-background-2))',
+      diffViewerColor: 'hsl(var(--ds-text-1))',
+      diffViewerTitleColor: 'hsl(var(--ds-text-2))',
+      diffViewerTitleBorderColor: 'hsl(var(--ds-border-1))',
+      addedBackground: 'hsl(var(--ds-success-7)/0.12)',
+      addedColor: 'hsl(var(--ds-text-1))',
+      removedBackground: 'hsl(var(--ds-danger-7)/0.12)',
+      removedColor: 'hsl(var(--ds-text-1))',
+      changedBackground: 'hsl(var(--ds-accent-7)/0.1)',
+      wordAddedBackground: 'hsl(var(--ds-success-7)/0.24)',
+      wordRemovedBackground: 'hsl(var(--ds-danger-7)/0.24)',
+      addedGutterBackground: 'hsl(var(--ds-success-7)/0.18)',
+      removedGutterBackground: 'hsl(var(--ds-danger-7)/0.18)',
+      gutterBackground: 'hsl(var(--ds-background-2))',
+      gutterBackgroundDark: 'hsl(var(--ds-background-2))',
+      highlightBackground: 'hsl(var(--ds-accent-7)/0.16)',
+      highlightGutterBackground: 'hsl(var(--ds-accent-7)/0.2)',
+      codeFoldGutterBackground: 'hsl(var(--ds-background-2))',
+      codeFoldBackground: 'hsl(var(--ds-background-2))',
+      emptyLineBackground: 'hsl(var(--ds-background-1))',
+      gutterColor: 'hsl(var(--ds-text-2))',
+      addedGutterColor: 'hsl(var(--ds-text-2))',
+      removedGutterColor: 'hsl(var(--ds-text-2))',
+      codeFoldContentColor: 'hsl(var(--ds-text-2))',
+    };
+    return {
+      variables: {
+        light: palette,
+        dark: palette,
+      },
+      diffContainer: {
+        borderColor: 'hsl(var(--ds-border-1))',
+      },
+      contentText: {
+        fontSize: '12px',
+        lineHeight: 1.5,
+      },
+      lineNumber: {
+        fontSize: '11px',
+      },
+    };
+  }, []);
   const fileTree = useMemo(() => buildFileTree(filteredFiles), [filteredFiles]);
   const treeRows = useMemo(() => flattenFileTree(fileTree, collapsedDirs), [fileTree, collapsedDirs]);
   const diffSummary = useMemo(() => {
@@ -901,20 +950,21 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
 
   const syntaxCache = useMemo(() => new Map<string, string>(), [activeDiffFile?.key, diffOptions.syntaxHighlight]);
 
-  const renderContent = useCallback((source: string) => {
+  const renderContent = useCallback((source?: string) => {
+    const normalizedSource = typeof source === 'string' ? source : '';
     if (!highlightEnabled || !diffLanguage) {
-      return <span>{source}</span>;
+      return <span>{normalizedSource}</span>;
     }
-    if (source.length === 0) {
+    if (normalizedSource.length === 0) {
       return <span>&nbsp;</span>;
     }
-    const cached = syntaxCache.get(source);
+    const cached = syntaxCache.get(normalizedSource);
     if (cached) {
       return <span dangerouslySetInnerHTML={{ __html: cached }} />;
     }
-    const html = highlightLine(source, diffLanguage);
-    const value = html || escapeHtml(source);
-    syntaxCache.set(source, value);
+    const html = highlightLine(normalizedSource, diffLanguage);
+    const value = html || escapeHtml(normalizedSource);
+    syntaxCache.set(normalizedSource, value);
     return <span dangerouslySetInnerHTML={{ __html: value }} />;
   }, [diffLanguage, diffOptions.syntaxHighlight, syntaxCache]);
 
@@ -1008,7 +1058,10 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
       const nextIndex = direction === 'next'
         ? (prev + 1) % changeAnchors.length
         : (prev - 1 + changeAnchors.length) % changeAnchors.length;
-      scrollToLineId(changeAnchors[nextIndex]);
+      const targetLineId = changeAnchors[nextIndex];
+      if (targetLineId) {
+        scrollToLineId(targetLineId);
+      }
       return nextIndex;
     });
   }, [changeAnchors, scrollToLineId]);
@@ -1365,34 +1418,35 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
       </Dialog>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="w-[96vw] max-w-[1400px] max-h-[92vh]">
+        <DialogContent className="w-[96vw] max-w-[1400px] max-h-[92vh] flex flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>{dict.commits.commitChanges}</DialogTitle>
           </DialogHeader>
-          {detailMode === 'commit' && detailCommit && (
-            <div className="text-[12px] text-[hsl(var(--ds-text-2))] flex flex-wrap items-center gap-2">
-              <code className="rounded-[4px] bg-[hsl(var(--ds-surface-2))] px-2 py-0.5">{detailCommit.sha.slice(0, 7)}</code>
-              <span className="text-foreground">{detailCommit.message}</span>
-              <span className="text-[hsl(var(--ds-text-2))]">·</span>
-              <span>{detailCommit.author}</span>
-              <span className="text-[hsl(var(--ds-text-2))]">·</span>
-              <span>{formatDate(detailCommit.date)}</span>
-            </div>
-          )}
-          {detailMode === 'compare' && (
-            <div className="text-[12px] text-[hsl(var(--ds-text-2))] flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{compareBase}</Badge>
-              <span>→</span>
-              <Badge variant="outline">{compareHead}</Badge>
-              {diffSummary?.largestFile && (
-                <>
-                  <span className="text-[hsl(var(--ds-text-2))]">·</span>
-                  <span>{dict.commits.largestFile.replace('{{path}}', diffSummary.largestFile.newPath || diffSummary.largestFile.oldPath || diffSummary.largestFile.displayPath)}</span>
-                </>
-              )}
-            </div>
-          )}
-          <div className="mt-4 border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden bg-[hsl(var(--ds-background-1))]">
+          <div className="flex flex-1 min-h-0 flex-col">
+            {detailMode === 'commit' && detailCommit && (
+              <div className="text-[12px] text-[hsl(var(--ds-text-2))] flex flex-wrap items-center gap-2">
+                <code className="rounded-[4px] bg-[hsl(var(--ds-surface-2))] px-2 py-0.5">{detailCommit.sha.slice(0, 7)}</code>
+                <span className="text-foreground">{detailCommit.message}</span>
+                <span className="text-[hsl(var(--ds-text-2))]">·</span>
+                <span>{detailCommit.author}</span>
+                <span className="text-[hsl(var(--ds-text-2))]">·</span>
+                <span>{formatDate(detailCommit.date)}</span>
+              </div>
+            )}
+            {detailMode === 'compare' && (
+              <div className="text-[12px] text-[hsl(var(--ds-text-2))] flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{compareBase}</Badge>
+                <span>→</span>
+                <Badge variant="outline">{compareHead}</Badge>
+                {diffSummary?.largestFile && (
+                  <>
+                    <span className="text-[hsl(var(--ds-text-2))]">·</span>
+                    <span>{dict.commits.largestFile.replace('{{path}}', diffSummary.largestFile.newPath || diffSummary.largestFile.oldPath || diffSummary.largestFile.displayPath)}</span>
+                  </>
+                )}
+              </div>
+            )}
+            <div className="mt-4 flex flex-1 min-h-0 flex-col border border-[hsl(var(--ds-border-1))] rounded-[8px] !overflow-hidden bg-[hsl(var(--ds-background-1))]">
             {detailLoading && (
               <div className="p-4 space-y-2">
                 {Array.from({ length: 12 }).map((_, index) => (
@@ -1404,8 +1458,8 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
               <div className="p-6 text-[13px] text-[hsl(var(--ds-text-2))]">{dict.commits.diffFailed}</div>
             )}
             {!detailLoading && !detailError && detailFiles.length > 0 && (
-              <div className="h-[78vh] grid grid-cols-[300px_minmax(0,1fr)]">
-                <aside className="border-r border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] overflow-y-auto">
+              <div className="flex-1 min-h-0 grid grid-cols-[300px_minmax(0,1fr)]">
+                <aside className="h-full min-h-0 border-r border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] grid grid-rows-[auto_minmax(0,1fr)]">
                   <div className="px-3 py-2 border-b border-[hsl(var(--ds-border-1))] space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-[11px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
@@ -1471,10 +1525,20 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
                       </button>
                     </div>
                   </div>
-                  <div className="p-2 space-y-1">
+                  <div
+                    className="h-full min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1"
+                    onWheel={(event) => {
+                      const container = event.currentTarget;
+                      if (container.scrollHeight <= container.clientHeight) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      container.scrollTop += event.deltaY;
+                    }}
+                  >
                     {treeRows.map((node) => {
                       if (node.isDir) {
                         const isCollapsed = collapsedDirs[node.path];
+                        const depthPadding = Math.min(node.depth * TREE_INDENT_STEP, TREE_MAX_INDENT);
                         return (
                           <button
                             key={node.id}
@@ -1482,7 +1546,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
                             onClick={() => setCollapsedDirs((prev) => ({ ...prev, [node.path]: !prev[node.path] }))}
                             className="w-full text-left rounded-[6px] px-2.5 py-2 border border-transparent hover:border-[hsl(var(--ds-border-1))] hover:bg-[hsl(var(--ds-surface-1))]"
                           >
-                            <div className="flex items-center gap-2" style={{ paddingLeft: `${node.depth * 12}px` }}>
+                            <div className="flex items-center gap-2" style={{ paddingLeft: `${depthPadding}px` }}>
                               {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                               <span className="text-[12px] text-foreground">{node.name}</span>
                             </div>
@@ -1493,77 +1557,125 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
                       if (!file) return null;
                       const isActive = (activeDiffFile?.key ?? '') === file.key;
                       const filePath = file.newPath || file.oldPath || file.displayPath;
+                      const parentPath = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : '';
+                      const depthPadding = Math.min(node.depth * TREE_INDENT_STEP, TREE_MAX_INDENT);
                       const commentCount = commentCounts[filePath] ?? 0;
                       const isReviewed = !!reviewedFiles[filePath];
                       return (
-                        <button
+                        <div
                           key={file.key}
-                          type="button"
                           onClick={() => setActiveFileKey(file.key)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setActiveFileKey(file.key);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={isActive}
                           className={[
-                            'w-full text-left rounded-[6px] px-2.5 py-2 border transition-colors',
+                            'group w-full text-left rounded-[6px] px-2.5 py-2 border transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-[hsl(var(--ds-accent-7)/0.45)]',
                             isActive
                               ? 'bg-[hsl(var(--ds-accent-7)/0.12)] border-[hsl(var(--ds-accent-7)/0.3)]'
                               : 'bg-transparent border-transparent hover:bg-[hsl(var(--ds-surface-1))] hover:border-[hsl(var(--ds-border-1))]',
                           ].join(' ')}
                         >
-                          <div className="flex items-start gap-2" style={{ paddingLeft: `${node.depth * 12}px` }}>
+                          <div className="flex items-start gap-2" style={{ paddingLeft: `${depthPadding}px` }}>
                             <span className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-[4px] border text-[11px] font-semibold ${STATUS_STYLES[file.status]}`}>
                               {file.status}
                             </span>
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <div className="text-[12px] leading-5 break-all">{filePath}</div>
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="min-w-0 flex-1 truncate whitespace-nowrap text-[12px] leading-5" title={filePath}>
+                                  {node.name}
+                                </div>
+                                <span className="shrink-0 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                  {dict.commits.fileStats
+                                    .replace('{{additions}}', String(file.additions))
+                                    .replace('{{deletions}}', String(file.deletions))}
+                                </span>
                                 {isReviewed && <Badge variant="success">{dict.commits.reviewed}</Badge>}
                               </div>
-                              <div className="text-[11px] text-[hsl(var(--ds-text-2))] mt-0.5 flex items-center gap-2">
-                                {dict.commits.fileStats
-                                  .replace('{{additions}}', String(file.additions))
-                                  .replace('{{deletions}}', String(file.deletions))}
-                                {commentCount > 0 && (
-                                  <span className="inline-flex items-center gap-1">
-                                    <MessageSquare className="h-3 w-3" />
-                                    {commentCount}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  if (filePath) void copyFilePath(filePath);
-                                }}
-                              >
-                                <Copy className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  if (filePath) openCodebaseAt(filePath);
-                                }}
-                              >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                              </Button>
-                              {detailMode === 'commit' && (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void toggleFileReviewed(file);
-                                  }}
-                                >
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                </Button>
+                              {(parentPath || commentCount > 0) && (
+                                <div className="mt-0.5 flex items-center gap-2 text-[10px] text-[hsl(var(--ds-text-2))]">
+                                  {parentPath && (
+                                    <div
+                                      className="min-w-0 flex-1 truncate whitespace-nowrap"
+                                      title={parentPath}
+                                    >
+                                      {parentPath}
+                                    </div>
+                                  )}
+                                  {commentCount > 0 && (
+                                    <span className="inline-flex shrink-0 items-center gap-1">
+                                      <MessageSquare className="h-3 w-3" />
+                                      {commentCount}
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </div>
+                            <div
+                              className={[
+                                'shrink-0 overflow-hidden transition-[width,opacity] duration-100',
+                                isActive
+                                  ? 'w-6 opacity-100'
+                                  : 'w-0 opacity-0 group-hover:w-6 group-hover:opacity-100 group-focus-within:w-6 group-focus-within:opacity-100',
+                              ].join(' ')}
+                            >
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-6 w-6"
+                                    aria-label={dict.common.actions}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                    }}
+                                    onKeyDown={(event) => {
+                                      event.stopPropagation();
+                                    }}
+                                  >
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-44">
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      if (filePath) void copyFilePath(filePath);
+                                    }}
+                                    className="gap-2"
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                    {dict.common.copy}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      if (filePath) openCodebaseAt(filePath);
+                                    }}
+                                    className="gap-2"
+                                  >
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                    {dict.commits.openInCodebase}
+                                  </DropdownMenuItem>
+                                  {detailMode === 'commit' && (
+                                    <DropdownMenuItem
+                                      onSelect={() => {
+                                        void toggleFileReviewed(file);
+                                      }}
+                                      className="gap-2"
+                                    >
+                                      <CheckCircle2 className="h-3.5 w-3.5" />
+                                      {dict.commits.markReviewed}
+                                    </DropdownMenuItem>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </div>
-                        </button>
+                        </div>
                       );
                     })}
                     {filteredFiles.length === 0 && (
@@ -1719,6 +1831,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
                                 ? DiffMethod.WORDS
                                 : DiffMethod.WORDS_WITH_SPACE
                             }
+                            styles={diffViewerStyles}
                             renderContent={renderContent}
                             renderGutter={renderGutter}
                             highlightLines={highlightLines}
@@ -1814,6 +1927,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
             {!detailLoading && !detailError && detailDiff && detailFiles.length === 0 && (
               <div className="p-6 text-[13px] text-[hsl(var(--ds-text-2))]">{dict.commits.noParsedFiles}</div>
             )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDetailOpen(false)}>{dict.common.close}</Button>

@@ -32,7 +32,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 w-[calc(100%-1.5rem)] max-w-lg max-h-[calc(100vh-1.5rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[10px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-background-2))] p-0 shadow-[0_16px_48px_hsl(0_0%_0%/0.4)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 [&>[data-slot=dialog-header]~*:not([data-slot=dialog-footer]):not([data-slot=dialog-close])]:px-6 [&>[data-slot=dialog-header]~*:not([data-slot=dialog-footer]):not([data-slot=dialog-close])]:py-5',
+        'fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100vh-1.5rem)] w-[calc(100%-1.5rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[10px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-background-2))] p-0 shadow-[0_16px_48px_hsl(0_0%_0%/0.4)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 [&>[data-slot=dialog-header]~*:not([data-slot=dialog-footer]):not([data-slot=dialog-close])]:min-h-0 [&>[data-slot=dialog-header]~*:not([data-slot=dialog-footer]):not([data-slot=dialog-close])]:px-6 [&>[data-slot=dialog-header]~*:not([data-slot=dialog-footer]):not([data-slot=dialog-close])]:py-5',
         className,
       )}
       {...props}
@@ -60,7 +60,7 @@ const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 DialogHeader.displayName = 'DialogHeader';
 
 const DialogBody = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div data-slot="dialog-body" className={cn('px-6 py-5', className)} {...props} />
+  <div data-slot="dialog-body" className={cn('min-h-0 overflow-y-auto px-6 py-5', className)} {...props} />
 );
 DialogBody.displayName = 'DialogBody';
 
