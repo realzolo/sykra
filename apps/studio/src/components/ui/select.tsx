@@ -11,14 +11,14 @@ const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
 >(({ className, children, ...props }, ref) => (
-  <SelectPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      'flex h-8 w-full items-center justify-between rounded-[6px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-surface-1))] px-3 py-2 text-[13px] text-foreground transition-colors duration-100 focus:outline-none focus:border-[hsl(var(--ds-accent-7))] hover:bg-[hsl(var(--ds-surface-2))] disabled:cursor-not-allowed disabled:opacity-50',
-      className,
-    )}
-    {...props}
-  >
+    <SelectPrimitive.Trigger
+      ref={ref}
+      className={cn(
+        'flex h-8 w-full min-w-0 items-center justify-between overflow-hidden rounded-[6px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-surface-1))] px-3 py-2 text-[13px] text-foreground transition-colors duration-100 focus:outline-none focus:border-[hsl(var(--ds-accent-7))] hover:bg-[hsl(var(--ds-surface-2))] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:block [&>span]:min-w-0 [&>span]:max-w-[calc(100%-1.25rem)] [&>span]:truncate',
+        className,
+      )}
+      {...props}
+    >
     {children}
     <SelectPrimitive.Icon asChild>
       <ChevronDown className="h-3.5 w-3.5 text-[hsl(var(--ds-text-2))]" />
@@ -79,7 +79,7 @@ const SelectItem = React.forwardRef<
         <Check className="h-3.5 w-3.5" />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    <SelectPrimitive.ItemText className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">{children}</SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
 ));
 SelectItem.displayName = SelectPrimitive.Item.displayName;

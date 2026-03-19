@@ -506,6 +506,8 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - AI integration runtime routing: official OpenAI + reasoning-capable model (or explicit `reasoningEffort`) calls `/responses`; otherwise calls `/chat/completions` (Anthropic base URL uses Messages API)
 - AI integration protocol selection requires explicit `apiStyle`: `anthropic` forces Messages API; `openai` forces OpenAI-compatible APIs.
 - `POST /api/reports/[id]/chat` resolves AI config from project/org integrations (same precedence as analyze), streams assistant output via SSE (`meta` / `delta` / `done` / `error` events), and returns integration binding errors (`AI_INTEGRATION_MISSING` / `AI_INTEGRATION_REBIND_REQUIRED`) instead of relying on `ANTHROPIC_API_KEY`.
+- `POST /api/reports/[id]/chat` accepts `issueId` as either canonical issue UUID or composite fallback key (`file::line::category::rule::message`) for report rows that lack persisted issue UUIDs; composite keys are used for focus-context matching only.
+- `GET /api/reports/[id]` enriches `issues` with canonical `analysis_issues.id` UUID (plus normalized issue fields from `analysis_issues`) so frontend issue actions (comments/chat) use stable per-issue identifiers without client-side fuzzy matching.
 - `GET /api/reports/[id]/chat?issueId=<issue-uuid>` returns the latest conversation for that issue (used to restore chat history when reopening the same issue dialog).
 - `GET /api/reports/[id]/chat?latest=1` returns only the latest conversation for the report (used by AI chat initialization to avoid loading full history).
 - Chat history query responses include `updated_at` for ordering conversation history in the AI reviewer dialog.

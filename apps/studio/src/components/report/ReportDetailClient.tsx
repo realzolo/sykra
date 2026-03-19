@@ -31,6 +31,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatLocalDate } from '@/lib/dateFormat';
 
 type Issue = {
+  id?: string;
   file: string; line?: number;
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   category: string; rule: string; message: string; suggestion?: string;
@@ -266,8 +267,6 @@ export default function ReportDetailClient({
   const [report, setReport] = useState<Report | null>(initialReport ?? null);
   const [loading, setLoading] = useState(!initialReport);
   const [loadError, setLoadError] = useState(false);
-  // Map "file:line" → DB issue UUID for comment threads
-  const [issueIdMap, setIssueIdMap] = useState<Record<string, string>>({});
   const [sevFilter, setSevFilter] = useState('all');
   const [catFilter, setCatFilter] = useState('all');
   const [retrying, setRetrying] = useState(false);
@@ -310,25 +309,6 @@ export default function ReportDetailClient({
       active = false;
     };
   }, [initialReport, reportId]);
-
-  // Fetch DB issue UUIDs when report is done, to power comment threads
-  useEffect(() => {
-    if (!report || (report.status !== 'done' && report.status !== 'partial_failed')) return;
-    fetch(`/api/reports/${report.id}/issues`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data?.issues) return;
-        const map: Record<string, string> = {};
-        for (const issue of data.issues) {
-          const key = `${issue.file}:${issue.line ?? ''}:${issue.category}:${issue.rule}`;
-          map[key] = issue.id;
-        }
-        setIssueIdMap(map);
-      })
-      .catch(() => {
-        setIssueIdMap({});
-      });
-  }, [report]);
 
   useEffect(() => {
     if (!report?.id) return;
@@ -973,14 +953,15 @@ export default function ReportDetailClient({
                     ) : (
                       <div className="space-y-3">
                         {filteredIssues.map((issue, idx) => {
-                          const issueId = issueIdMap[`${issue.file}:${issue.line ?? ''}:${issue.category}:${issue.rule}`];
+                          const issueId = issue.id;
+                          const issueRef = issueId ?? `${issue.file}::${issue.line ?? ''}::${issue.category}::${issue.rule}::${issue.message ?? ''}`;
                           return (
                             <IssueCard
                               key={issue.file + '-' + issue.line + '-' + idx}
                               issue={issue}
                               {...(issueId ? { issueId } : {})}
                               reportId={report.id}
-                              onChat={() => openChat(issueId ?? issue.file, issue.line ? `${issue.file}:${issue.line}` : issue.file)}
+                              onChat={() => openChat(issueRef, issue.line ? `${issue.file}:${issue.line}` : issue.file)}
                               codebaseHref={codebaseHrefForIssue(issue)}
                               dict={dict}
                             />

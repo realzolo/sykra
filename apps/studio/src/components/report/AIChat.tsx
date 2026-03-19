@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Copy, History, Loader2, MessageCircle, Plus, Send, Sparkles, Square } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Copy, FileText, History, Loader2, MessageCircle, Pencil, Plus, Send, Sparkles, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
 import { formatLocalDateTime } from '@/lib/dateFormat';
@@ -17,12 +17,13 @@ type Block =
   | { type: 'paragraph'; text: string }
   | { type: 'ul'; items: string[] }
   | { type: 'ol'; items: string[] }
+  | { type: 'task'; items: Array<{ checked: boolean; text: string }> }
   | { type: 'quote'; text: string }
   | { type: 'code'; language: string; value: string }
+  | { type: 'table'; headers: string[]; rows: string[][] }
   | { type: 'hr' };
 
 const NEW_CONV = '__new__';
-const NO_CONV = '__none__';
 const INIT_TTL = 10000;
 const LIST_TTL = 8000;
 
@@ -52,6 +53,17 @@ export default function AIChat({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [localPrompt, setLocalPrompt] = useState('');
+  const [focusOpen, setFocusOpen] = useState(true);
+  const [conversationOpen, setConversationOpen] = useState(true);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [conversationSearch, setConversationSearch] = useState('');
+  const [conversationTitles, setConversationTitles] = useState<Record<string, string>>({});
+  const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [sidebarWidth, setSidebarWidth] = useState(312);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const isResizingRef = useRef(false);
 
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -106,6 +118,47 @@ export default function AIChat({
     return () => window.clearInterval(t);
   }, [loading, startedAt]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(`ai-chat-titles:${reportId}`);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object') setConversationTitles(parsed as Record<string, string>);
+      else setConversationTitles({});
+    } catch {
+      setConversationTitles({});
+    }
+    setRenamingConversationId(null);
+    setRenameDraft('');
+    setConversationSearch('');
+  }, [reportId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(`ai-chat-titles:${reportId}`, JSON.stringify(conversationTitles));
+    } catch {
+      // ignore storage write failures
+    }
+  }, [reportId, conversationTitles]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const next = Math.min(420, Math.max(260, e.clientX));
+      setSidebarWidth(next);
+    };
+    const onUp = () => {
+      isResizingRef.current = false;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
   function resizeInput(el: HTMLTextAreaElement) {
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
@@ -141,7 +194,7 @@ export default function AIChat({
   }
 
   async function selectConversation(value: string) {
-    if (value === NEW_CONV || value === NO_CONV) {
+    if (value === NEW_CONV) {
       startNewConversation();
       return;
     }
@@ -317,155 +370,362 @@ export default function AIChat({
     }
   }
 
-  const currentValue = conversationId ?? NEW_CONV;
+  async function generateLocalPrompt() {
+    const prompt = buildLocalAIPrompt(issueContext, messages);
+    setLocalPrompt(prompt);
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast.success(dict.reportDetail.aiChatPromptCopied);
+    } catch {
+      toast.error(dict.common.error);
+    }
+  }
+
+  function defaultConversationLabel(row: ConversationRow, idx: number): string {
+    return `${row.updated_at ? formatLocalDateTime(row.updated_at) : `#${idx + 1}`} · ${preview(row.messages)}`;
+  }
+
+  function conversationLabel(row: ConversationRow, idx: number): string {
+    const custom = conversationTitles[row.id]?.trim();
+    if (custom) return custom;
+    return defaultConversationLabel(row, idx);
+  }
+
+  function beginRename(row: ConversationRow, idx: number) {
+    setRenamingConversationId(row.id);
+    setRenameDraft(conversationLabel(row, idx));
+  }
+
+  function cancelRename() {
+    setRenamingConversationId(null);
+    setRenameDraft('');
+  }
+
+  function saveRename(rowId: string) {
+    const next = renameDraft.trim();
+    setConversationTitles((prev) => {
+      const map = { ...prev };
+      if (!next) delete map[rowId];
+      else map[rowId] = next;
+      return map;
+    });
+    setRenamingConversationId(null);
+    setRenameDraft('');
+  }
+
+  const selectedRowIndex = conversationId ? historyRows.findIndex((row) => row.id === conversationId) : -1;
+  const selectedConversationLabel = selectedRowIndex >= 0
+    ? clip(
+        conversationLabel(historyRows[selectedRowIndex], selectedRowIndex),
+        18,
+      )
+    : dict.reportDetail.aiChatNewConversation;
+  const filteredHistoryRows = historyRows.filter((row, idx) => {
+    if (!conversationSearch.trim()) return true;
+    const query = conversationSearch.trim().toLowerCase();
+    return conversationLabel(row, idx).toLowerCase().includes(query);
+  });
 
   return (
-    <div className="flex h-full flex-col bg-[hsl(var(--ds-background-2))]">
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-[radial-gradient(circle_at_top,hsl(var(--ds-surface-1))_0%,transparent_42%)]">
-        {/* header and controls */}
-        <div className="sticky top-0 z-10 -mt-1 mb-3 space-y-2 rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))/0.9] px-3 py-2 backdrop-blur-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div className="inline-flex items-center gap-1.5 text-[11px] text-[hsl(var(--ds-text-2))]">
-              <Sparkles className="size-3.5" />
-              <span>{dict.reportDetail.aiReviewer}</span>
-              <span className="mx-1 text-[hsl(var(--ds-border-2))]">|</span>
-              <span>{dict.reportDetail.aiChatFocusIssue}</span>
-              <span className="font-medium text-foreground">{issueContext ?? dict.reportDetail.aiChatAllIssues}</span>
-            </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-2 py-1 text-[11px]">
-              {loading ? <TypingDots compact /> : <span className="size-1.5 rounded-full bg-success" />}
-              {loading ? (
-                <span className="text-[hsl(var(--ds-text-2))]">
-                  {dict.reportDetail.aiChatGenerating} · {dict.reportDetail.aiChatElapsed}: {formatElapsed(elapsedMs)}
+    <div className="flex h-full min-h-0 overflow-hidden bg-[hsl(var(--ds-background-2))]">
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+        <aside
+          className={`shrink-0 min-h-0 overflow-y-auto border-b border-[hsl(var(--ds-border-1))] bg-[linear-gradient(180deg,hsl(var(--ds-background-2))_0%,hsl(var(--ds-surface-1))_100%)] lg:h-full lg:border-b-0 lg:border-r ${sidebarCollapsed ? 'lg:w-0 lg:border-r-0' : ''}`}
+          style={sidebarCollapsed ? undefined : { width: `${sidebarWidth}px` }}
+        >
+          <div className="space-y-3 p-4">
+            <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))]">
+              <button type="button" className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left" onClick={() => setFocusOpen((v) => !v)}>
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-[hsl(var(--ds-text-2))]">
+                  <Sparkles className="size-3.5 shrink-0" />
+                  {dict.reportDetail.aiReviewer}
                 </span>
+                <ChevronDown className={`size-3.5 text-[hsl(var(--ds-text-2))] transition-transform ${focusOpen ? 'rotate-0' : '-rotate-90'}`} />
+              </button>
+              {focusOpen ? (
+                <div className="border-t border-[hsl(var(--ds-border-1))] px-3 py-2 text-[11px] text-[hsl(var(--ds-text-2))]">
+                  <div>{dict.reportDetail.aiChatFocusIssue}</div>
+                  <div className="mt-1 truncate font-medium text-foreground" title={issueContext ?? dict.reportDetail.aiChatAllIssues}>
+                    {issueContext ?? dict.reportDetail.aiChatAllIssues}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-1))/0.7]">
+              <button type="button" className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left" onClick={() => setConversationOpen((v) => !v)}>
+                <span className="text-[11px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.aiChatConversation}</span>
+                <ChevronDown className={`size-3.5 text-[hsl(var(--ds-text-2))] transition-transform ${conversationOpen ? 'rotate-0' : '-rotate-90'}`} />
+              </button>
+              {conversationOpen ? (
+                <div className="space-y-2 border-t border-[hsl(var(--ds-border-1))] p-3">
+                  <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-2.5 py-2 text-[11px] text-[hsl(var(--ds-text-2))]">
+                    <span className="mr-1">{dict.reportDetail.aiChatConversation}:</span>
+                    <span className="font-medium text-foreground" title={selectedConversationLabel}>{selectedConversationLabel}</span>
+                  </div>
+                  <Input
+                    value={conversationSearch}
+                    onChange={(e) => setConversationSearch(e.target.value)}
+                    placeholder={dict.reportDetail.aiChatSearchConversation}
+                    className="h-8 text-[12px]"
+                  />
+                  <div className="max-h-[180px] space-y-1 overflow-y-auto rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-1">
+                    <button
+                      type="button"
+                      className={`flex w-full items-center justify-between rounded-[6px] px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-[hsl(var(--ds-surface-2))] ${conversationId == null ? 'bg-[hsl(var(--ds-surface-2))]' : ''}`}
+                      onClick={startNewConversation}
+                    >
+                      <span className="truncate">{dict.reportDetail.aiChatNewConversation}</span>
+                      <Plus className="size-3.5 text-[hsl(var(--ds-text-2))]" />
+                    </button>
+                    {filteredHistoryRows.length === 0 ? (
+                      <div className="px-2 py-2 text-[11px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.aiChatNoConversations}</div>
+                    ) : (
+                      filteredHistoryRows.map((row) => {
+                        const idx = historyRows.findIndex((item) => item.id === row.id);
+                        const fullLabel = conversationLabel(row, idx);
+                        const active = conversationId === row.id;
+                        const editing = renamingConversationId === row.id;
+                        return (
+                          <div key={row.id} className={`rounded-[6px] ${active ? 'bg-[hsl(var(--ds-surface-2))]' : ''}`}>
+                            {editing ? (
+                              <div className="flex items-center gap-1 px-2 py-1.5">
+                                <Input
+                                  value={renameDraft}
+                                  onChange={(e) => setRenameDraft(e.target.value)}
+                                  placeholder={dict.reportDetail.aiChatRenamePlaceholder}
+                                  className="h-7 text-[12px]"
+                                />
+                                <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => saveRename(row.id)}>
+                                  <Check className="size-3.5" />
+                                </Button>
+                                <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={cancelRename}>
+                                  <X className="size-3.5" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="flex min-w-0 flex-1 items-center px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-[hsl(var(--ds-surface-2))]"
+                                  title={fullLabel}
+                                  onClick={() => { void selectConversation(row.id); }}
+                                >
+                                  <span className="truncate">{clip(fullLabel, 48)}</span>
+                                </button>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="mr-1 h-7 w-7"
+                                  title={dict.reportDetail.aiChatRenameConversation}
+                                  onClick={() => beginRename(row, idx)}
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                    <Button variant="outline" size="sm" className="justify-start gap-1.5" disabled={historyLoading} onClick={() => { void refreshHistory(true); }}>
+                      {historyLoading ? <Loader2 className="size-3.5 animate-spin" /> : <History className="size-3.5" />}
+                      {dict.reportDetail.aiChatRefreshHistory}
+                    </Button>
+                    <Button variant="outline" size="sm" className="justify-start gap-1.5" onClick={startNewConversation}>
+                      <Plus className="size-3.5" />
+                      {dict.reportDetail.aiChatNewConversation}
+                    </Button>
+                    {loading ? (
+                      <Button variant="outline" size="sm" className="justify-start gap-1.5 sm:col-span-2 lg:col-span-1" onClick={stopGeneration}>
+                        <Square className="size-3.5" />
+                        {dict.reportDetail.aiChatStop}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-1))/0.72]">
+              <button type="button" className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left" onClick={() => setPromptOpen((v) => !v)}>
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-[hsl(var(--ds-text-2))]">
+                  <FileText className="size-3.5" />
+                  {dict.reportDetail.aiChatPromptToolkit}
+                </span>
+                <ChevronDown className={`size-3.5 text-[hsl(var(--ds-text-2))] transition-transform ${promptOpen ? 'rotate-0' : '-rotate-90'}`} />
+              </button>
+              {promptOpen ? (
+                <div className="space-y-2 border-t border-[hsl(var(--ds-border-1))] p-3">
+                  <div className="text-[11px] leading-relaxed text-[hsl(var(--ds-text-2))]">{dict.reportDetail.aiChatPromptDescription}</div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                    <Button type="button" variant="outline" size="sm" className="justify-start" onClick={() => { void generateLocalPrompt(); }}>
+                      {localPrompt ? dict.reportDetail.aiChatPromptRegenerate : dict.reportDetail.aiChatPromptGenerate}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" className="justify-start" disabled={!localPrompt.trim()} onClick={() => { void copyText(localPrompt); }}>
+                      {dict.reportDetail.aiChatPromptCopy}
+                    </Button>
+                  </div>
+                  <Textarea
+                    value={localPrompt}
+                    readOnly
+                    placeholder={dict.reportDetail.aiChatPromptPlaceholder}
+                    className="min-h-[116px] resize-y bg-[hsl(var(--ds-background-2))] text-[12px] leading-relaxed"
+                  />
+                </div>
               ) : null}
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="min-w-[240px] flex-1 max-w-[360px]">
-              <Select value={currentValue} onValueChange={(v) => { void selectConversation(v); }}>
-                <SelectTrigger className="h-8">
-                  <SelectValue placeholder={dict.reportDetail.aiChatConversation} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NEW_CONV}>{dict.reportDetail.aiChatNewConversation}</SelectItem>
-                  {historyRows.length > 0 ? null : <SelectItem value={NO_CONV} disabled>{dict.reportDetail.aiChatNoConversations}</SelectItem>}
-                  {historyRows.map((row, idx) => (
-                    <SelectItem key={row.id} value={row.id}>
-                      {`${row.updated_at ? formatLocalDateTime(row.updated_at) : `#${idx + 1}`} · ${preview(row.messages)}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button variant="outline" size="sm" className="gap-1.5" disabled={historyLoading} onClick={() => { void refreshHistory(true); }}>
-              {historyLoading ? <Loader2 className="size-3.5 animate-spin" /> : <History className="size-3.5" />}
-              {dict.reportDetail.aiChatRefreshHistory}
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={startNewConversation}>
-              <Plus className="size-3.5" />
-              {dict.reportDetail.aiChatNewConversation}
-            </Button>
-            {loading ? (
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={stopGeneration}>
-                <Square className="size-3.5" />
-                {dict.reportDetail.aiChatStop}
-              </Button>
-            ) : null}
-          </div>
-        </div>
+        </aside>
 
-        {initialLoading ? (
-          <div className="mx-auto w-full max-w-3xl space-y-4 pt-2">
-            <div className="flex justify-start">
-              <div className="w-[78%] rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3">
-                <Skeleton className="h-3 w-3/5" />
-                <Skeleton className="mt-2 h-3 w-full" />
-                <Skeleton className="mt-2 h-3 w-4/5" />
+        <div
+          className={`hidden lg:block w-1.5 cursor-col-resize bg-transparent hover:bg-[hsl(var(--ds-border-1))] ${sidebarCollapsed ? 'pointer-events-none opacity-0' : ''}`}
+          onMouseDown={() => {
+            isResizingRef.current = true;
+          }}
+        />
+
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-5 space-y-4 bg-[radial-gradient(circle_at_top,hsl(var(--ds-surface-1))_0%,transparent_42%)]">
+            {initialLoading ? (
+              <div className="mx-auto w-full max-w-4xl space-y-4 pt-2">
+                <div className="flex justify-start">
+                  <div className="w-[78%] rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3">
+                    <Skeleton className="h-3 w-3/5" />
+                    <Skeleton className="mt-2 h-3 w-full" />
+                    <Skeleton className="mt-2 h-3 w-4/5" />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <div className="w-[52%] rounded-[12px] border border-primary/30 bg-primary/80 px-4 py-3">
+                    <Skeleton className="h-3 w-5/6 bg-white/25" />
+                    <Skeleton className="mt-2 h-3 w-3/5 bg-white/20" />
+                  </div>
+                </div>
+                <div className="flex justify-start">
+                  <div className="w-[82%] rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3">
+                    <Skeleton className="h-3 w-2/5" />
+                    <Skeleton className="mt-2 h-3 w-full" />
+                    <Skeleton className="mt-2 h-3 w-11/12" />
+                    <Skeleton className="mt-2 h-3 w-2/3" />
+                  </div>
+                </div>
+                {showSlowHint ? (
+                  <div className="text-center text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.aiChatLoadingHistory}</div>
+                ) : null}
               </div>
-            </div>
-            <div className="flex justify-end">
-              <div className="w-[52%] rounded-[10px] bg-primary/80 px-4 py-3">
-                <Skeleton className="h-3 w-5/6 bg-white/25" />
-                <Skeleton className="mt-2 h-3 w-3/5 bg-white/20" />
+            ) : messages.length === 0 ? (
+              <div className="flex h-full items-center justify-center">
+                <div className="w-full max-w-lg rounded-[14px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-1))/0.75] p-6 text-center shadow-elevation-1">
+                  <MessageCircle className="mx-auto mb-3 size-10 text-[hsl(var(--ds-text-2))]" />
+                  <div className="text-sm font-semibold">{dict.reportDetail.aiChatEmptyTitle}</div>
+                  <div className="mt-2 text-[12px] text-[hsl(var(--ds-text-2))] leading-relaxed">{dict.reportDetail.aiChatEmptyDescription}</div>
+                  <div className="mt-4 flex items-center justify-center gap-2 flex-wrap">
+                    <Button variant="outline" size="sm" onClick={() => { void sendText(quickPrompt('patch', issueContext)); }}>{dict.reportDetail.aiChatQuickPatch}</Button>
+                    <Button variant="outline" size="sm" onClick={() => { void sendText(quickPrompt('tests', issueContext)); }}>{dict.reportDetail.aiChatQuickTests}</Button>
+                    <Button variant="outline" size="sm" onClick={() => { void sendText(quickPrompt('regression', issueContext)); }}>{dict.reportDetail.aiChatQuickRegression}</Button>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="flex justify-start">
-              <div className="w-[82%] rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3">
-                <Skeleton className="h-3 w-2/5" />
-                <Skeleton className="mt-2 h-3 w-full" />
-                <Skeleton className="mt-2 h-3 w-11/12" />
-                <Skeleton className="mt-2 h-3 w-2/3" />
-              </div>
-            </div>
-            {showSlowHint ? (
-              <div className="text-center text-[12px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.aiChatLoadingHistory}</div>
-            ) : null}
+            ) : (
+              messages.map((msg, idx) => {
+                const isLatestAssistantLoading = loading && msg.role === 'assistant' && idx === messages.length - 1;
+                return (
+                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[96%] lg:max-w-[92%] rounded-[14px] px-4 py-3 ${msg.role === 'user' ? 'border border-[hsl(var(--ds-accent-8))] bg-[hsl(var(--ds-accent-9))] text-white shadow-elevation-1' : 'border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-1))/0.92] text-foreground shadow-elevation-1'}`}>
+                    {msg.role === 'assistant' && msg.content.trim() ? (
+                      <div className="mb-2 flex justify-end">
+                        <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[11px] gap-1" onClick={() => { void copyText(msg.content); }}>
+                          <Copy className="size-3" />
+                          {dict.reportDetail.aiChatCopyResponse}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {msg.role === 'assistant' ? (
+                      <MessageMarkdown content={msg.content} copyCodeLabel={dict.reportDetail.aiChatCopyCode} copiedLabel={dict.common.copied} onCopy={copyText} />
+                    ) : (
+                      <div className="text-sm whitespace-pre-wrap leading-relaxed break-words">{msg.content}</div>
+                    )}
+                    {isLatestAssistantLoading ? (
+                      <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-2 py-1 text-[10px] text-[hsl(var(--ds-text-2))]">
+                        <TypingDots compact />
+                        <span>{dict.reportDetail.aiChatGenerating}</span>
+                      </div>
+                    ) : null}
+                    <div className={`text-[10px] mt-2 ${msg.role === 'user' ? 'text-white/75' : 'text-[hsl(var(--ds-text-2))]'}`}>{formatLocalDateTime(msg.timestamp)}</div>
+                  </div>
+                </div>
+              );})
+            )}
+            <div ref={endRef} />
           </div>
-        ) : messages.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="w-full max-w-md rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-1))/0.7] p-6 text-center shadow-elevation-1">
-              <MessageCircle className="mx-auto mb-3 size-10 text-[hsl(var(--ds-text-2))]" />
-              <div className="text-sm font-semibold">{dict.reportDetail.aiChatEmptyTitle}</div>
-              <div className="mt-2 text-[12px] text-[hsl(var(--ds-text-2))] leading-relaxed">{dict.reportDetail.aiChatEmptyDescription}</div>
-            </div>
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] rounded-[10px] px-4 py-3 ${msg.role === 'user' ? 'bg-primary text-primary-foreground shadow-[0_8px_24px_hsl(0_0%_0%/0.24)]' : 'border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-foreground shadow-elevation-1'}`}>
-                {msg.role === 'assistant' && msg.content.trim() ? (
-                  <div className="mb-2 flex justify-end">
-                    <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[11px] gap-1" onClick={() => { void copyText(msg.content); }}>
-                      <Copy className="size-3" />
-                      {dict.reportDetail.aiChatCopyResponse}
-                    </Button>
+
+          <div className="border-t border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))/0.95] backdrop-blur-sm p-4">
+            <div className="rounded-[14px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-1))/0.82] p-3 space-y-2 shadow-elevation-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.aiChatQuickActions}</span>
+                <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-[11px]" disabled={loading} onClick={() => { void sendText(quickPrompt('patch', issueContext)); }}>
+                  {dict.reportDetail.aiChatQuickPatch}
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-[11px]" disabled={loading} onClick={() => { void sendText(quickPrompt('tests', issueContext)); }}>
+                  {dict.reportDetail.aiChatQuickTests}
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-[11px]" disabled={loading} onClick={() => { void sendText(quickPrompt('regression', issueContext)); }}>
+                  {dict.reportDetail.aiChatQuickRegression}
+                </Button>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="hidden lg:inline-flex h-7 px-2 text-[11px]"
+                    onClick={() => setSidebarCollapsed((v) => !v)}
+                    title={sidebarCollapsed ? dict.reportDetail.aiChatExpandSidebar : dict.reportDetail.aiChatCollapseSidebar}
+                  >
+                    {sidebarCollapsed ? <ChevronRight className="size-3.5" /> : <ChevronLeft className="size-3.5" />}
+                    {sidebarCollapsed ? dict.reportDetail.aiChatExpandSidebar : dict.reportDetail.aiChatCollapseSidebar}
+                  </Button>
+                  <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.aiChatMultiLineHint}</div>
+                </div>
+                {loading ? (
+                  <div className="inline-flex max-w-[70%] items-center gap-2 rounded-full border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-2 py-1 text-[11px]">
+                    <TypingDots compact />
+                    <span className="truncate text-[hsl(var(--ds-text-2))]">
+                      {dict.reportDetail.aiChatGeneratingPhase}: {generationPhase(elapsedMs, dict)} · {dict.reportDetail.aiChatElapsed}: {formatElapsed(elapsedMs)}
+                    </span>
                   </div>
                 ) : null}
-                {msg.role === 'assistant' ? (
-                  <MessageMarkdown content={msg.content} copyCodeLabel={dict.reportDetail.aiChatCopyCode} onCopy={copyText} />
-                ) : (
-                  <div className="text-sm whitespace-pre-wrap leading-relaxed break-words">{msg.content}</div>
-                )}
-                <div className={`text-[10px] mt-2 ${msg.role === 'user' ? 'text-primary-foreground/70' : 'text-[hsl(var(--ds-text-2))]'}`}>{formatLocalDateTime(msg.timestamp)}</div>
+              </div>
+              <div className="flex gap-2 items-end">
+                <Textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    resizeInput(e.target);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      void sendCurrent();
+                    }
+                  }}
+                  placeholder={dict.reportDetail.aiChatInputPlaceholder}
+                  disabled={loading}
+                  className="flex-1 min-h-[44px] max-h-[180px] resize-none bg-[hsl(var(--ds-background-2))] border-[hsl(var(--ds-border-2))]"
+                />
+                <Button onClick={() => { void sendCurrent(); }} disabled={!input.trim() || loading} size="icon" className="h-10 w-10 shrink-0 rounded-[10px]">
+                  {loading ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                </Button>
               </div>
             </div>
-          ))
-        )}
-        <div ref={endRef} />
-      </div>
-
-      <div className="border-t border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))/0.92] backdrop-blur-sm p-4 space-y-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.aiChatQuickActions}</span>
-          <Button variant="outline" size="sm" disabled={loading} onClick={() => { void sendText(quickPrompt('patch', issueContext)); }}>{dict.reportDetail.aiChatQuickPatch}</Button>
-          <Button variant="outline" size="sm" disabled={loading} onClick={() => { void sendText(quickPrompt('tests', issueContext)); }}>{dict.reportDetail.aiChatQuickTests}</Button>
-          <Button variant="outline" size="sm" disabled={loading} onClick={() => { void sendText(quickPrompt('regression', issueContext)); }}>{dict.reportDetail.aiChatQuickRegression}</Button>
-        </div>
-
-        <div className="flex gap-2 items-end">
-          <Textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              resizeInput(e.target);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void sendCurrent();
-              }
-            }}
-            placeholder={dict.reportDetail.aiChatInputPlaceholder}
-            disabled={loading}
-            className="flex-1 min-h-[42px] max-h-[180px] resize-none bg-[hsl(var(--ds-background-1))] border-[hsl(var(--ds-border-2))]"
-          />
-          <Button onClick={() => { void sendCurrent(); }} disabled={!input.trim() || loading} size="icon" className="shrink-0">
-            {loading ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-          </Button>
-        </div>
-        <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{dict.reportDetail.aiChatMultiLineHint}</div>
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -474,12 +734,22 @@ export default function AIChat({
 function MessageMarkdown({
   content,
   copyCodeLabel,
+  copiedLabel,
   onCopy,
 }: {
   content: string;
   copyCodeLabel: string;
+  copiedLabel: string;
   onCopy: (text: string) => void | Promise<void>;
 }) {
+  const [copiedCodeKey, setCopiedCodeKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!copiedCodeKey) return;
+    const t = window.setTimeout(() => setCopiedCodeKey(null), 1200);
+    return () => window.clearTimeout(t);
+  }, [copiedCodeKey]);
+
   if (!content.trim()) {
     return (
       <div className="text-sm leading-relaxed text-[hsl(var(--ds-text-2))]">
@@ -497,16 +767,27 @@ function MessageMarkdown({
     <div className="space-y-2">
       {blocks.map((b, i) => {
         if (b.type === 'code') {
+          const copyKey = `code-${i}`;
+          const copied = copiedCodeKey === copyKey;
           return (
-            <div key={`code-${i}`} className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-background-2))]">
+            <div key={copyKey} className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-background-2))]">
               <div className="px-2.5 py-1.5 text-[10px] text-[hsl(var(--ds-text-2))] border-b border-[hsl(var(--ds-border-1))] flex items-center justify-between gap-2">
                 <span>{b.language || 'code'}</span>
-                <Button type="button" variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] gap-1" onClick={() => { void onCopy(b.value); }}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[10px] gap-1"
+                  onClick={() => {
+                    void onCopy(b.value);
+                    setCopiedCodeKey(copyKey);
+                  }}
+                >
                   <Copy className="size-3" />
-                  {copyCodeLabel}
+                  {copied ? copiedLabel : copyCodeLabel}
                 </Button>
               </div>
-              <pre className="px-3 py-2.5 text-[12px] leading-relaxed overflow-x-auto">
+              <pre className="px-3 py-2.5 text-[12px] leading-relaxed overflow-x-auto whitespace-pre-wrap break-words">
                 <code>{b.value}</code>
               </pre>
             </div>
@@ -522,8 +803,48 @@ function MessageMarkdown({
         if (b.type === 'ol') {
           return <ol key={`ol-${i}`} className="list-decimal pl-5 space-y-1 text-sm leading-relaxed">{b.items.map((it, j) => <li key={`ol-${i}-${j}`}>{inline(it, `ol-${i}-${j}`)}</li>)}</ol>;
         }
+        if (b.type === 'task') {
+          return (
+            <ul key={`task-${i}`} className="space-y-1 text-sm leading-relaxed">
+              {b.items.map((it, j) => (
+                <li key={`task-${i}-${j}`} className="flex items-start gap-2">
+                  <input type="checkbox" checked={it.checked} readOnly disabled className="mt-0.5 size-3.5 rounded border-[hsl(var(--ds-border-2))]" />
+                  <span className={it.checked ? 'line-through text-[hsl(var(--ds-text-2))]' : ''}>{inline(it.text, `task-${i}-${j}`)}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
         if (b.type === 'quote') {
           return <blockquote key={`q-${i}`} className="border-l-2 border-[hsl(var(--ds-border-2))] pl-3 text-sm text-[hsl(var(--ds-text-2))] whitespace-pre-wrap break-words">{inline(b.text, `q-${i}`)}</blockquote>;
+        }
+        if (b.type === 'table') {
+          return (
+            <div key={`tbl-${i}`} className="overflow-x-auto rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))]">
+              <table className="w-full min-w-[460px] border-collapse text-[12px]">
+                <thead className="bg-[hsl(var(--ds-background-2))]">
+                  <tr>
+                    {b.headers.map((h, j) => (
+                      <th key={`tbl-h-${i}-${j}`} className="sticky top-0 z-10 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] px-2.5 py-2 text-left font-semibold text-foreground">
+                        {inline(h, `tbl-h-${i}-${j}`)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {b.rows.map((row, r) => (
+                    <tr key={`tbl-r-${i}-${r}`} className="odd:bg-transparent even:bg-[hsl(var(--ds-background-1))/0.28]">
+                      {row.map((cell, c) => (
+                        <td key={`tbl-c-${i}-${r}-${c}`} className="border-t border-[hsl(var(--ds-border-1))] px-2.5 py-2 align-top text-sm leading-relaxed break-words whitespace-pre-wrap">
+                          {withBreaks(cell, `tbl-cell-${i}-${r}-${c}`)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
         }
         if (b.type === 'hr') {
           return <hr key={`hr-${i}`} className="border-[hsl(var(--ds-border-1))]" />;
@@ -575,6 +896,19 @@ function textBlocks(text: string): Block[] {
       i += 1;
       continue;
     }
+    if (isTableStart(lines, i)) {
+      const headers = parseTableRow(lines[i]);
+      i += 2; // header + delimiter
+      const rows: string[][] = [];
+      while (i < lines.length) {
+        const current = lines[i];
+        if (!current.trim() || !current.includes('|') || isTableDelimiter(current)) break;
+        rows.push(parseTableRow(current));
+        i += 1;
+      }
+      blocks.push({ type: 'table', headers, rows: normalizeTableRows(headers.length, rows) });
+      continue;
+    }
     const h = line.match(/^(#{1,6})\s+(.+)$/);
     if (h) {
       blocks.push({ type: 'heading', level: h[1].length, text: h[2].trim() });
@@ -588,6 +922,16 @@ function textBlocks(text: string): Block[] {
         i += 1;
       }
       blocks.push({ type: 'quote', text: arr.join('\n').trim() });
+      continue;
+    }
+    if (/^- \[( |x|X)\]\s+/.test(line)) {
+      const arr: Array<{ checked: boolean; text: string }> = [];
+      while (i < lines.length && /^- \[( |x|X)\]\s+/.test(lines[i])) {
+        const m = lines[i].match(/^- \[( |x|X)\]\s+(.+)$/);
+        if (m) arr.push({ checked: m[1].toLowerCase() === 'x', text: m[2].trim() });
+        i += 1;
+      }
+      blocks.push({ type: 'task', items: arr });
       continue;
     }
     if (/^(\*|-|\+)\s+/.test(line)) {
@@ -617,6 +961,38 @@ function textBlocks(text: string): Block[] {
     blocks.push({ type: 'paragraph', text: arr.join('\n').trim() });
   }
   return blocks;
+}
+
+function isTableStart(lines: string[], index: number): boolean {
+  if (index + 1 >= lines.length) return false;
+  const header = lines[index];
+  const delimiter = lines[index + 1];
+  if (!header.includes('|')) return false;
+  return isTableDelimiter(delimiter);
+}
+
+function isTableDelimiter(line: string): boolean {
+  const cells = parseTableCells(line);
+  if (cells.length === 0) return false;
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function parseTableRow(line: string): string[] {
+  return parseTableCells(line).map((cell) => cell.trim());
+}
+
+function parseTableCells(line: string): string[] {
+  const cleaned = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  if (!cleaned) return [];
+  return cleaned.split('|').map((cell) => cell.trim());
+}
+
+function normalizeTableRows(width: number, rows: string[][]): string[][] {
+  const normalized = rows.map((row) => row.slice(0, width));
+  return normalized.map((row) => {
+    if (row.length >= width) return row;
+    return [...row, ...new Array(width - row.length).fill('')];
+  });
 }
 
 function inline(text: string, key: string): ReactNode[] {
@@ -677,10 +1053,17 @@ function normalizeConversationRow(value: unknown): ConversationRow | null {
   };
 }
 
+function clip(text: string, max: number): string {
+  const value = text.replace(/\s+/g, ' ').trim();
+  if (!value) return '...';
+  if (value.length <= max) return value;
+  return `${value.slice(0, Math.max(1, max - 1))}…`;
+}
+
 function preview(messages: unknown): string {
   const items = normalizeMessages(messages);
   if (items.length === 0) return '...';
-  return items[items.length - 1].content.replace(/\s+/g, ' ').slice(0, 42) || '...';
+  return clip(items[items.length - 1].content, 30);
 }
 
 function uuid(): string {
@@ -739,7 +1122,7 @@ async function readSSE(
 }
 
 function cacheKey(reportId: string, issueId?: string) {
-  if (issueId && /^[0-9a-f-]{36}$/i.test(issueId)) return `${reportId}::issue:${issueId}`;
+  if (issueId && issueId.trim()) return `${reportId}::issue:${issueId.trim()}`;
   return `${reportId}::latest`;
 }
 
@@ -750,9 +1133,14 @@ async function fetchInitial(reportId: string, issueId?: string): Promise<Convers
   if (cached && cached.expiresAt > now) return cached.data;
   const inflight = initInflight.get(key);
   if (inflight) return inflight;
+  const issueIdTrim = issueId?.trim();
+  const issueIsUuid = !!issueIdTrim && /^[0-9a-f-]{36}$/i.test(issueIdTrim);
+  if (issueIdTrim && !issueIsUuid) {
+    return null;
+  }
   const req = (async () => {
     const params = new URLSearchParams();
-    if (issueId && /^[0-9a-f-]{36}$/i.test(issueId)) params.set('issueId', issueId);
+    if (issueIdTrim && issueIsUuid) params.set('issueId', issueIdTrim);
     else params.set('latest', '1');
     const res = await fetch(`/api/reports/${reportId}/chat?${params.toString()}`);
     if (!res.ok) return null;
@@ -808,11 +1196,44 @@ function formatElapsed(ms: number): string {
   return `${Math.floor(sec / 60)}m ${sec % 60}s`;
 }
 
+function generationPhase(ms: number, dict: Dictionary): string {
+  if (ms < 4000) return dict.reportDetail.aiChatGeneratingPhaseAnalyzing;
+  if (ms < 12000) return dict.reportDetail.aiChatGeneratingPhaseDrafting;
+  return dict.reportDetail.aiChatGeneratingPhasePolishing;
+}
+
 function quickPrompt(type: 'patch' | 'tests' | 'regression', issueContext?: string): string {
   const prefix = issueContext ? `Focus issue: ${issueContext}. ` : '';
   if (type === 'patch') return `${prefix}Please generate a minimal fix patch with exact code changes and explain trade-offs.`;
   if (type === 'tests') return `${prefix}Please propose focused test cases (unit/integration/e2e), including edge cases and expected assertions.`;
   return `${prefix}Please provide a regression risk checklist and a concise verification plan for release readiness.`;
+}
+
+function buildLocalAIPrompt(issueContext: string | undefined, messages: Message[]): string {
+  const focus = issueContext?.trim() || 'N/A';
+  const history = messages.slice(-6).map((m, idx) => `[${idx + 1}] ${m.role.toUpperCase()}: ${clip(m.content, 220)}`).join('\n');
+  const historyBlock = history || '[No prior conversation context]';
+  return [
+    '# Task',
+    'Act as a senior software engineer and provide an executable fix plan for the issue below.',
+    '',
+    '## Focus Issue',
+    focus,
+    '',
+    '## Existing Conversation Context',
+    historyBlock,
+    '',
+    '## Required Output',
+    '1. Root cause analysis (with assumptions clearly marked).',
+    '2. Minimal safe patch (exact files and code changes).',
+    '3. Risk & regression checklist.',
+    '4. Verification steps (commands + expected results).',
+    '',
+    '## Constraints',
+    '- Keep changes minimal and production-safe.',
+    '- Preserve existing behavior unless explicitly fixing a bug.',
+    '- If uncertain, list the uncertainty before proposing changes.',
+  ].join('\n');
 }
 
 function buildMessagesForCache(prev: Message[], user: string, assistant: string, now: string) {

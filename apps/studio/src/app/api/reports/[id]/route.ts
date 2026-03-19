@@ -70,10 +70,47 @@ export async function GET(
         [reportId]
       )
     );
+    const issues = await withRetry(() =>
+      query<{
+        id: string;
+        file: string;
+        line: number | null;
+        severity: string;
+        category: string;
+        rule: string;
+        message: string;
+        suggestion: string | null;
+        codeSnippet: string | null;
+        fixPatch: string | null;
+        priority: number | null;
+        impactScope: string | null;
+        estimatedEffort: string | null;
+      }>(
+        `select
+            i.id,
+            i.file,
+            i.line,
+            i.severity,
+            i.category,
+            i.rule,
+            i.message,
+            i.suggestion,
+            i.code_snippet as "codeSnippet",
+            i.fix_patch as "fixPatch",
+            i.priority,
+            i.impact_scope as "impactScope",
+            i.estimated_effort as "estimatedEffort"
+         from analysis_issues i
+         where i.report_id = $1
+         order by i.priority asc nulls last, i.created_at asc`,
+        [reportId]
+      )
+    );
 
     logger.info(`Report fetched: ${reportId}`);
     return NextResponse.json({
       ...report,
+      ...(issues.length > 0 ? { issues } : {}),
       sections,
     });
   } catch (err) {

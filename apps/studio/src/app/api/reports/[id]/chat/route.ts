@@ -150,7 +150,18 @@ ${summary}
       );
     }
     if (!issue) {
-      issue = issues.find((item) => item.file === issueId) ?? null;
+      const ref = parseIssueReference(issueId);
+      if (ref) {
+        issue = issues.find((item) =>
+          asString(item.file) === ref.file &&
+          String(item.line ?? '') === ref.line &&
+          asString(item.category) === ref.category &&
+          asString(item.rule) === ref.rule &&
+          (ref.message == null || asString(item.message) === ref.message)
+        ) ?? null;
+      } else {
+        issue = issues.find((item) => asString(item.file) === issueId) ?? null;
+      }
     }
     if (issue) {
       context += `\n## Focus issue
@@ -377,6 +388,30 @@ function looksLikeHTML(contentType: string | null, bodySnippet: string): boolean
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function parseIssueReference(
+  issueId: string
+): { file: string; line: string; category: string; rule: string; message?: string } | null {
+  const value = issueId.trim();
+  if (!value) return null;
+  const parts = value.split('::');
+  if (parts.length < 4) return null;
+
+  const file = parts[0]?.trim();
+  const line = parts[1]?.trim() ?? '';
+  const category = parts[2]?.trim();
+  const rule = parts[3]?.trim();
+  const message = parts.length > 4 ? parts.slice(4).join('::').trim() : '';
+
+  if (!file || !category || !rule) return null;
+  return {
+    file,
+    line,
+    category,
+    rule,
+    ...(message ? { message } : {}),
+  };
 }
 
 function parseJSONLoose(raw: string): Record<string, unknown> {
