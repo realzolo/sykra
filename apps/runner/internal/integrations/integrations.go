@@ -80,6 +80,14 @@ func ResolveVCSClient(ctx context.Context, st *store.Store, project *store.Proje
 }
 
 func ResolveAIClient(ctx context.Context, st *store.Store, project *store.Project) (AIClient, error) {
+	return resolveAIClientWithPhase(ctx, st, project, "")
+}
+
+func ResolveAIClientForPhase(ctx context.Context, st *store.Store, project *store.Project, phase string) (AIClient, error) {
+	return resolveAIClientWithPhase(ctx, st, project, phase)
+}
+
+func resolveAIClientWithPhase(ctx context.Context, st *store.Store, project *store.Project, phase string) (AIClient, error) {
 	integration, err := resolveIntegration(ctx, st, project, "ai")
 	if err != nil {
 		return nil, err
@@ -98,6 +106,20 @@ func ResolveAIClient(ctx context.Context, st *store.Store, project *store.Projec
 		Temperature:     readConfigFloat(integration.Config, "temperature", 0.7),
 		ReasoningEffort: readConfigString(integration.Config, "reasoningEffort"),
 		APIKey:          apiKey,
+	}
+	if phase != "" {
+		if model := readConfigStringFromMap(integration.Config, "phaseModels", phase); strings.TrimSpace(model) != "" {
+			config.ModelName = model
+		}
+		if maxTokens := readConfigIntFromMap(integration.Config, "phaseMaxTokens", phase, 0); maxTokens > 0 {
+			config.MaxTokens = maxTokens
+		}
+		if effort := readConfigStringFromMap(integration.Config, "phaseReasoningEffort", phase); strings.TrimSpace(effort) != "" {
+			config.ReasoningEffort = effort
+		}
+		if temp, ok := readConfigFloatFromMap(integration.Config, "phaseTemperature", phase); ok {
+			config.Temperature = temp
+		}
 	}
 	normalizedBaseURL, err := normalizeAIBaseURL(config.BaseURL)
 	if err != nil {
@@ -267,6 +289,78 @@ func readConfigFloat(raw json.RawMessage, key string, fallback float64) float64 
 		return float64(v)
 	default:
 		return fallback
+	}
+}
+
+func readConfigStringFromMap(raw json.RawMessage, key string, mapKey string) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return ""
+	}
+	nested, ok := data[key].(map[string]any)
+	if !ok {
+		return ""
+	}
+	value, ok := nested[mapKey]
+	if !ok {
+		return ""
+	}
+	str, _ := value.(string)
+	return str
+}
+
+func readConfigIntFromMap(raw json.RawMessage, key string, mapKey string, fallback int) int {
+	if len(raw) == 0 {
+		return fallback
+	}
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return fallback
+	}
+	nested, ok := data[key].(map[string]any)
+	if !ok {
+		return fallback
+	}
+	value, ok := nested[mapKey]
+	if !ok {
+		return fallback
+	}
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	default:
+		return fallback
+	}
+}
+
+func readConfigFloatFromMap(raw json.RawMessage, key string, mapKey string) (float64, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return 0, false
+	}
+	nested, ok := data[key].(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	value, ok := nested[mapKey]
+	if !ok {
+		return 0, false
+	}
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	default:
+		return 0, false
 	}
 }
 

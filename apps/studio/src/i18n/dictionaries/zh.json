@@ -565,6 +565,7 @@
       "running": "运行中...",
       "done": "已完成",
       "partialFailed": "部分失败",
+      "canceled": "已取消",
       "failed": "失败"
     },
     "categories": {
@@ -1066,7 +1067,7 @@
     "terminateFailed": "终止失败",
     "terminateConfirmTitle": "终止报告",
     "terminateConfirmDescription": "确认立即终止当前分析吗？",
-    "terminatedMessage": "分析已被用户终止",
+    "terminatedMessage": "分析已被用户取消",
     "analyzing": "AI 正在深度分析您的代码...",
     "analyzingSubtext": "正在进行多维度质量分析、安全扫描、性能评估...",
     "progressLabel": "整体进度",
@@ -1077,6 +1078,7 @@
     "runtimeWaiting": "排队中 / 等待首个心跳",
     "runtimeStalled": "近期无心跳（可能停滞）",
     "lastUpdate": "最近心跳",
+    "etaLabel": "预计剩余时间",
     "tokensUsed": "已消耗 Tokens",
     "currentFile": "当前文件",
     "pendingCurrentFile": "等待文件级进度...",

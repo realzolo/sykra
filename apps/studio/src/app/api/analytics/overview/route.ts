@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
       issueCategoryBreakdown,
       pipelineStats,
       issueResolution,
+      phaseMetrics,
     ] = await Promise.all([
       // Per-project: avg score, report count, open issues in the period
       query<{
@@ -123,6 +124,32 @@ export async function GET(request: NextRequest) {
          limit 10`,
         [orgId, interval]
       ),
+      query<{
+        phase: string;
+        runs: string;
+        avg_duration_ms: number | null;
+        p50_duration_ms: number | null;
+        p95_duration_ms: number | null;
+        total_tokens: string;
+        total_cost_usd: string | null;
+      }>(
+        `select
+           s.phase,
+           count(*)::text as runs,
+           avg(s.duration_ms)::float as avg_duration_ms,
+           percentile_cont(0.5) within group (order by s.duration_ms)::float as p50_duration_ms,
+           percentile_cont(0.95) within group (order by s.duration_ms)::float as p95_duration_ms,
+           coalesce(sum(s.tokens_used), 0)::text as total_tokens,
+           coalesce(sum(s.estimated_cost_usd), 0)::text as total_cost_usd
+         from analysis_report_sections s
+         join analysis_reports r on r.id = s.report_id
+         where r.org_id = $1
+           and r.created_at >= now() - $2::interval
+           and s.status = 'done'
+         group by s.phase
+         order by s.phase`,
+        [orgId, interval]
+      ),
     ]);
 
     return NextResponse.json({
@@ -131,6 +158,7 @@ export async function GET(request: NextRequest) {
       issueCategoryBreakdown,
       pipelineStats,
       issueResolution,
+      phaseMetrics,
     });
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);

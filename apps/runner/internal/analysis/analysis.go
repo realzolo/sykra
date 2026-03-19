@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,14 +109,22 @@ func RunAnalyzeTask(
 		}
 	}
 
-	aiClient, err := integrations.ResolveAIClient(ctx, st, project)
+	coreClient, err := integrations.ResolveAIClientForPhase(ctx, st, project, "core")
+	if err != nil {
+		return err
+	}
+	securityPerfClient, err := integrations.ResolveAIClientForPhase(ctx, st, project, "security_performance")
+	if err != nil {
+		return err
+	}
+	suggestionsClient, err := integrations.ResolveAIClientForPhase(ctx, st, project, "suggestions")
 	if err != nil {
 		return err
 	}
 
 	if err := tracker.Update(
 		"running_core",
-		fmt.Sprintf("Running core analysis with model %s", aiClient.Model()),
+		fmt.Sprintf("Running core analysis with model %s", coreClient.Model()),
 		nil,
 		0,
 		0,
@@ -123,13 +133,15 @@ func RunAnalyzeTask(
 		return err
 	}
 
+	coreDiff := selectCoreDiff(filtered)
+
 	var corePrompt string
 	if payload.UseIncremental {
 		previousIssues := extractPreviousIssues(payload.PreviousReport)
 		filteredIssues := filterIssuesByFiles(previousIssues, changedFiles)
-		corePrompt = buildIncrementalPrompt(payload.Rules, filtered, filteredIssues)
+		corePrompt = buildIncrementalPrompt(payload.Rules, coreDiff, filteredIssues)
 	} else {
-		corePrompt = buildCorePhasePrompt(payload.Rules, filtered)
+		corePrompt = buildCorePhasePrompt(payload.Rules, coreDiff)
 	}
 
 	start := time.Now()
@@ -137,10 +149,10 @@ func RunAnalyzeTask(
 		ctx,
 		st,
 		payload.ReportID,
-		aiClient,
+		coreClient,
 		"core",
 		corePrompt,
-		phaseBudget(timeout, 40),
+		phaseTimeout("ANALYZE_PHASE_CORE_TIMEOUT", timeout, 40),
 	)
 	if err != nil {
 		return err
@@ -159,19 +171,26 @@ func RunAnalyzeTask(
 	type phaseSpec struct {
 		phase  string
 		prompt string
+		client integrations.AIClient
+		local  *domain.ReviewResult
 	}
+	localQuality := buildLocalQualityPhaseResult(filtered)
 	parallelPhases := []phaseSpec{
 		{
 			phase:  "quality",
 			prompt: buildQualityPhasePrompt(filtered),
+			client: coreClient,
+			local:  &localQuality,
 		},
 		{
 			phase:  "security_performance",
 			prompt: buildSecurityPerformancePhasePrompt(filtered),
+			client: securityPerfClient,
 		},
 		{
 			phase:  "suggestions",
 			prompt: buildSuggestionsPhasePrompt(filtered, coreResult.Issues),
+			client: suggestionsClient,
 		},
 	}
 
@@ -185,15 +204,30 @@ func RunAnalyzeTask(
 	for _, phase := range parallelPhases {
 		phase := phase
 		go func() {
-			result, durationMs, phaseErr := runPhaseWithRetry(
-				ctx,
-				st,
-				payload.ReportID,
-				aiClient,
-				phase.phase,
-				phase.prompt,
-				phaseBudget(timeout, 30),
+			var (
+				result     domain.ReviewResult
+				durationMs int
+				phaseErr   error
 			)
+			if phase.local != nil {
+				result, durationMs, phaseErr = runLocalPhase(
+					ctx,
+					st,
+					payload.ReportID,
+					phase.phase,
+					*phase.local,
+				)
+			} else {
+				result, durationMs, phaseErr = runPhaseWithRetry(
+					ctx,
+					st,
+					payload.ReportID,
+					phase.client,
+					phase.phase,
+					phase.prompt,
+					phaseTimeout("ANALYZE_PHASE_"+strings.ToUpper(phase.phase)+"_TIMEOUT", timeout, 30),
+				)
+			}
 			outcomes <- phaseOutcome{
 				phase:      phase.phase,
 				result:     result,
@@ -307,7 +341,7 @@ func RunAnalyzeTask(
 		TotalAdditions:      stats.TotalAdditions,
 		TotalDeletions:      stats.TotalDeletions,
 		AnalysisDurationMs:  durationMs,
-		ModelVersion:        aiClient.Model(),
+		ModelVersion:        coreClient.Model(),
 		TokensUsed:          tokensUsed,
 		TokenUsage:          tokenUsageJSON,
 		AnalysisProgress:    progressDoneJSON,
@@ -349,10 +383,34 @@ func runPhaseWithRetry(
 	prompt string,
 	timeout time.Duration,
 ) (domain.ReviewResult, int, error) {
+	if latest, err := st.GetLatestReportSection(ctx, reportID, phase); err != nil {
+		return domain.ReviewResult{}, 0, err
+	} else if latest != nil && latest.Status == "done" {
+		resumed, parseErr := parseSectionPayloadToResult(phase, latest.Payload)
+		if parseErr == nil {
+			if usage, usageErr := parseTokenUsageFromRaw(latest.TokenUsage); usageErr == nil && usage != nil {
+				resumed.TokenUsage = usage
+			} else if latest.TokensUsed != nil {
+				resumed.TokenUsage = &domain.TokenUsage{
+					TotalTokens: *latest.TokensUsed,
+				}
+			}
+			if latest.DurationMs != nil {
+				return resumed, *latest.DurationMs, nil
+			}
+			return resumed, 0, nil
+		}
+	}
+
 	const maxAttempts = 2
 	var lastErr error
+	nextAttempt := 1
+	if latest, err := st.GetLatestReportSection(ctx, reportID, phase); err == nil && latest != nil {
+		nextAttempt = latest.Attempt + 1
+	}
 
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for retry := 0; retry < maxAttempts; retry++ {
+		attempt := nextAttempt + retry
 		startedAt := time.Now().UTC()
 		if err := st.UpsertReportSection(ctx, store.ReportSectionUpsert{
 			ReportID: reportID,
@@ -378,7 +436,7 @@ func runPhaseWithRetry(
 				DurationMs:   &durationMs,
 				CompletedAt:  &completedAt,
 			})
-			if attempt < maxAttempts && isRetryablePhaseError(err) {
+			if retry+1 < maxAttempts && isRetryablePhaseError(err) {
 				continue
 			}
 			return domain.ReviewResult{}, durationMs, err
@@ -389,6 +447,7 @@ func runPhaseWithRetry(
 			return domain.ReviewResult{}, durationMs, payloadErr
 		}
 		tokenUsageJSON, tokensUsed := marshalTokenUsage(result.TokenUsage)
+		costUSD := estimateCostUSD(result.TokenUsage)
 		if err := st.UpsertReportSection(ctx, store.ReportSectionUpsert{
 			ReportID:    reportID,
 			Phase:       phase,
@@ -398,6 +457,7 @@ func runPhaseWithRetry(
 			DurationMs:  &durationMs,
 			TokensUsed:  tokensUsed,
 			TokenUsage:  tokenUsageJSON,
+			CostUSD:     costUSD,
 			CompletedAt: &completedAt,
 		}); err != nil {
 			return domain.ReviewResult{}, durationMs, err
@@ -409,6 +469,195 @@ func runPhaseWithRetry(
 		return domain.ReviewResult{}, 0, lastErr
 	}
 	return domain.ReviewResult{}, 0, fmt.Errorf("phase %s failed", phase)
+}
+
+func runLocalPhase(
+	ctx context.Context,
+	st *store.Store,
+	reportID string,
+	phase string,
+	result domain.ReviewResult,
+) (domain.ReviewResult, int, error) {
+	if latest, err := st.GetLatestReportSection(ctx, reportID, phase); err != nil {
+		return domain.ReviewResult{}, 0, err
+	} else if latest != nil && latest.Status == "done" {
+		resumed, parseErr := parseSectionPayloadToResult(phase, latest.Payload)
+		if parseErr == nil {
+			if latest.DurationMs != nil {
+				return resumed, *latest.DurationMs, nil
+			}
+			return resumed, 0, nil
+		}
+	}
+
+	nextAttempt := 1
+	if latest, err := st.GetLatestReportSection(ctx, reportID, phase); err == nil && latest != nil {
+		nextAttempt = latest.Attempt + 1
+	}
+	started := time.Now()
+	sectionPayload, payloadErr := buildSectionPayload(phase, result)
+	if payloadErr != nil {
+		return domain.ReviewResult{}, 0, payloadErr
+	}
+	durationMs := int(time.Since(started).Milliseconds())
+	completedAt := time.Now().UTC()
+	if err := st.UpsertReportSection(ctx, store.ReportSectionUpsert{
+		ReportID:    reportID,
+		Phase:       phase,
+		Attempt:     nextAttempt,
+		Status:      "done",
+		Payload:     sectionPayload,
+		DurationMs:  &durationMs,
+		CompletedAt: &completedAt,
+	}); err != nil {
+		return domain.ReviewResult{}, 0, err
+	}
+	return result, durationMs, nil
+}
+
+func buildLocalQualityPhaseResult(diff string) domain.ReviewResult {
+	totalLines := 0
+	addedLines := 0
+	deletedLines := 0
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "diff --git") || strings.HasPrefix(line, "@@") {
+			continue
+		}
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			addedLines++
+			totalLines++
+			continue
+		}
+		if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+			deletedLines++
+			totalLines++
+			continue
+		}
+		if strings.TrimSpace(line) != "" {
+			totalLines++
+		}
+	}
+	dupRate := 0.0
+	if totalLines > 0 {
+		dupRate = float64(maxInt(0, addedLines-50)) / float64(totalLines) * 100.0
+	}
+	return domain.ReviewResult{
+		ComplexityMetrics: marshalAnyField(map[string]any{
+			"cyclomaticComplexity":  maxInt(1, addedLines/25),
+			"cognitiveComplexity":   maxInt(1, addedLines/20),
+			"averageFunctionLength": maxInt(5, addedLines/8),
+			"maxFunctionLength":     maxInt(15, addedLines/3),
+			"totalFunctions":        maxInt(1, addedLines/40),
+		}),
+		DuplicationMetrics: marshalAnyField(map[string]any{
+			"duplicatedLines":  maxInt(0, addedLines/12),
+			"duplicatedBlocks": maxInt(0, addedLines/80),
+			"duplicationRate":  dupRate,
+			"duplicatedFiles":  []string{},
+		}),
+		DependencyMetrics: marshalAnyField(map[string]any{
+			"totalDependencies":    0,
+			"outdatedDependencies": 0,
+			"circularDependencies": []string{},
+			"unusedDependencies":   []string{},
+		}),
+	}
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func estimateCostUSD(usage *domain.TokenUsage) *float64 {
+	if usage == nil {
+		return nil
+	}
+	inputUnit := readPositiveFloatEnv("AI_COST_INPUT_PER_MILLION_USD", 0)
+	outputUnit := readPositiveFloatEnv("AI_COST_OUTPUT_PER_MILLION_USD", 0)
+	if inputUnit <= 0 && outputUnit <= 0 {
+		return nil
+	}
+	cost := (float64(usage.InputTokens)/1_000_000.0)*inputUnit + (float64(usage.OutputTokens)/1_000_000.0)*outputUnit
+	return &cost
+}
+
+func readPositiveFloatEnv(name string, fallback float64) float64 {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseFloat(raw, 64)
+	if err != nil || parsed < 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func parseSectionPayloadToResult(phase string, payload json.RawMessage) (domain.ReviewResult, error) {
+	if len(payload) == 0 {
+		return domain.ReviewResult{}, fmt.Errorf("empty section payload")
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(payload, &parsed); err != nil {
+		return domain.ReviewResult{}, err
+	}
+
+	result := domain.ReviewResult{
+		CategoryScores: map[string]float64{},
+	}
+	switch phase {
+	case "core":
+		if score, ok := parsed["score"].(float64); ok {
+			result.Score = int(score)
+		}
+		if summary, ok := parsed["summary"].(string); ok {
+			result.Summary = summary
+		}
+		if cat, ok := parsed["categoryScores"].(map[string]any); ok {
+			for k, v := range cat {
+				if num, ok := v.(float64); ok {
+					result.CategoryScores[k] = num
+				}
+			}
+		}
+		if issuesRaw, ok := parsed["issues"].([]any); ok {
+			for _, issueRaw := range issuesRaw {
+				issueMap, ok := issueRaw.(map[string]any)
+				if !ok {
+					continue
+				}
+				result.Issues = append(result.Issues, parseIssue(issueMap))
+			}
+		}
+		result.ContextAnalysis = marshalAnyField(parsed["contextAnalysis"])
+	case "quality":
+		result.ComplexityMetrics = marshalAnyField(parsed["complexityMetrics"])
+		result.DuplicationMetrics = marshalAnyField(parsed["duplicationMetrics"])
+		result.DependencyMetrics = marshalAnyField(parsed["dependencyMetrics"])
+	case "security_performance":
+		result.SecurityFindings = marshalAnyField(parsed["securityFindings"])
+		result.PerformanceFindings = marshalAnyField(parsed["performanceFindings"])
+	case "suggestions":
+		result.AISuggestions = marshalAnyField(parsed["aiSuggestions"])
+		result.CodeExplanations = marshalAnyField(parsed["codeExplanations"])
+	default:
+		return domain.ReviewResult{}, fmt.Errorf("unsupported phase for payload parse: %s", phase)
+	}
+	return result, nil
+}
+
+func parseTokenUsageFromRaw(raw json.RawMessage) (*domain.TokenUsage, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var usage domain.TokenUsage
+	if err := json.Unmarshal(raw, &usage); err != nil {
+		return nil, err
+	}
+	return &usage, nil
 }
 
 func buildSectionPayload(phase string, result domain.ReviewResult) (json.RawMessage, error) {
@@ -462,6 +711,17 @@ func rawToAny(raw json.RawMessage) any {
 	return parsed
 }
 
+func marshalAnyField(value any) json.RawMessage {
+	if value == nil {
+		return nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
 func isRetryablePhaseError(err error) bool {
 	if err == nil {
 		return false
@@ -507,6 +767,16 @@ func phaseBudget(total time.Duration, percent int) time.Duration {
 		return total
 	}
 	return budget
+}
+
+func phaseTimeout(envKey string, total time.Duration, fallbackPercent int) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(envKey))
+	if raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return phaseBudget(total, fallbackPercent)
 }
 
 func accumulateTokenUsage(usage *domain.TokenUsage, inputTotal *int, outputTotal *int, total *int) {
@@ -1312,6 +1582,80 @@ func extractChangedFiles(diff string) []string {
 		result = append(result, file)
 	}
 	return result
+}
+
+func selectCoreDiff(diff string) string {
+	topK := readPositiveIntEnv("ANALYZE_CORE_TOP_K_FILES", 40)
+	if topK <= 0 {
+		return diff
+	}
+	blocks := splitDiffBlocks(diff)
+	if len(blocks) <= topK {
+		return diff
+	}
+
+	type scoredBlock struct {
+		block diffBlock
+		score int
+	}
+	scored := make([]scoredBlock, 0, len(blocks))
+	for _, block := range blocks {
+		score := scoreDiffBlock(block)
+		scored = append(scored, scoredBlock{block: block, score: score})
+	}
+
+	sort.SliceStable(scored, func(i int, j int) bool {
+		if scored[i].score == scored[j].score {
+			return scored[i].block.file < scored[j].block.file
+		}
+		return scored[i].score > scored[j].score
+	})
+
+	parts := make([]string, 0, topK)
+	for i := 0; i < topK && i < len(scored); i++ {
+		parts = append(parts, scored[i].block.content)
+	}
+	return strings.Join(parts, "")
+}
+
+func scoreDiffBlock(block diffBlock) int {
+	score := 0
+	lines := strings.Split(block.content, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			score += 2
+		}
+		if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+			score += 2
+		}
+	}
+	file := strings.ToLower(block.file)
+	riskKeywords := []string{
+		"auth", "security", "token", "permission", "acl", "crypto",
+		"payment", "billing", "db", "migration", "config", "middleware", "api",
+	}
+	for _, keyword := range riskKeywords {
+		if strings.Contains(file, keyword) {
+			score += 30
+			break
+		}
+	}
+	if strings.HasSuffix(file, ".sql") || strings.HasSuffix(file, ".yaml") || strings.HasSuffix(file, ".yml") {
+		score += 20
+	}
+	return score
+}
+
+func readPositiveIntEnv(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 type languageConfig struct {

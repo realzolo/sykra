@@ -41,28 +41,32 @@ export async function GET(
     }
     const sections = await withRetry(() =>
       query<Record<string, unknown>>(
-        `select phase,
-                attempt,
-                status,
-                payload,
-                error_message as "errorMessage",
-                duration_ms as "durationMs",
-                tokens_used as "tokensUsed",
-                token_usage as "tokenUsage",
-                estimated_cost_usd as "estimatedCostUsd",
-                started_at as "startedAt",
-                completed_at as "completedAt",
-                updated_at as "updatedAt"
-         from analysis_report_sections
-         where report_id = $1
-         order by case phase
-           when 'core' then 1
-           when 'quality' then 2
-           when 'security_performance' then 3
-           when 'suggestions' then 4
-           else 99
-         end,
-         attempt desc`,
+        `select *
+           from (
+             select distinct on (phase)
+                    phase,
+                    attempt,
+                    status,
+                    payload,
+                    error_message as "errorMessage",
+                    duration_ms as "durationMs",
+                    tokens_used as "tokensUsed",
+                    token_usage as "tokenUsage",
+                    estimated_cost_usd as "estimatedCostUsd",
+                    started_at as "startedAt",
+                    completed_at as "completedAt",
+                    updated_at as "updatedAt"
+               from analysis_report_sections
+              where report_id = $1
+              order by phase, attempt desc
+           ) s
+          order by case s.phase
+            when 'core' then 1
+            when 'quality' then 2
+            when 'security_performance' then 3
+            when 'suggestions' then 4
+            else 99
+          end`,
         [reportId]
       )
     );

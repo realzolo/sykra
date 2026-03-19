@@ -59,11 +59,11 @@ export async function POST(
       );
     }
 
-    const terminationMessage = 'Analysis terminated by user';
+    const terminationMessage = 'Analysis canceled by user';
     const terminated = await withRetry(() =>
       queryOne<ReportStatusRow>(
         `update analysis_reports
-         set status = 'failed',
+         set status = 'canceled',
              error_message = $2,
              sse_seq = sse_seq + 1,
              updated_at = now()
@@ -103,14 +103,14 @@ export async function POST(
       entityType: 'report',
       entityId: reportId,
       userId: user.id,
-      changes: { status: 'failed', reason: 'terminated_by_user', projectId: terminated.project_id },
+      changes: { status: 'canceled', reason: 'terminated_by_user', projectId: terminated.project_id },
       ...clientInfo,
     });
 
     return NextResponse.json({
       success: true,
       reportId,
-      status: 'failed',
+      status: 'canceled',
       error_message: terminationMessage,
       ...(runnerWarning ? { warning: runnerWarning } : {}),
     });

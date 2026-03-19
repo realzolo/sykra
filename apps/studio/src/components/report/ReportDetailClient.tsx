@@ -481,7 +481,7 @@ export default function ReportDetailClient({
         if (!prev) return prev;
         return {
           ...prev,
-          status: 'failed',
+          status: 'canceled',
           error_message: (data as { error_message?: string }).error_message ?? dict.reportDetail.terminatedMessage,
         };
       });
@@ -532,6 +532,7 @@ export default function ReportDetailClient({
   const statusChip = {
     done:      { variant: 'success' as const, label: dict.reports.status.done },
     failed:    { variant: 'danger' as const,  label: dict.reports.status.failed },
+    canceled: { variant: 'muted' as const, label: dict.reports.status.canceled },
     partial_failed: { variant: 'warning' as const, label: dict.reports.status.partialFailed },
     pending:   { variant: 'muted' as const, label: dict.reports.status.pending },
     running: { variant: 'accent' as const,  label: dict.reports.status.running },
@@ -568,10 +569,15 @@ export default function ReportDetailClient({
   const totalTokens = tokenUsage?.totalTokens ?? report.tokens_used ?? 0;
   const progressPercent = phaseProgressPercent(progress, report.status);
   const progressUpdatedAtMs = progress?.updatedAt ? Date.parse(progress.updatedAt) : Number.NaN;
+  const progressStartedAtMs = progress?.startedAt ? Date.parse(progress.startedAt) : Number.NaN;
   const heartbeatFresh = Number.isFinite(progressUpdatedAtMs) && (Date.now() - progressUpdatedAtMs) < 20000;
   const runtimeStateLabel = heartbeatFresh
     ? dict.reportDetail.runtimeHealthy
     : (report.status === 'pending' ? dict.reportDetail.runtimeWaiting : dict.reportDetail.runtimeStalled);
+  const elapsedMs = Number.isFinite(progressStartedAtMs) ? Math.max(0, Date.now() - progressStartedAtMs) : Number.NaN;
+  const etaSec = progressPercent > 0 && progressPercent < 100 && Number.isFinite(elapsedMs)
+    ? Math.max(0, Math.round((elapsedMs * (100 - progressPercent)) / progressPercent / 1000))
+    : null;
 
   return (
     <div className="flex flex-col h-full">
@@ -601,7 +607,7 @@ export default function ReportDetailClient({
                 </Button>
               </>
             )}
-            {(report.status === 'done' || report.status === 'failed' || report.status === 'partial_failed') && (
+            {(report.status === 'done' || report.status === 'failed' || report.status === 'partial_failed' || report.status === 'canceled') && (
               <Button variant="outline" size="sm" disabled={retrying} onClick={handleRetry} className="gap-2">
                 <RefreshCw className={retrying ? 'size-3.5 animate-spin' : 'size-3.5'} />
                 {retrying ? dict.reportDetail.reanalyzing : dict.reportDetail.reanalyze}
@@ -678,6 +684,9 @@ export default function ReportDetailClient({
                 </div>
               </div>
             </div>
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+              {dict.reportDetail.etaLabel}: {etaSec == null ? '--' : `${etaSec}s`}
+            </div>
             <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3">
               <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.reportDetail.currentFile}</div>
               <code className="text-xs font-mono text-foreground break-all">
@@ -721,6 +730,16 @@ export default function ReportDetailClient({
                           {section.durationMs} ms
                         </div>
                       )}
+                      {(section?.tokensUsed ?? null) != null && (
+                        <div className="mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                          {section?.tokensUsed} tokens
+                        </div>
+                      )}
+                      {(section?.estimatedCostUsd ?? null) != null && (
+                        <div className="mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                          ${Number(section?.estimatedCostUsd).toFixed(5)}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -737,10 +756,12 @@ export default function ReportDetailClient({
       )}
 
       {/* Failed */}
-      {report.status === 'failed' && !retrying && (
+      {(report.status === 'failed' || report.status === 'canceled') && !retrying && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <AlertCircle className="size-12 text-danger" />
-          <div className="text-sm font-semibold">{dict.reportDetail.analysisFailed}</div>
+          <div className="text-sm font-semibold">
+            {report.status === 'canceled' ? dict.reportDetail.terminatedMessage : dict.reportDetail.analysisFailed}
+          </div>
           <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{report.error_message}</div>
           <Button disabled={retrying} onClick={handleRetry} className="mt-2 gap-2">
             <RefreshCw className={retrying ? 'size-4 animate-spin' : 'size-4'} />

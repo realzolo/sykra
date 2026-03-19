@@ -45,6 +45,7 @@ export default function ProjectReportsView({
     running: { variant: 'accent',   label: dict.reports.status.running },
     done:      { variant: 'success',  label: dict.reports.status.done },
     partial_failed: { variant: 'warning', label: dict.reports.status.partialFailed },
+    canceled: { variant: 'muted', label: dict.reports.status.canceled },
     failed:    { variant: 'danger',   label: dict.reports.status.failed },
   };
 
@@ -59,6 +60,7 @@ export default function ProjectReportsView({
     { id: 'done', label: dict.reports.status.done },
     { id: 'running', label: dict.reports.status.running },
     { id: 'partial_failed', label: dict.reports.status.partialFailed },
+    { id: 'canceled', label: dict.reports.status.canceled },
     { id: 'pending', label: dict.reports.status.pending },
     { id: 'failed', label: dict.reports.status.failed },
   ];
@@ -107,7 +109,7 @@ export default function ProjectReportsView({
       const res = await fetch(`/api/reports/${reportId}/terminate`, { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { error?: string }).error ?? 'terminate_failed');
-      setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: 'failed' } : r));
+      setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: 'canceled' } : r));
       toast.success(dict.reports.terminateSuccess);
       const warning = (data as { warning?: string }).warning;
       if (warning) {

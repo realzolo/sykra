@@ -1,6 +1,5 @@
 import { createHash } from 'crypto';
 import { queryOne } from '@/lib/db';
-import { logger } from '@/services/logger';
 import { getRedisClient } from '@/services/redisClient';
 
 const RATE_LIMIT_SCRIPT = `
@@ -26,17 +25,6 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then
 end
 return 0
 `;
-
-type InMemoryRateBucket = { count: number; resetAt: number };
-type InMemoryLock = { owner: string; expiresAt: number };
-type InMemoryResult = { value: AnalyzeDedupeResult; expiresAt: number };
-
-const memoryRateBuckets = new Map<string, InMemoryRateBucket>();
-const memoryDedupeLocks = new Map<string, InMemoryLock>();
-const memoryDedupeResults = new Map<string, InMemoryResult>();
-
-let nextMemoryCleanupAt = 0;
-let redisFallbackWarned = false;
 
 function readPositiveIntEnv(name: string, fallback: number) {
   const raw = process.env[name];
@@ -236,24 +224,12 @@ export async function getAnalyzeDedupeResult(
   cleanupInMemoryIfNeeded();
 
   const redis = getRedisClient();
-  if (redis) {
-    try {
-      const raw = await redis.get(key);
-      return parseDedupeResult(raw);
-    } catch (err) {
-      warnRedisFallback(
-        'Failed reading analyze dedupe result from Redis; using in-memory fallback',
-        err
-      );
-    }
+  try {
+    const raw = await redis.get(key);
+    return parseDedupeResult(raw);
+  } catch (err) {
+    throw new Error(`Failed reading analyze dedupe result from Redis: ${String(err)}`);
   }
-
-  const cached = memoryDedupeResults.get(key);
-  if (!cached || cached.expiresAt <= Date.now()) {
-    memoryDedupeResults.delete(key);
-    return null;
-  }
-  return cached.value;
 }
 
 export async function waitForAnalyzeDedupeResult(
@@ -280,32 +256,18 @@ export async function claimAnalyzeDedupeLock(
   cleanupInMemoryIfNeeded();
 
   const redis = getRedisClient();
-  if (redis) {
-    try {
-      const lockResult = await redis.set(
-        key,
-        owner,
-        'EX',
-        analyzeAdmissionConfig.dedupeLockTtlSec,
-        'NX'
-      );
-      return lockResult === 'OK';
-    } catch (err) {
-      warnRedisFallback('Failed acquiring analyze dedupe lock in Redis; using in-memory fallback', err);
-    }
+  try {
+    const lockResult = await redis.set(
+      key,
+      owner,
+      'EX',
+      analyzeAdmissionConfig.dedupeLockTtlSec,
+      'NX'
+    );
+    return lockResult === 'OK';
+  } catch (err) {
+    throw new Error(`Failed acquiring analyze dedupe lock in Redis: ${String(err)}`);
   }
-
-  const now = Date.now();
-  const existing = memoryDedupeLocks.get(key);
-  if (existing && existing.expiresAt > now) {
-    return false;
-  }
-
-  memoryDedupeLocks.set(key, {
-    owner,
-    expiresAt: now + analyzeAdmissionConfig.dedupeLockTtlSec * 1000,
-  });
-  return true;
 }
 
 export async function releaseAnalyzeDedupeLock(
@@ -316,18 +278,10 @@ export async function releaseAnalyzeDedupeLock(
   cleanupInMemoryIfNeeded();
 
   const redis = getRedisClient();
-  if (redis) {
-    try {
-      await redis.eval(RELEASE_LOCK_SCRIPT, 1, key, owner);
-      return;
-    } catch (err) {
-      warnRedisFallback('Failed releasing analyze dedupe lock in Redis; using in-memory fallback', err);
-    }
-  }
-
-  const existing = memoryDedupeLocks.get(key);
-  if (existing && existing.owner === owner) {
-    memoryDedupeLocks.delete(key);
+  try {
+    await redis.eval(RELEASE_LOCK_SCRIPT, 1, key, owner);
+  } catch (err) {
+    throw new Error(`Failed releasing analyze dedupe lock in Redis: ${String(err)}`);
   }
 }
 
@@ -339,24 +293,16 @@ export async function storeAnalyzeDedupeResult(
   cleanupInMemoryIfNeeded();
 
   const redis = getRedisClient();
-  if (redis) {
-    try {
-      await redis.set(
-        key,
-        JSON.stringify(result),
-        'EX',
-        analyzeAdmissionConfig.dedupeResultTtlSec
-      );
-      return;
-    } catch (err) {
-      warnRedisFallback('Failed storing analyze dedupe result in Redis; using in-memory fallback', err);
-    }
+  try {
+    await redis.set(
+      key,
+      JSON.stringify(result),
+      'EX',
+      analyzeAdmissionConfig.dedupeResultTtlSec
+    );
+  } catch (err) {
+    throw new Error(`Failed storing analyze dedupe result in Redis: ${String(err)}`);
   }
-
-  memoryDedupeResults.set(key, {
-    value: result,
-    expiresAt: Date.now() + analyzeAdmissionConfig.dedupeResultTtlSec * 1000,
-  });
 }
 
 function dedupeResultKey(fingerprint: string) {
@@ -404,51 +350,29 @@ function isAnalyzeDedupeResult(value: unknown): value is AnalyzeDedupeResult {
   );
 }
 
-function warnRedisFallback(message: string, error: unknown) {
-  if (redisFallbackWarned) {
-    return;
-  }
-  redisFallbackWarned = true;
-  logger.warn(message, error instanceof Error ? error : new Error(String(error)));
-}
-
 async function consumeRateBucket(key: string, limit: number, windowMs: number): Promise<BucketUsage> {
   cleanupInMemoryIfNeeded();
 
   const redis = getRedisClient();
-  if (redis) {
-    try {
-      const raw = (await redis.eval(
-        RATE_LIMIT_SCRIPT,
-        1,
-        key,
-        String(windowMs),
-        String(limit)
-      )) as unknown;
+  try {
+    const raw = (await redis.eval(
+      RATE_LIMIT_SCRIPT,
+      1,
+      key,
+      String(windowMs),
+      String(limit)
+    )) as unknown;
 
-      if (Array.isArray(raw) && raw.length >= 3) {
-        const count = toInt(raw[0]);
-        const remaining = toInt(raw[1]);
-        const ttlMs = Math.max(toInt(raw[2]), 0);
-        return { count, remaining, ttlMs };
-      }
-    } catch (err) {
-      warnRedisFallback('Failed consuming Redis rate bucket; using in-memory fallback', err);
+    if (Array.isArray(raw) && raw.length >= 3) {
+      const count = toInt(raw[0]);
+      const remaining = toInt(raw[1]);
+      const ttlMs = Math.max(toInt(raw[2]), 0);
+      return { count, remaining, ttlMs };
     }
+    throw new Error('invalid rate-limit script return shape');
+  } catch (err) {
+    throw new Error(`Failed consuming Redis rate bucket: ${String(err)}`);
   }
-
-  const now = Date.now();
-  const bucket = memoryRateBuckets.get(key);
-
-  if (!bucket || bucket.resetAt <= now) {
-    const resetAt = now + windowMs;
-    memoryRateBuckets.set(key, { count: 1, resetAt });
-    return { count: 1, remaining: Math.max(0, limit - 1), ttlMs: windowMs };
-  }
-
-  bucket.count += 1;
-  const ttlMs = Math.max(bucket.resetAt - now, 0);
-  return { count: bucket.count, remaining: Math.max(0, limit - bucket.count), ttlMs };
 }
 
 function buildRateLimitHeaders(limit: number, remaining: number, resetAtMs: number) {
@@ -471,29 +395,7 @@ function normalizeIp(ipAddress?: string | null) {
 }
 
 function cleanupInMemoryIfNeeded() {
-  const now = Date.now();
-  if (now < nextMemoryCleanupAt) {
-    return;
-  }
-  nextMemoryCleanupAt = now + 60_000;
-
-  for (const [key, bucket] of memoryRateBuckets.entries()) {
-    if (bucket.resetAt <= now) {
-      memoryRateBuckets.delete(key);
-    }
-  }
-
-  for (const [key, lock] of memoryDedupeLocks.entries()) {
-    if (lock.expiresAt <= now) {
-      memoryDedupeLocks.delete(key);
-    }
-  }
-
-  for (const [key, result] of memoryDedupeResults.entries()) {
-    if (result.expiresAt <= now) {
-      memoryDedupeResults.delete(key);
-    }
-  }
+  // Redis-only admission control: no in-memory fallback state.
 }
 
 function toInt(value: unknown): number {

@@ -324,6 +324,39 @@ create index idx_analysis_report_sections_report_id on analysis_report_sections(
 create index idx_analysis_report_sections_report_phase on analysis_report_sections(report_id, phase, updated_at desc);
 create index idx_analysis_report_sections_phase_status on analysis_report_sections(phase, status);
 
+create or replace function notify_analysis_report_update() returns trigger as $$
+declare
+  payload json;
+begin
+  if TG_TABLE_NAME = 'analysis_reports' then
+    payload := json_build_object(
+      'reportId', NEW.id::text,
+      'source', 'analysis_reports'
+    );
+  elsif TG_TABLE_NAME = 'analysis_report_sections' then
+    payload := json_build_object(
+      'reportId', NEW.report_id::text,
+      'source', 'analysis_report_sections'
+    );
+  else
+    return NEW;
+  end if;
+
+  perform pg_notify('analysis_report_updates', payload::text);
+  return NEW;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_notify_analysis_reports on analysis_reports;
+create trigger trg_notify_analysis_reports
+after insert or update on analysis_reports
+for each row execute function notify_analysis_report_update();
+
+drop trigger if exists trg_notify_analysis_report_sections on analysis_report_sections;
+create trigger trg_notify_analysis_report_sections
+after insert or update on analysis_report_sections
+for each row execute function notify_analysis_report_update();
+
 create table analysis_issues (
   id uuid primary key default gen_random_uuid(),
   report_id uuid not null references analysis_reports(id) on delete cascade,

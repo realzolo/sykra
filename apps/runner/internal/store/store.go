@@ -89,6 +89,19 @@ type ReportSectionUpsert struct {
 	CompletedAt  *time.Time
 }
 
+type ReportSection struct {
+	ReportID     string
+	Phase        string
+	Attempt      int
+	Status       string
+	Payload      json.RawMessage
+	ErrorMessage *string
+	DurationMs   *int
+	TokensUsed   *int
+	TokenUsage   json.RawMessage
+	CompletedAt  *time.Time
+}
+
 func New(ctx context.Context, url string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
@@ -368,6 +381,69 @@ func (s *Store) UpsertReportSection(ctx context.Context, section ReportSectionUp
 		section.CompletedAt,
 	)
 	return err
+}
+
+func (s *Store) GetLatestReportSection(ctx context.Context, reportID string, phase string) (*ReportSection, error) {
+	row := s.pool.QueryRow(
+		ctx,
+		`select report_id,
+		        phase,
+		        attempt,
+		        status,
+		        payload,
+		        error_message,
+		        duration_ms,
+		        tokens_used,
+		        token_usage,
+		        completed_at
+		   from analysis_report_sections
+		  where report_id=$1 and phase=$2
+		  order by attempt desc
+		  limit 1`,
+		reportID,
+		phase,
+	)
+
+	var section ReportSection
+	var errorMessage pgtype.Text
+	var durationMs pgtype.Int4
+	var tokensUsed pgtype.Int4
+	var completedAt pgtype.Timestamptz
+	err := row.Scan(
+		&section.ReportID,
+		&section.Phase,
+		&section.Attempt,
+		&section.Status,
+		&section.Payload,
+		&errorMessage,
+		&durationMs,
+		&tokensUsed,
+		&section.TokenUsage,
+		&completedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if errorMessage.Valid {
+		msg := errorMessage.String
+		section.ErrorMessage = &msg
+	}
+	if durationMs.Valid {
+		value := int(durationMs.Int32)
+		section.DurationMs = &value
+	}
+	if tokensUsed.Valid {
+		value := int(tokensUsed.Int32)
+		section.TokensUsed = &value
+	}
+	if completedAt.Valid {
+		value := completedAt.Time
+		section.CompletedAt = &value
+	}
+	return &section, nil
 }
 
 func (s *Store) UpdateProjectLastAnalyzedAt(ctx context.Context, projectID string) error {

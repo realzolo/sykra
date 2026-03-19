@@ -14,10 +14,10 @@ function warnOnce(message: string, error?: Error) {
   logger.warn(message, error);
 }
 
-export function getRedisClient(): Redis | null {
+export function getRedisClient(): Redis {
   const redisUrl = process.env.REDIS_URL?.trim();
   if (!redisUrl) {
-    return null;
+    throw new Error('REDIS_URL is required for analyze admission control');
   }
 
   if (!globalThis.__studioRedisClient) {
@@ -29,19 +29,17 @@ export function getRedisClient(): Redis | null {
       });
 
       client.on('error', (err) => {
-        warnOnce('Redis connection error; falling back to in-memory admission control', err);
+        warnOnce('Redis connection error; analyze admission control is unavailable', err);
       });
 
       globalThis.__studioRedisClient = client;
     } catch (err) {
-      warnOnce(
-        'Failed to initialize Redis client; falling back to in-memory admission control',
-        err instanceof Error ? err : new Error(String(err))
-      );
-      return null;
+      throw err instanceof Error ? err : new Error(String(err));
     }
   }
 
-  return globalThis.__studioRedisClient ?? null;
+  if (!globalThis.__studioRedisClient) {
+    throw new Error('Failed to initialize Redis client');
+  }
+  return globalThis.__studioRedisClient;
 }
-

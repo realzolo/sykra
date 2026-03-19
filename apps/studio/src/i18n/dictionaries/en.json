@@ -564,6 +564,7 @@
       "running": "Running...",
       "done": "Done",
       "partialFailed": "Partially Failed",
+      "canceled": "Canceled",
       "failed": "Failed"
     },
     "categories": {
@@ -1065,7 +1066,7 @@
     "terminateFailed": "Terminate failed",
     "terminateConfirmTitle": "Terminate report",
     "terminateConfirmDescription": "Terminate this running analysis now?",
-    "terminatedMessage": "Analysis terminated by user",
+    "terminatedMessage": "Analysis canceled by user",
     "analyzing": "AI is performing in-depth analysis of your code...",
     "analyzingSubtext": "Performing multi-dimensional quality analysis, security scanning, performance evaluation...",
     "progressLabel": "Overall progress",
@@ -1076,6 +1077,7 @@
     "runtimeWaiting": "Queued / waiting for first heartbeat",
     "runtimeStalled": "No recent heartbeat (possible stall)",
     "lastUpdate": "Last heartbeat",
+    "etaLabel": "Estimated remaining",
     "tokensUsed": "Tokens used",
     "currentFile": "Current file",
     "pendingCurrentFile": "Waiting for file-level progress...",

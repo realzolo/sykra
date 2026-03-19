@@ -288,6 +288,19 @@ export async function POST(request: NextRequest) {
       taskId,
     });
   } catch (err) {
+    if (err instanceof Error) {
+      const message = err.message.toLowerCase();
+      if (message.includes('redis') || message.includes('admission control')) {
+        logger.error('Analysis admission unavailable', err);
+        return NextResponse.json(
+          {
+            error: 'Analyze admission control is unavailable. Check REDIS_URL and Redis connectivity.',
+            code: 'ANALYZE_ADMISSION_UNAVAILABLE',
+          },
+          { status: 503 }
+        );
+      }
+    }
     const { error, statusCode } = formatErrorResponse(err);
     logger.error('Analysis request failed', err instanceof Error ? err : undefined);
     return NextResponse.json({ error }, { status: statusCode });

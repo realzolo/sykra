@@ -279,6 +279,7 @@ EMAIL_FROM=                 # From address (required for resend)
 RESEND_API_KEY=             # Resend API key (required when EMAIL_PROVIDER=resend)
 STUDIO_BASE_URL=            # Public base URL for links included in emails (optional)
 REDIS_URL=                  # Redis URL used by BullMQ and analyze admission control (recommended in production)
+                            # Required for analyze admission control (no in-memory fallback)
 ANALYZE_RATE_LIMIT_WINDOW_MS=          # Analyze rate-limit window in ms (default 60000)
 ANALYZE_RATE_LIMIT_USER_PROJECT_MAX=   # Max analyze requests/window per org+user+project (default 6)
 ANALYZE_RATE_LIMIT_ORG_MAX=            # Max analyze requests/window per org (default 60)
@@ -290,6 +291,9 @@ ANALYZE_BACKPRESSURE_ORG_ACTIVE_MAX=     # Max active (pending/running) reports 
 ANALYZE_BACKPRESSURE_RETRY_AFTER_SEC=    # Retry-After hint for backpressure rejections (default 15)
 ANALYZE_REPORT_TIMEOUT_MS=               # Auto-fail threshold for pending/running reports (ms, default 3600000)
 ANALYZE_REPORT_TIMEOUT_SWEEP_INTERVAL_MS= # Min interval between timeout sweeps in Studio workers (ms, default 30000)
+ANALYZE_CORE_TOP_K_FILES=               # Core phase pre-filter top-K changed files by risk/size (default 40)
+AI_COST_INPUT_PER_MILLION_USD=          # Optional cost model for phase-level cost estimation
+AI_COST_OUTPUT_PER_MILLION_USD=         # Optional cost model for phase-level cost estimation
 ```
 
 **Runner env (apps/runner):**
@@ -307,6 +311,10 @@ PIPELINE_RUN_TIMEOUT=       # Overall run timeout (e.g. 2h)
 RUNNER_DATA_DIR=            # Local logs/artifacts root
 PIPELINE_LOG_RETENTION_DAYS=
 PIPELINE_ARTIFACT_RETENTION_DAYS=
+ANALYZE_PHASE_CORE_TIMEOUT=                 # Optional phase timeout override (e.g. 20m)
+ANALYZE_PHASE_QUALITY_TIMEOUT=              # Optional phase timeout override (e.g. 10m)
+ANALYZE_PHASE_SECURITY_PERFORMANCE_TIMEOUT= # Optional phase timeout override (e.g. 15m)
+ANALYZE_PHASE_SUGGESTIONS_TIMEOUT=          # Optional phase timeout override (e.g. 10m)
 ```
 **Runner config file (TOML, optional):**
 - Auto-detected: `apps/runner/config.toml` (repo root) or `config.toml` in current working directory
@@ -350,6 +358,11 @@ Environment files for Studio live under `apps/studio` (e.g. `apps/studio/.env`).
 - VCS: GitHub, GitLab, Generic Git
 - AI: Any OpenAI API-format provider (Claude, GPT-4, DeepSeek, etc.)
 - AI config supports `model` (manual model ID allowed), required `apiStyle` (`openai|anthropic`), optional `maxTokens`, `temperature`, and optional `reasoningEffort` (`none|minimal|low|medium|high|xhigh`)
+- AI config also supports optional per-phase overrides:
+  - `phaseModels.{core|quality|security_performance|suggestions}`
+  - `phaseMaxTokens.{...}`
+  - `phaseReasoningEffort.{...}`
+  - `phaseTemperature.{...}`
 - Add/Edit AI Integration modals provide quick `maxTokens` profiles for common workloads (quick review, deep review, log analysis, auto-fix) while still allowing manual override
 - For official OpenAI endpoint (`https://api.openai.com/v1`), reasoning-capable models (for example `gpt-5*`, `o*`, `codex*`) use `/responses`; other providers remain on `/chat/completions`
 - Project-level AI integration binding can be changed in **Project Settings > Project Configuration**; selecting "Use organization default" clears project override and falls back to org default.
@@ -387,7 +400,7 @@ If new install warnings appear, approve the dependency and update the allowlist.
 2. Studio performs integration preflight (AI integration must decrypt/resolve successfully) before creating report/task.
 3. On accepted request, Studio creates `analysis_reports` row with immutable `analysis_snapshot` and enqueues runner task
 4. API returns `{ reportId, status: "queued", taskId }` (or deduped existing report/task when applicable)
-5. Reports support manual termination via `POST /api/reports/[id]/terminate` (Studio marks report failed and requests Runner task cancellation).
+5. Reports support manual termination via `POST /api/reports/[id]/terminate` (Studio marks report `canceled` and requests Runner task cancellation).
 6. Studio also auto-fails timed-out reports (`pending`/`running`) based on `ANALYZE_REPORT_TIMEOUT_MS`.
 7. Runner canonical report status model is `pending -> running -> done | partial_failed | failed | canceled`.
 8. Runner executes phased analysis:
@@ -399,6 +412,7 @@ If new install warnings appear, approve the dependency and update the allowlist.
 9. Each phase is persisted in `analysis_report_sections` (`report_id + phase + attempt`), including payload, duration, token usage, and failure reason.
 10. Runner increments `analysis_reports.sse_seq` on progress/section/status updates; SSE uses sequence + snapshot diff to stream ordered updates.
 11. Frontend subscribes to `/api/reports/[id]/stream` and receives `status_update` with `status`, `score`, `analysisProgress`, `analysisSections`, `tokenUsage`, `tokensUsed`, `errorMessage`, `sequence`.
+12. Studio SSE backend is event-driven via Postgres `LISTEN/NOTIFY` channel `analysis_report_updates` (with periodic timeout sweep checks), not fixed-interval polling.
 
 ## Pipeline Engine (CI/CD)
 
