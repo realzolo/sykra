@@ -276,6 +276,7 @@ export default function ReportDetailClient({
   const [commitsExpanded, setCommitsExpanded] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatIssueId, setChatIssueId] = useState<string | undefined>();
+  const [chatIssueContext, setChatIssueContext] = useState<string | undefined>();
   const [trendsOpen, setTrendsOpen] = useState(false);
 
   const pollReport = useCallback(async (id: string) => {
@@ -538,8 +539,9 @@ export default function ReportDetailClient({
     running: { variant: 'accent' as const,  label: dict.reports.status.running },
   }[retrying ? 'running' : report.status] ?? { variant: 'muted' as const, label: retrying ? dict.reports.status.running : report.status };
 
-  function openChat(issueFile?: string) {
-    setChatIssueId(issueFile);
+  function openChat(issueRef?: string, issueContext?: string) {
+    setChatIssueId(issueRef);
+    setChatIssueContext(issueContext);
     setChatOpen(true);
   }
 
@@ -978,7 +980,7 @@ export default function ReportDetailClient({
                               issue={issue}
                               {...(issueId ? { issueId } : {})}
                               reportId={report.id}
-                              onChat={() => openChat(issue.file)}
+                              onChat={() => openChat(issueId ?? issue.file, issue.line ? `${issue.file}:${issue.line}` : issue.file)}
                               codebaseHref={codebaseHrefForIssue(issue)}
                               dict={dict}
                             />
@@ -1164,12 +1166,17 @@ export default function ReportDetailClient({
 
       {/* Chat Modal */}
       <Dialog open={chatOpen} onOpenChange={setChatOpen}>
-        <DialogContent className="max-w-3xl p-0">
-          <DialogHeader className="px-6 pt-6">
+        <DialogContent className="ai-reviewer-dialog max-w-4xl p-0 border-[hsl(var(--ds-border-2))] shadow-[0_24px_72px_hsl(0_0%_0%/0.48)]">
+          <DialogHeader className="px-6 pt-6 bg-[hsl(var(--ds-background-2))]">
             <DialogTitle>{dict.reportDetail.aiReviewer}</DialogTitle>
           </DialogHeader>
-          <div className="h-[600px]">
-            <AIChat reportId={report.id} {...(chatIssueId ? { issueId: chatIssueId } : {})} dict={dict} />
+          <div className="h-[min(74vh,680px)] min-h-[480px]">
+            <AIChat
+              reportId={report.id}
+              {...(chatIssueId ? { issueId: chatIssueId } : {})}
+              {...(chatIssueContext ? { issueContext: chatIssueContext } : {})}
+              dict={dict}
+            />
           </div>
         </DialogContent>
       </Dialog>

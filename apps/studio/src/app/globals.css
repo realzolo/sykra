@@ -536,3 +536,26 @@
 .commit-diff-viewer .cm-punctuation {
   color: hsl(var(--ds-text-1));
 }
+
+.ai-reviewer-dialog :where(*, *:focus, *:focus-visible, *:focus-within) {
+  outline: none !important;
+}
+
+.ai-reviewer-dialog :where(
+  button,
+  input,
+  textarea,
+  select,
+  [role='button'],
+  [data-slot='dialog-close']
+):focus,
+.ai-reviewer-dialog :where(
+  button,
+  input,
+  textarea,
+  select,
+  [role='button'],
+  [data-slot='dialog-close']
+):focus-visible {
+  box-shadow: none !important;
+}

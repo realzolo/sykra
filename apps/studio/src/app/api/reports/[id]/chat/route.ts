@@ -1,9 +1,18 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { exec, query, queryOne } from '@/lib/db';
+import { readSecret } from '@/lib/vault';
+import { getOutputLanguageLabel } from '@/lib/outputLanguage';
+import {
+  isOpenAIOfficialBase,
+  supportsReasoningEffort,
+  supportsTemperature,
+} from '@/lib/aiModelCapabilities';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { requireReportAccess } from '@/services/orgs';
+import { IntegrationResolutionError, resolveAIIntegration } from '@/services/integrations';
+import { sanitizeAIConfig } from '@/services/integrations/ai-config';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -11,6 +20,7 @@ export const maxDuration = 60;
 const rateLimiter = createRateLimiter(RATE_LIMITS.general);
 
 interface ReportRow {
+  project_id: string;
   score: number | null;
   summary: string | null;
   issues: Array<Record<string, unknown>> | null;
@@ -26,8 +36,26 @@ type ConversationMessage = {
 
 type ConversationRow = {
   id: string;
+  issue_id: string | null;
+  updated_at: string | null;
   messages: unknown;
 };
+
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+const REASONING_EFFORTS = new Set<ReasoningEffort>([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+]);
 
 export async function POST(
   request: NextRequest,
@@ -43,7 +71,9 @@ export async function POST(
 
   const { id: reportId } = await params;
   const body = await request.json();
-  const { message, conversationId, issueId } = body;
+  const message = typeof body?.message === 'string' ? body.message.trim() : '';
+  const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : null;
+  const issueId = typeof body?.issueId === 'string' ? body.issueId : null;
 
   if (!message) {
     return NextResponse.json({ error: 'Message is required' }, { status: 400 });
@@ -51,58 +81,56 @@ export async function POST(
 
   await requireReportAccess(reportId, user.id);
 
-  // Get report details
   const reportRow = await queryOne<ReportRow>(
-    `select r.*, p.name as project_name, p.repo as project_repo
+    `select
+      r.project_id,
+      r.score,
+      r.summary,
+      r.issues,
+      p.name as project_name,
+      p.repo as project_repo
      from analysis_reports r
      join code_projects p on p.id = r.project_id
      where r.id = $1`,
     [reportId]
   );
-
   if (!reportRow) {
     return NextResponse.json({ error: 'Report not found' }, { status: 404 });
   }
 
-  const project = {
-    name: reportRow.project_name,
-    repo: reportRow.project_repo,
-  };
-  const issues = Array.isArray(reportRow.issues) ? reportRow.issues : [];
-  const summary = typeof reportRow.summary === 'string' ? reportRow.summary : '';
-  const score = typeof reportRow.score === 'number' ? reportRow.score : 0;
-
-  // Get or create conversation
   let conversation: ConversationRow | null = null;
   if (conversationId) {
     conversation = await queryOne<ConversationRow>(
-      `select * from analysis_conversations where id = $1`,
-      [conversationId]
+      `select id, issue_id, messages
+       , updated_at
+       from analysis_conversations
+       where id = $1 and report_id = $2`,
+      [conversationId, reportId]
     );
   }
-
   if (!conversation) {
     conversation = await queryOne<ConversationRow>(
       `insert into analysis_conversations
-        (report_id, issue_id, messages, created_at, updated_at)
-       values ($1,$2,'[]'::jsonb,now(),now())
-       returning *`,
+       (report_id, issue_id, messages, created_at, updated_at)
+       values ($1, $2, '[]'::jsonb, now(), now())
+       returning id, issue_id, updated_at, messages`,
       [reportId, isUuid(issueId) ? issueId : null]
     );
   }
-
   if (!conversation) {
     return NextResponse.json({ error: 'Failed to create conversation' }, { status: 500 });
   }
 
   const messages = normalizeConversationMessages(conversation.messages);
+  const issues = Array.isArray(reportRow.issues) ? reportRow.issues : [];
+  const summary = typeof reportRow.summary === 'string' ? reportRow.summary : '';
+  const score = typeof reportRow.score === 'number' ? reportRow.score : 0;
 
-  // Build context
   let context = `You are a senior code reviewer assisting a developer with code quality questions.
 
 ## Project
-- Name: ${project.name}
-- Repository: ${project.repo}
+- Name: ${reportRow.project_name}
+- Repository: ${reportRow.project_repo}
 - Overall score: ${score}/100
 
 ## Report summary
@@ -110,8 +138,7 @@ ${summary}
 
 ## Issue stats
 - Total issues: ${issues.length}
-- Critical/high issues: ${issues.filter((i: Record<string, unknown>) => i.severity === 'critical' || i.severity === 'high').length}
-
+- Critical/high issues: ${issues.filter((item) => item.severity === 'critical' || item.severity === 'high').length}
 `;
 
   if (issueId) {
@@ -122,11 +149,9 @@ ${summary}
         [issueId]
       );
     }
-
-    if (!issue && issues.length > 0) {
-      issue = issues.find((i: Record<string, unknown>) => i.file === issueId) || null;
+    if (!issue) {
+      issue = issues.find((item) => item.file === issueId) ?? null;
     }
-
     if (issue) {
       context += `\n## Focus issue
 File: ${issue.file}
@@ -144,98 +169,101 @@ Suggestion: ${issue.suggestion ?? 'None'}
     }
   }
 
-  context += `\nPlease respond in English with clear, actionable guidance.`;
-
-  // Call Anthropic Messages API via unified HTTP transport
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not configured' }, { status: 500 });
+  let aiConfig: ReturnType<typeof sanitizeAIConfig>;
+  let apiKey: string;
+  try {
+    const { integration } = await resolveAIIntegration(reportRow.project_id);
+    aiConfig = sanitizeAIConfig(integration.config);
+    apiKey = await readSecret(integration.vault_secret_name);
+  } catch (error) {
+    if (error instanceof IntegrationResolutionError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.code === 'AI_INTEGRATION_REBIND_REQUIRED' ? 409 : 400 }
+      );
+    }
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to resolve AI integration' },
+      { status: 400 }
+    );
   }
-  const baseUrl = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
-  const endpoint = baseUrl.endsWith('/v1') ? `${baseUrl}/messages` : `${baseUrl}/v1/messages`;
 
-  const apiMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [
-    ...messages,
-    { role: 'user', content: message }
+  context += `\nPlease respond in ${getOutputLanguageLabel(aiConfig.outputLanguage)} (${aiConfig.outputLanguage}) with clear, actionable guidance.`;
+
+  const chatMessages: ChatMessage[] = [
+    ...messages.map((item) => ({ role: item.role, content: item.content })),
+    { role: 'user', content: message },
   ];
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      writeSSEEvent(controller, encoder, 'meta', { conversationId: conversation.id });
+
+      void (async () => {
+        let assistantMessage = '';
+        try {
+          for await (const chunk of requestChatCompletionStream({
+            config: aiConfig,
+            apiKey,
+            system: context,
+            messages: chatMessages,
+            signal: request.signal,
+          })) {
+            if (!chunk) continue;
+            assistantMessage += chunk;
+            writeSSEEvent(controller, encoder, 'delta', { text: chunk });
+          }
+
+          if (!assistantMessage.trim()) {
+            throw new Error('AI response missing text content');
+          }
+
+          const now = new Date().toISOString();
+          const updatedMessages = [
+            ...messages,
+            { role: 'user', content: message, timestamp: now },
+            { role: 'assistant', content: assistantMessage, timestamp: now },
+          ];
+
+          await exec(
+            `update analysis_conversations
+             set messages = $2, updated_at = now()
+             where id = $1`,
+            [conversation.id, JSON.stringify(updatedMessages)]
+          );
+
+          writeSSEEvent(controller, encoder, 'done', {
+            conversationId: conversation.id,
+            message: assistantMessage,
+          });
+        } catch (error) {
+          if (!request.signal.aborted) {
+            writeSSEEvent(controller, encoder, 'error', {
+              error: error instanceof Error ? error.message : 'AI chat request failed',
+            });
+          }
+        } finally {
+          try {
+            controller.close();
+          } catch {
+            // ignore double-close
+          }
+        }
+      })();
     },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      system: context,
-      messages: apiMessages,
-    }),
   });
 
-  const raw = await response.text();
-  if (!response.ok) {
-    return NextResponse.json(
-      { error: `Anthropic API error: ${response.status} ${response.statusText}` },
-      { status: 502 }
-    );
-  }
-  if (looksLikeHTML(response.headers.get('content-type'), raw)) {
-    return NextResponse.json(
-      { error: 'Anthropic endpoint returned HTML instead of JSON' },
-      { status: 502 }
-    );
-  }
-
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = parseJSONLoose(raw);
-  } catch {
-    return NextResponse.json(
-      { error: 'Anthropic endpoint returned invalid JSON' },
-      { status: 502 }
-    );
-  }
-
-  const contentBlocks = parsed.content;
-  if (!Array.isArray(contentBlocks) || contentBlocks.length === 0 || typeof contentBlocks[0] !== 'object' || !contentBlocks[0]) {
-    return NextResponse.json(
-      { error: 'Anthropic response missing content' },
-      { status: 502 }
-    );
-  }
-
-  const firstContent = contentBlocks[0] as Record<string, unknown>;
-  const assistantMessage = typeof firstContent.text === 'string' ? firstContent.text : '';
-  if (!assistantMessage) {
-    return NextResponse.json(
-      { error: 'Anthropic response missing text content' },
-      { status: 502 }
-    );
-  }
-
-  // Update conversation
-  const updatedMessages = [
-    ...messages,
-    { role: 'user', content: message, timestamp: new Date().toISOString() },
-    { role: 'assistant', content: assistantMessage, timestamp: new Date().toISOString() }
-  ];
-
-  await exec(
-    `update analysis_conversations
-     set messages = $2, updated_at = now()
-     where id = $1`,
-    [conversation.id, JSON.stringify(updatedMessages)]
-  );
-
-  return NextResponse.json({
-    conversationId: conversation.id,
-    message: assistantMessage
+  return new NextResponse(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
   });
 }
 
-// Get conversation history
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -251,31 +279,69 @@ export async function GET(
   const { id: reportId } = await params;
   const { searchParams } = new URL(request.url);
   const conversationId = searchParams.get('conversationId');
+  const issueId = searchParams.get('issueId');
+  const latestOnly = searchParams.get('latest') === '1';
 
   await requireReportAccess(reportId, user.id);
 
   if (conversationId) {
     const data = await queryOne<ConversationRow>(
-      `select * from analysis_conversations where id = $1`,
-      [conversationId]
+      `select id, issue_id, messages
+       , updated_at
+       from analysis_conversations
+       where id = $1 and report_id = $2`,
+      [conversationId, reportId]
     );
-
     if (!data) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
-
     return NextResponse.json(data);
   }
 
-  // Get all conversations for this report
+  if (issueId && isUuid(issueId)) {
+    const data = await queryOne<ConversationRow>(
+      `select id, issue_id, messages
+       , updated_at
+       from analysis_conversations
+       where report_id = $1 and issue_id = $2
+       order by updated_at desc
+       limit 1`,
+      [reportId, issueId]
+    );
+    return NextResponse.json(data ?? null);
+  }
+
+  if (latestOnly) {
+    const data = await queryOne<ConversationRow>(
+      `select id, issue_id, messages
+       , updated_at
+       from analysis_conversations
+       where report_id = $1
+       order by updated_at desc
+       limit 1`,
+      [reportId]
+    );
+    return NextResponse.json(data ?? null);
+  }
+
   const data = await query<Record<string, unknown>>(
-    `select * from analysis_conversations
+    `select id, issue_id, messages, updated_at
+     from analysis_conversations
      where report_id = $1
-     order by created_at desc`,
+     order by updated_at desc`,
     [reportId]
   );
-
   return NextResponse.json(data ?? []);
+}
+
+function writeSSEEvent(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder,
+  event: string,
+  payload: Record<string, unknown>
+) {
+  const text = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+  controller.enqueue(encoder.encode(text));
 }
 
 function isUuid(value?: string | null) {
@@ -283,10 +349,34 @@ function isUuid(value?: string | null) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
+function normalizeConversationMessages(value: unknown): ConversationMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): ConversationMessage | null => {
+      if (!item || typeof item !== 'object') return null;
+      const role = (item as { role?: unknown }).role;
+      const content = (item as { content?: unknown }).content;
+      if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') {
+        return null;
+      }
+      const timestamp = (item as { timestamp?: unknown }).timestamp;
+      return {
+        role,
+        content,
+        ...(typeof timestamp === 'string' ? { timestamp } : {}),
+      };
+    })
+    .filter((item): item is ConversationMessage => item !== null);
+}
+
 function looksLikeHTML(contentType: string | null, bodySnippet: string): boolean {
   const lowerType = (contentType ?? '').toLowerCase();
   if (lowerType.includes('text/html')) return true;
   return bodySnippet.trim().startsWith('<');
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 function parseJSONLoose(raw: string): Record<string, unknown> {
@@ -299,23 +389,418 @@ function parseJSONLoose(raw: string): Record<string, unknown> {
   return JSON.parse(candidate) as Record<string, unknown>;
 }
 
-function normalizeConversationMessages(value: unknown): ConversationMessage[] {
-  if (!Array.isArray(value)) return [];
+function extractErrorMessage(raw: string): string | null {
+  try {
+    const parsed = parseJSONLoose(raw);
+    const top = asString(parsed.message);
+    if (top) return top;
+    const nested = parsed.error;
+    if (!nested) return null;
+    if (typeof nested === 'string') return nested;
+    if (typeof nested !== 'object') return null;
+    return asString((nested as Record<string, unknown>).message) ?? null;
+  } catch {
+    return null;
+  }
+}
 
-  return value
-    .map((item): ConversationMessage | null => {
-      if (!item || typeof item !== 'object') return null;
-      const role = (item as { role?: unknown }).role;
-      const content = (item as { content?: unknown }).content;
-      if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') {
-        return null;
+function normalizeReasoningEffort(value: unknown): ReasoningEffort | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (REASONING_EFFORTS.has(normalized as ReasoningEffort)) {
+    return normalized as ReasoningEffort;
+  }
+  return undefined;
+}
+
+function getReasoningEffort(
+  value: unknown
+): Exclude<ReasoningEffort, 'none'> | undefined {
+  const effort = normalizeReasoningEffort(value);
+  if (!effort || effort === 'none') return undefined;
+  return effort;
+}
+
+function shouldUseResponsesAPIForChat(config: ReturnType<typeof sanitizeAIConfig>): boolean {
+  if (!isOpenAIOfficialBase(config.baseUrl)) return false;
+  const effort = getReasoningEffort(config.reasoningEffort);
+  return Boolean(effort) || supportsReasoningEffort(config.model);
+}
+
+function extractResponsesText(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const candidate = data as Record<string, unknown>;
+
+  if (typeof candidate.output_text === 'string' && candidate.output_text.trim()) {
+    return candidate.output_text;
+  }
+
+  const output = candidate.output;
+  if (!Array.isArray(output)) return null;
+
+  const parts: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== 'object') continue;
+    const content = (item as Record<string, unknown>).content;
+    if (!Array.isArray(content)) continue;
+
+    for (const block of content) {
+      if (!block || typeof block !== 'object') continue;
+      const text = (block as Record<string, unknown>).text;
+      if (typeof text === 'string' && text) {
+        parts.push(text);
       }
-      const timestampValue = (item as { timestamp?: unknown }).timestamp;
-      return {
-        role,
-        content,
-        ...(typeof timestampValue === 'string' ? { timestamp: timestampValue } : {}),
-      };
-    })
-    .filter((item): item is ConversationMessage => item !== null);
+    }
+  }
+
+  return parts.length > 0 ? parts.join('\n') : null;
+}
+
+async function* requestChatCompletionStream(input: {
+  config: ReturnType<typeof sanitizeAIConfig>;
+  apiKey: string;
+  system: string;
+  messages: ChatMessage[];
+  signal: AbortSignal;
+}): AsyncGenerator<string> {
+  if (input.config.apiStyle === 'anthropic') {
+    yield* requestAnthropicChatStream(input);
+    return;
+  }
+  if (shouldUseResponsesAPIForChat(input.config)) {
+    yield* requestOpenAIResponsesStream(input);
+    return;
+  }
+  yield* requestOpenAIChatStream(input);
+}
+
+async function* requestAnthropicChatStream(input: {
+  config: ReturnType<typeof sanitizeAIConfig>;
+  apiKey: string;
+  system: string;
+  messages: ChatMessage[];
+  signal: AbortSignal;
+}): AsyncGenerator<string> {
+  const base = input.config.baseUrl.replace(/\/+$/, '');
+  const endpoint = base.endsWith('/v1') ? `${base}/messages` : `${base}/v1/messages`;
+  const payload: Record<string, unknown> = {
+    model: input.config.model,
+    max_tokens: input.config.maxTokens ?? 4096,
+    system: input.system,
+    messages: input.messages,
+    stream: true,
+  };
+  if (supportsTemperature(input.config.model)) {
+    payload.temperature = input.config.temperature ?? 0.7;
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': input.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(payload),
+    signal: input.signal,
+  });
+
+  if (!response.ok) {
+    const raw = await response.text();
+    const detail = extractErrorMessage(raw);
+    throw new Error(
+      detail
+        ? `Anthropic API error: ${detail}`
+        : `Anthropic API error: ${response.status} ${response.statusText}`
+    );
+  }
+  if (!response.body) {
+    throw new Error('Anthropic API stream body is empty');
+  }
+
+  for await (const dataLine of iterateSSEDataLines(response.body)) {
+    if (!dataLine || dataLine === '[DONE]') continue;
+    const parsed = safeJSONParse(dataLine);
+    if (!parsed) continue;
+    const type = asString(parsed.type);
+    if (type !== 'content_block_delta') continue;
+
+    const delta = parsed.delta;
+    if (!delta || typeof delta !== 'object') continue;
+    if (asString((delta as Record<string, unknown>).type) !== 'text_delta') continue;
+    const text = asString((delta as Record<string, unknown>).text);
+    if (text) yield text;
+  }
+}
+
+async function* requestOpenAIChatStream(input: {
+  config: ReturnType<typeof sanitizeAIConfig>;
+  apiKey: string;
+  system: string;
+  messages: ChatMessage[];
+  signal: AbortSignal;
+}): AsyncGenerator<string> {
+  const payload: Record<string, unknown> = {
+    model: input.config.model,
+    messages: [{ role: 'system', content: input.system }, ...input.messages],
+    max_tokens: input.config.maxTokens ?? 4096,
+    stream: true,
+  };
+  if (supportsTemperature(input.config.model)) {
+    payload.temperature = input.config.temperature ?? 0.7;
+  }
+
+  const response = await fetch(`${input.config.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${input.apiKey}`,
+    },
+    body: JSON.stringify(payload),
+    signal: input.signal,
+  });
+
+  if (!response.ok) {
+    const raw = await response.text();
+    const detail = extractErrorMessage(raw);
+    throw new Error(
+      detail
+        ? `OpenAI API error: ${detail}`
+        : `OpenAI API error: ${response.status} ${response.statusText}`
+    );
+  }
+  if (!response.body) {
+    throw new Error('OpenAI API stream body is empty');
+  }
+
+  for await (const dataLine of iterateSSEDataLines(response.body)) {
+    if (!dataLine || dataLine === '[DONE]') continue;
+    const parsed = safeJSONParse(dataLine);
+    if (!parsed) continue;
+
+    const choices = parsed.choices;
+    if (!Array.isArray(choices) || choices.length === 0 || typeof choices[0] !== 'object' || !choices[0]) {
+      continue;
+    }
+    const delta = (choices[0] as Record<string, unknown>).delta;
+    if (!delta || typeof delta !== 'object') continue;
+    const text = asString((delta as Record<string, unknown>).content);
+    if (text) yield text;
+  }
+}
+
+async function* requestOpenAIResponsesStream(input: {
+  config: ReturnType<typeof sanitizeAIConfig>;
+  apiKey: string;
+  system: string;
+  messages: ChatMessage[];
+  signal: AbortSignal;
+}): AsyncGenerator<string> {
+  const transcript = input.messages
+    .map((item) => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
+    .join('\n\n');
+
+  const payload: Record<string, unknown> = {
+    model: input.config.model,
+    input: `${input.system}\n\nConversation:\n${transcript}\n\nAssistant:`,
+    max_output_tokens: input.config.maxTokens ?? 4096,
+    stream: true,
+  };
+  const effort = getReasoningEffort(input.config.reasoningEffort);
+  if (effort && supportsReasoningEffort(input.config.model)) {
+    payload.reasoning = { effort };
+  }
+  if (supportsTemperature(input.config.model)) {
+    payload.temperature = input.config.temperature ?? 0.7;
+  }
+
+  const response = await fetch(`${input.config.baseUrl}/responses`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${input.apiKey}`,
+    },
+    body: JSON.stringify(payload),
+    signal: input.signal,
+  });
+
+  if (!response.ok) {
+    const raw = await response.text();
+    const detail = extractErrorMessage(raw);
+    throw new Error(
+      detail
+        ? `OpenAI Responses API error: ${detail}`
+        : `OpenAI Responses API error: ${response.status} ${response.statusText}`
+    );
+  }
+  if (!response.body) {
+    const text = await requestOpenAIResponsesOnce(input);
+    yield text;
+    return;
+  }
+
+  let gotOutput = false;
+  let completedResponse: unknown = null;
+
+  for await (const dataLine of iterateSSEDataLines(response.body)) {
+    if (!dataLine || dataLine === '[DONE]') continue;
+    const parsed = safeJSONParse(dataLine);
+    if (!parsed) continue;
+
+    const type = asString(parsed.type);
+    if (type === 'response.output_text.delta') {
+      const delta = asString(parsed.delta);
+      if (delta) {
+        gotOutput = true;
+        yield delta;
+      }
+      continue;
+    }
+    if (type === 'response.output_text.done') {
+      const text = asString(parsed.text);
+      if (text && !gotOutput) {
+        gotOutput = true;
+        yield text;
+      }
+      continue;
+    }
+    if (type === 'response.completed') {
+      completedResponse = parsed.response;
+    }
+    if (type === 'error') {
+      const message = extractErrorFromParsed(parsed);
+      throw new Error(message ?? 'OpenAI Responses API stream failed');
+    }
+  }
+
+  if (!gotOutput) {
+    const recovered = extractResponsesText(completedResponse);
+    if (recovered) {
+      yield recovered;
+      return;
+    }
+    const text = await requestOpenAIResponsesOnce(input);
+    yield text;
+  }
+}
+
+async function requestOpenAIResponsesOnce(input: {
+  config: ReturnType<typeof sanitizeAIConfig>;
+  apiKey: string;
+  system: string;
+  messages: ChatMessage[];
+  signal: AbortSignal;
+}): Promise<string> {
+  const transcript = input.messages
+    .map((item) => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
+    .join('\n\n');
+
+  const payload: Record<string, unknown> = {
+    model: input.config.model,
+    input: `${input.system}\n\nConversation:\n${transcript}\n\nAssistant:`,
+    max_output_tokens: input.config.maxTokens ?? 4096,
+  };
+  const effort = getReasoningEffort(input.config.reasoningEffort);
+  if (effort && supportsReasoningEffort(input.config.model)) {
+    payload.reasoning = { effort };
+  }
+  if (supportsTemperature(input.config.model)) {
+    payload.temperature = input.config.temperature ?? 0.7;
+  }
+
+  const response = await fetch(`${input.config.baseUrl}/responses`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${input.apiKey}`,
+    },
+    body: JSON.stringify(payload),
+    signal: input.signal,
+  });
+
+  const raw = await response.text();
+  if (!response.ok) {
+    const detail = extractErrorMessage(raw);
+    throw new Error(
+      detail
+        ? `OpenAI Responses API error: ${detail}`
+        : `OpenAI Responses API error: ${response.status} ${response.statusText}`
+    );
+  }
+  if (looksLikeHTML(response.headers.get('content-type'), raw)) {
+    throw new Error('OpenAI Responses endpoint returned HTML instead of JSON');
+  }
+
+  const parsed = parseJSONLoose(raw);
+  const text = extractResponsesText(parsed);
+  if (!text) {
+    throw new Error('OpenAI Responses response missing output text');
+  }
+  return text;
+}
+
+async function* iterateSSEDataLines(
+  stream: ReadableStream<Uint8Array>
+): AsyncGenerator<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop() ?? '';
+
+    for (const chunk of chunks) {
+      const data = parseSSEData(chunk);
+      if (data) {
+        yield data;
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    const data = parseSSEData(buffer);
+    if (data) {
+      yield data;
+    }
+  }
+}
+
+function parseSSEData(raw: string): string | null {
+  const lines = raw.split('\n');
+  const dataLines: string[] = [];
+
+  for (const line of lines) {
+    const normalized = line.trimEnd();
+    if (normalized.startsWith('data:')) {
+      dataLines.push(normalized.slice(5).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return null;
+  }
+  return dataLines.join('\n');
+}
+
+function safeJSONParse(raw: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function extractErrorFromParsed(parsed: Record<string, unknown>): string | null {
+  const top = asString(parsed.message);
+  if (top) return top;
+  const nested = parsed.error;
+  if (!nested) return null;
+  if (typeof nested === 'string') return nested;
+  if (typeof nested !== 'object') return null;
+  return asString((nested as Record<string, unknown>).message) ?? null;
 }
