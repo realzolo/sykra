@@ -32,27 +32,52 @@ export async function GET(
     logger.setContext({ projectId });
 
     const project = await withRetry(() => requireProjectAccess(projectId, user.id));
-    const defaultBranch = project.default_branch ?? 'main';
+    const defaultBranch = project.default_branch?.trim() ?? '';
     const syncPolicy = resolveSyncPolicy(request.nextUrl.searchParams.get('sync'));
     const branches = await withRetry(async () => {
-      try {
-        return await codebaseService.listBranches(
+      const attempts: Array<() => Promise<string[]>> = [
+        () => codebaseService.listBranches(
           {
             orgId: project.org_id,
             projectId,
             repo: project.repo,
-            ref: defaultBranch,
           },
           { syncPolicy }
+        ),
+      ];
+
+      if (syncPolicy !== 'force') {
+        attempts.push(() =>
+          codebaseService.listBranches(
+            {
+              orgId: project.org_id,
+              projectId,
+              repo: project.repo,
+            },
+            { syncPolicy: 'force' }
+          )
         );
-      } catch {
-        return await getRepoBranches(project.repo, projectId).catch(() => [defaultBranch]);
       }
+
+      attempts.push(() => getRepoBranches(project.repo, projectId));
+
+      let lastError: unknown = null;
+      for (const attempt of attempts) {
+        try {
+          const result = await attempt();
+          if (Array.isArray(result) && result.length) {
+            return prioritizeDefaultBranch(result, defaultBranch);
+          }
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      throw (lastError instanceof Error ? lastError : new Error('No branches available'));
     });
 
-    const result = Array.isArray(branches) && branches.length ? branches : [defaultBranch];
     logger.info(`Branches fetched: ${projectId}`);
-    return NextResponse.json(result);
+    return NextResponse.json(branches);
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     logger.error('Get branches failed', err instanceof Error ? err : undefined);
@@ -68,4 +93,11 @@ function resolveSyncPolicy(value: string | null): 'auto' | 'force' | 'never' {
   if (['0', 'false', 'no', 'off', 'never'].includes(normalized)) return 'never';
   if (['1', 'true', 'yes', 'force'].includes(normalized)) return 'force';
   return 'auto';
+}
+
+function prioritizeDefaultBranch(branches: string[], defaultBranch: string) {
+  const unique = Array.from(new Set(branches));
+  if (!defaultBranch) return unique;
+  if (!unique.includes(defaultBranch)) return unique;
+  return [defaultBranch, ...unique.filter((branch) => branch !== defaultBranch)];
 }

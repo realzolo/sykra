@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams } from 'next/navigation';
 import { EditorView } from '@codemirror/view';
 import {
+  ChevronDown,
   Copy,
   FileText,
   Folder,
@@ -18,7 +19,6 @@ import {
 import { toast } from 'sonner';
 
 import type { Dictionary } from '@/i18n';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -162,14 +162,28 @@ export default function CodebaseClient({
   const codeScrollerRef = useRef<HTMLElement | null>(null);
   const editorViewRef = useRef<EditorView | null>(null);
   const pendingScrollLineRef = useRef<number | null>(null);
+  const handledDeepLinkKeyRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (!branches.length) return;
-    if (!branches.includes(branch) && !isCommitSha(branch)) {
-      const defaultBranch = branches[0];
-      if (defaultBranch) setBranch(defaultBranch);
+  const availableBranches = useMemo(() => {
+    return Array.from(new Set(branches.map((item) => item.trim()).filter(Boolean)));
+  }, [branches]);
+
+  const selectItems = useMemo(() => {
+    const items = [...availableBranches];
+    const current = branch.trim();
+    if (current && isCommitSha(current) && !items.includes(current)) {
+      items.unshift(current);
     }
-  }, [branches, branch]);
+    return items;
+  }, [availableBranches, branch]);
+
+  const activeRef = useMemo(() => {
+    const current = branch.trim();
+    if (current && (isCommitSha(current) || availableBranches.includes(current))) {
+      return current;
+    }
+    return availableBranches[0] ?? '';
+  }, [availableBranches, branch]);
 
   const deepLinkPath = searchParams.get('path');
   const deepLinkRef = searchParams.get('ref');
@@ -209,12 +223,13 @@ export default function CodebaseClient({
     setFilePath(path);
     setFileData(null);
     try {
-      const effectiveRef = refOverride?.trim() || branch;
-      if (refOverride && refOverride !== branch) {
-        setBranch(refOverride);
+      const normalizedOverride = refOverride?.trim() || '';
+      const effectiveRef = normalizedOverride || activeRef;
+      if (normalizedOverride && normalizedOverride !== branch) {
+        setBranch(normalizedOverride);
       }
       const params = new URLSearchParams();
-      params.set('ref', effectiveRef);
+      if (effectiveRef) params.set('ref', effectiveRef);
       const shouldForceSync = forceSync ? true : forceSyncUntil > Date.now();
       params.set('sync', shouldForceSync ? '1' : '0');
       params.set('path', path);
@@ -235,7 +250,12 @@ export default function CodebaseClient({
       if (fileRequestId.current !== requestId) return;
       setFileLoading(false);
     }
-  }, [branch, forceSyncUntil, project.id]);
+  }, [activeRef, branch, forceSyncUntil, project.id]);
+
+  const loadFileRef = useRef(loadFile);
+  useEffect(() => {
+    loadFileRef.current = loadFile;
+  }, [loadFile]);
 
   const loadComments = useCallback(async (path: string, commit?: string | null) => {
     const requestId = ++commentRequestId.current;
@@ -243,7 +263,7 @@ export default function CodebaseClient({
     setCommentError(null);
     try {
       const params = new URLSearchParams();
-      params.set('ref', branch);
+      if (activeRef) params.set('ref', activeRef);
       if (commit) params.set('commit', commit);
       params.set('path', path);
       const res = await fetch(`/api/projects/${project.id}/codebase/comments?${params.toString()}`);
@@ -258,11 +278,15 @@ export default function CodebaseClient({
       if (commentRequestId.current !== requestId) return;
       setCommentsLoading(false);
     }
-  }, [branch, project.id]);
+  }, [activeRef, project.id]);
 
   // Deep link support: open a file (optionally at a specific ref + line).
   useEffect(() => {
     if (!deepLinkPath) return;
+    const deepLinkKey = `${deepLinkPath}|${deepLinkRef ?? ''}|${deepLinkLine ?? ''}`;
+    if (handledDeepLinkKeyRef.current === deepLinkKey) return;
+    handledDeepLinkKeyRef.current = deepLinkKey;
+
     const targetPath = deepLinkPath.replace(/\\/g, '/').replace(/^\/+/, '').trim();
     if (!targetPath) return;
 
@@ -274,8 +298,8 @@ export default function CodebaseClient({
       : null;
 
     setCurrentPath(parentDir(targetPath));
-    void loadFile(targetPath, false, refOverride);
-  }, [deepLinkLine, deepLinkPath, deepLinkRef, loadFile]);
+    void loadFileRef.current(targetPath, false, refOverride);
+  }, [deepLinkLine, deepLinkPath, deepLinkRef]);
 
   useEffect(() => {
     const requestId = ++treeRequestId.current;
@@ -286,7 +310,7 @@ export default function CodebaseClient({
       setTreeError(null);
       try {
         const params = new URLSearchParams();
-        params.set('ref', branch);
+        if (activeRef) params.set('ref', activeRef);
         const shouldForceSync = forceSyncUntil > Date.now();
         params.set('sync', shouldForceSync ? '1' : '0');
         if (currentPath) params.set('path', currentPath);
@@ -308,7 +332,7 @@ export default function CodebaseClient({
     return () => {
       active = false;
     };
-  }, [branch, currentPath, forceSyncUntil, project.id, refreshKey]);
+  }, [activeRef, currentPath, forceSyncUntil, project.id, refreshKey]);
 
   useEffect(() => {
     if (!draftSelection) return;
@@ -369,7 +393,11 @@ export default function CodebaseClient({
   }, [entries, deferredSearch]);
 
   const handleSelectBranch = (value: string) => {
-    setBranch(value);
+    const nextBranch = value.trim();
+    if (!nextBranch || nextBranch === branch) {
+      return;
+    }
+    setBranch(nextBranch);
     setCurrentPath('');
     setEntries([]);
     setFilePath(null);
@@ -430,7 +458,7 @@ export default function CodebaseClient({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ref: branch,
+          ref: fileData.ref || activeRef,
           commit: fileData.commit,
           path: filePath,
           line: draftSelection.lineStart,
@@ -531,11 +559,11 @@ export default function CodebaseClient({
     openComposer(payload.lineStart, payload.lineEnd, text, payload.clientX, payload.clientY);
   };
 
-  const handleEditorReady = (view: EditorView) => {
+  const handleEditorReady = useCallback((view: EditorView) => {
     editorViewRef.current = view;
     codeScrollerRef.current = view.scrollDOM;
     setEditorReadyKey((value) => value + 1);
-  };
+  }, []);
 
   const closeComposer = () => {
     setDraftSelection(null);
@@ -593,23 +621,27 @@ export default function CodebaseClient({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-xs font-medium text-[hsl(var(--ds-text-2))]">{dict.projects.branch}</div>
-            <Select value={branch} onValueChange={handleSelectBranch}>
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {!branches.includes(branch) && isCommitSha(branch) && (
-                  <SelectItem key={branch} value={branch}>
-                    {dict.reports.commit}: {branch.slice(0, 7)}
-                  </SelectItem>
+            <div className="relative w-56">
+              <select
+                value={activeRef}
+                onChange={(event) => handleSelectBranch(event.target.value)}
+                disabled={!activeRef}
+                className="h-8 w-full appearance-none rounded-[6px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-surface-1))] px-3 pr-8 text-[13px] text-foreground transition-colors duration-100 focus:outline-none focus:border-[hsl(var(--ds-accent-7))] hover:bg-[hsl(var(--ds-surface-2))] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {!activeRef ? (
+                  <option value="">-</option>
+                ) : (
+                  selectItems.map((item) => (
+                    <option key={item} value={item}>
+                      {isCommitSha(item) && !availableBranches.includes(item)
+                        ? `${dict.reports.commit}: ${item.slice(0, 7)}`
+                        : item}
+                    </option>
+                  ))
                 )}
-                {branches.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-[hsl(var(--ds-text-2))]" />
+            </div>
             <Button
               variant="outline"
               size="sm"

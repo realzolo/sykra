@@ -76,16 +76,17 @@ export function getErrorStatusCode(error: unknown): number {
   }
 
   if (error instanceof Error) {
-    if (error.message.includes('not found') || error.message.includes('404')) {
+    const message = error.message.toLowerCase();
+    if (message.includes('not found') || message.includes('404')) {
       return 404;
     }
-    if (error.message.includes('unauthorized') || error.message.includes('401')) {
+    if (message.includes('unauthorized') || message.includes('401')) {
       return 401;
     }
-    if (error.message.includes('forbidden') || error.message.includes('403')) {
+    if (message.includes('forbidden') || message.includes('403')) {
       return 403;
     }
-    if (error.message.includes('validation') || error.message.includes('invalid')) {
+    if (message.includes('validation') || message.includes('invalid')) {
       return 400;
     }
   }

@@ -32,7 +32,8 @@ export async function GET(
     logger.setContext({ projectId });
 
     const project = await withRetry(() => requireProjectAccess(projectId, user.id));
-    const ref = request.nextUrl.searchParams.get('ref') || project.default_branch || 'main';
+    const requestedRefRaw = request.nextUrl.searchParams.get('ref');
+    const requestedRef = requestedRefRaw?.trim() ? requestedRefRaw.trim() : undefined;
     const path = request.nextUrl.searchParams.get('path') || '';
     const syncPolicy = resolveSyncPolicy(request.nextUrl.searchParams.get('sync'));
 
@@ -40,18 +41,37 @@ export async function GET(
       return NextResponse.json({ error: 'path is required' }, { status: 400 });
     }
 
-    const result = await withRetry(() =>
-      codebaseService.readFile(
-        {
-          orgId: project.org_id,
-          projectId,
-          repo: project.repo,
-          ref,
-        },
-        path,
-        { syncPolicy }
-      )
-    );
+    let result: Awaited<ReturnType<typeof codebaseService.readFile>>;
+    try {
+      result = await withRetry(() =>
+        codebaseService.readFile(
+          {
+            orgId: project.org_id,
+            projectId,
+            repo: project.repo,
+            ref: requestedRef,
+          },
+          path,
+          { syncPolicy }
+        )
+      );
+    } catch (err) {
+      if (shouldFallbackToResolvedHead(err, requestedRef, project.default_branch)) {
+        result = await withRetry(() =>
+          codebaseService.readFile(
+            {
+              orgId: project.org_id,
+              projectId,
+              repo: project.repo,
+            },
+            path,
+            { syncPolicy: 'force' }
+          )
+        );
+      } else {
+        throw err;
+      }
+    }
 
     return NextResponse.json(result);
   } catch (err) {
@@ -69,4 +89,20 @@ function resolveSyncPolicy(value: string | null): 'auto' | 'force' | 'never' {
   if (['0', 'false', 'no', 'off', 'never'].includes(normalized)) return 'never';
   if (['1', 'true', 'yes', 'force'].includes(normalized)) return 'force';
   return 'auto';
+}
+
+function shouldFallbackToResolvedHead(
+  error: unknown,
+  requestedRef: string | undefined,
+  projectDefaultBranch: string | null | undefined
+) {
+  if (!requestedRef) return false;
+  if (!projectDefaultBranch) return false;
+  if (!isInvalidRefError(error)) return false;
+  return requestedRef === projectDefaultBranch.trim();
+}
+
+function isInvalidRefError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return error.message.toLowerCase().includes('invalid ref');
 }

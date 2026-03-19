@@ -10,14 +10,37 @@ export default function ProjectCodebaseView({ projectId, dict }: { projectId: st
   const [branches, setBranches] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!project) return;
+    let canceled = false;
     fetch(`/api/projects/${projectId}/branches?sync=0`)
-      .then(r => r.ok ? r.json() : [])
-      .then(data => setBranches(Array.isArray(data) && data.length ? data : [project.default_branch]))
-      .catch(() => setBranches([project.default_branch]));
-  }, [projectId, project]);
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('branches_fetch_failed');
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (canceled) return;
+        const next = Array.isArray(data) ? data : [];
+        setBranches((prev) => (sameStringArray(prev, next) ? prev : next));
+      })
+      .catch(() => {
+        if (canceled) return;
+        setBranches((prev) => (prev.length ? [] : prev));
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [projectId]);
 
   if (!project) return null;
 
   return <CodebaseClient project={project} branches={branches} dict={dict} />;
+}
+
+function sameStringArray(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }

@@ -582,14 +582,14 @@ export class CodebaseService {
   }
 
   private async resolveCommitSha(mirrorPath: string, ref: string) {
+    const commitRef = `${ref}^{commit}`;
     const result = await this.runGit([
       '--git-dir',
       mirrorPath,
       'rev-parse',
       '--verify',
       '--quiet',
-      '--',
-      ref,
+      commitRef,
     ]);
     const sha = result.stdout.trim();
     if (!sha) {
@@ -810,14 +810,14 @@ export class CodebaseService {
           : ['check-ref-format', '--branch', '--', trimmed];
         await this.runGit(args);
       }
+      const commitRef = `${trimmed}^{commit}`;
       const result = await this.runGit([
         '--git-dir',
         mirrorPath,
         'rev-parse',
         '--verify',
         '--quiet',
-        '--',
-        trimmed,
+        commitRef,
       ]);
       if (!result.stdout.trim()) {
         throw new Error('Invalid ref');
