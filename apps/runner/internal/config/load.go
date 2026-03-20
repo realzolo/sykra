@@ -24,10 +24,12 @@ func LoadWithOptions(opts LoadOptions) (Config, error) {
 		DataDir:               "data",
 		LogRetentionDays:      30,
 		ArtifactRetentionDays: 30,
+		RequireWorkerNode:     true,
 	}
 
 	analyzeTimeoutRaw := "1h"
 	pipelineTimeoutRaw := "2h"
+	workerLeaseTTLRaw := "45s"
 
 	configPath, err := resolveConfigPath(opts.ConfigPath)
 	if err != nil {
@@ -38,7 +40,7 @@ func LoadWithOptions(opts LoadOptions) (Config, error) {
 		if err != nil {
 			return Config{}, err
 		}
-		applyFileConfig(&cfg, fileCfg, &analyzeTimeoutRaw, &pipelineTimeoutRaw)
+		applyFileConfig(&cfg, fileCfg, &analyzeTimeoutRaw, &pipelineTimeoutRaw, &workerLeaseTTLRaw)
 	}
 
 	cfg.Port = envString("RUNNER_PORT", cfg.Port)
@@ -53,6 +55,7 @@ func LoadWithOptions(opts LoadOptions) (Config, error) {
 	cfg.DataDir = envString("RUNNER_DATA_DIR", cfg.DataDir)
 	cfg.LogRetentionDays = envInt("PIPELINE_LOG_RETENTION_DAYS", cfg.LogRetentionDays)
 	cfg.ArtifactRetentionDays = envInt("PIPELINE_ARTIFACT_RETENTION_DAYS", cfg.ArtifactRetentionDays)
+	cfg.RequireWorkerNode = envBool("PIPELINE_REQUIRE_WORKER", cfg.RequireWorkerNode)
 	cfg.StudioURL = envString("STUDIO_URL", cfg.StudioURL)
 	cfg.StudioToken = envString("STUDIO_TOKEN", cfg.StudioToken)
 
@@ -70,6 +73,7 @@ func LoadWithOptions(opts LoadOptions) (Config, error) {
 
 	analyzeTimeoutRaw = envString("ANALYZE_TIMEOUT", analyzeTimeoutRaw)
 	pipelineTimeoutRaw = envString("PIPELINE_RUN_TIMEOUT", pipelineTimeoutRaw)
+	workerLeaseTTLRaw = envString("WORKER_LEASE_TTL", workerLeaseTTLRaw)
 
 	analyzeTimeout, err := time.ParseDuration(analyzeTimeoutRaw)
 	if err != nil {
@@ -82,6 +86,12 @@ func LoadWithOptions(opts LoadOptions) (Config, error) {
 		return Config{}, fmt.Errorf("invalid PIPELINE_RUN_TIMEOUT: %w", err)
 	}
 	cfg.PipelineRunTimeout = pipelineTimeout
+
+	leaseTTL, err := time.ParseDuration(workerLeaseTTLRaw)
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid WORKER_LEASE_TTL: %w", err)
+	}
+	cfg.WorkerLeaseTTL = leaseTTL
 
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")

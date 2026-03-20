@@ -1,7 +1,10 @@
 package pipeline
 
 import (
+	"io"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -285,6 +288,41 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httpx.WriteJSON(w, http.StatusOK, events)
+		return
+	}
+
+	if len(parts) >= 4 && parts[1] == "artifacts" && parts[3] == "content" {
+		if r.Method != http.MethodGet {
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		artifactID := parts[2]
+		artifact, content, err := a.service.OpenArtifactContent(r.Context(), runID, artifactID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		defer content.Reader.Close()
+
+		filename := filepath.Base(artifact.Path)
+		if filename == "." || filename == "" {
+			filename = "artifact.bin"
+		}
+		contentType := strings.TrimSpace(content.ContentType)
+		if contentType == "" {
+			contentType = mime.TypeByExtension(filepath.Ext(filename))
+		}
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+		if content.ContentSize > 0 {
+			w.Header().Set("Content-Length", strconv.FormatInt(content.ContentSize, 10))
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.Copy(w, content.Reader)
 		return
 	}
 

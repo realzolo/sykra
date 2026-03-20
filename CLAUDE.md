@@ -31,8 +31,8 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 
 AI code review + CI/CD platform: Next.js 16 + React 19 + TypeScript + Tailwind CSS v4.
 Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring, and pipeline DAG builder.
-Backend: PostgreSQL for core data, Go runner executes analysis jobs and pipeline runs via Redis queue; status updates stream via SSE with polling fallback.
-Monorepo layout: `apps/studio` (Next.js), `apps/runner` (Go runner), `packages/*` (shared contracts).
+Backend: PostgreSQL for core data, Go runner executes analysis jobs and orchestrates pipeline runs via Redis queue; distributed pipeline execution is handled by long-lived Worker agents connected over WebSocket control channels (Runner=control plane, Worker=execution plane); status updates stream via SSE with polling fallback.
+Monorepo layout: `apps/studio` (Next.js), `apps/runner` (Go runner control plane), `apps/worker` (Go execution agent), `packages/*` (shared contracts).
 Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 
 **Key platform features:**
@@ -40,6 +40,8 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Rule set template marketplace: 5 built-in templates (React, Go, Security/OWASP, Python, Performance) importable via `GET /api/rules/templates` + `POST /api/rules/templates/[id]/import`
 - Report comparison view: diff two reports side-by-side (new / resolved / persisting issues) at `/o/:orgId/projects/:id/reports/compare?a=...&b=...`
 - Pipeline concurrency control: `allow | queue | cancel_previous` modes stored in `pipelines.concurrency_mode` column (included in `docs/db/init.sql`; use migration for existing DBs)
+- Pipeline artifact observability: project pipelines page includes artifact download health cards (total, success rate, p95 latency, failures) powered by `GET /api/projects/:id/artifact-download-stats`
+- Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; runner uses project override first, then global runner default
 - Notification settings UI at `/o/:orgId/settings/notifications` backed by `/api/notification-settings`
 - Dashboard org home page (`/o/:orgId`) shows 4 stat cards (projects, avg score, open issues, pipeline success rate), quick actions, per-project score list, and recent activity
 - Integration deletion is non-blocking: deleting an integration does not check `code_projects` usage references.
@@ -88,6 +90,9 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 | Octokit | `^5.0.5` | GitHub API |
 | Native Fetch (LLM adapters) | Built-in | Unified provider transport for AI integrations (`/chat/completions`, `/responses`, Anthropic Messages API) |
 | Go | 1.24.0 | Runner service |
+| Gorilla WebSocket | ^1.5.3 | Runner↔Worker long-lived control channel |
+| AWS SDK for Go v2 | ^1.39 | Runner artifact backend for S3-compatible object storage |
+| doublestar | ^4.10 | Worker-side `artifactPaths` glob matching (includes `**`) |
 | TOML | 1.6.0 | `github.com/BurntSushi/toml` for runner config |
 | Asynq | 0.26.0 | Redis-backed job queue (runner) |
 | sonner | ^2 | Toast notifications |
@@ -99,13 +104,15 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 - **No compatibility design/code paths**: Do not add dual-field parsing (`foo ?? Foo`), legacy aliases, or fallback branches for stale response shapes.
 - **No compatibility naming**: Do not introduce `legacy*`, `compat*`, `polyfill*`, or similar identifiers.
 - **Single contract source**: Runner HTTP contracts are defined in `packages/contracts/src/runner.ts` and consumed by Studio.
+- **Runner timestamp contract**: Runner API datetime fields must be validated as ISO8601/RFC3339 with timezone offsets allowed (`datetime({ offset: true })`), not `Z`-only.
 - **Server-enforced project scope**: Project-scoped list APIs (for example `/api/reports` and `/api/pipelines`) must validate `projectId` access and enforce filtering on the server side; never rely on client-side filtering for tenant boundaries.
 - **Type safety baseline**: `apps/studio/tsconfig.json` enforces strict type checks (`allowJs: false`, `skipLibCheck: false`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true`).
-- **Schema requirement**: latest schema (`docs/db/init.sql`) and any required upgrade migrations must be applied before runtime. Missing required columns (for example `pipelines.concurrency_mode`) are treated as errors, not tolerated with fallback logic.
+- **Schema requirement**: latest schema (`docs/db/init.sql`) and any required upgrade migrations must be applied before runtime. Missing required columns/tables (for example `pipelines.concurrency_mode`, `code_projects.artifact_retention_days`, `pipeline_artifact_download_events`) are treated as errors, not tolerated with fallback logic.
 - **Canonical provider IDs only**: Use a single provider identifier per integration type (current AI provider key is `openai-api`). Do not add alias keys.
 - **Fail-fast on unsupported providers**: Provider switch statements must throw on unknown values; no silent fallback client selection.
 - **Unified AI transport**: Studio AI integrations must use the shared fetch-based adapter path; do not add provider-specific SDK dependencies in feature/business routes.
 - **Capability-driven AI params**: AI integration forms must render advanced parameters (for example `temperature`, `reasoningEffort`) from model/baseUrl/apiStyle capability rules, and unsupported parameters must not be sent in runtime requests.
+- **Git hygiene**: Runtime and build outputs must stay untracked (`apps/runner/data/`, `apps/runner/runner`, `apps/worker/worker`), and local environment files should use `*.env` patterns while keeping `*.env.example` tracked.
 
 ## Naming & Design Rules
 
@@ -217,6 +224,7 @@ apps/
           pipelines/[id]/       # GET/PUT/PATCH (PATCH updates concurrency_mode)
           pipelines/[id]/runs/  # GET list + POST (enforces concurrency gate)
           pipeline-runs/        # Run detail + logs (proxy to runner)
+          projects/[id]/artifact-download-stats/ # Artifact download observability metrics
           reports/[id]/         # Report CRUD + issues + stream + chat + export
           rules/
             templates/          # GET list of built-in templates
@@ -245,17 +253,21 @@ apps/
         ruleTemplates.ts        # Static built-in rule template data
       services/
         db.ts github.ts claude.ts taskQueue.ts analyzeTask.ts
-        pipelineTypes.ts        # PipelineStep (type/dockerImage), PipelineSummary (concurrency_mode)
+        pipelineTypes.ts        # PipelineStep (type/dockerImage/artifactPaths), PipelineSummary (concurrency_mode)
         runnerClient.ts         # cancelPipelineRun() + other runner proxy functions
       proxy.ts                  # Unused auth middleware
     middleware.ts               # Org cookie sync + dashboard redirect (Next.js middleware)
-  runner/
-    cmd/runner/                 # Go runner entrypoint
+  apps/runner/
+    main.go                     # Go runner entrypoint (control plane)
+    internal/workerhub/         # Runner-side worker connection/session hub + dispatch
+    pkg/workerprotocol/         # Runner↔Worker control-plane message contract (shared)
     internal/pipeline/
       executor.go               # ShellExecutor, DockerExecutor, SourceCheckoutExecutor, ReviewGateExecutor
       engine.go                 # runStep() routes to DockerExecutor when step.Type == "docker"
       types.go                  # PipelineStep: Type, DockerImage fields
       storage.go, api.go, graph.go, service.go
+  apps/worker/
+    main.go                     # Go worker agent entrypoint (execution plane)
 docs/
   db/
     init.sql                    # Full schema initialization
@@ -263,6 +275,9 @@ docs/
       004_api_tokens.sql        # Adds api_tokens table for existing DB upgrades
       add_concurrency_mode.sql  # Adds pipelines.concurrency_mode for existing DB upgrades
       005_analysis_progress_and_token_usage.sql # Adds analysis progress/token usage fields
+      010_runner_nodes.sql      # Adds worker node registry table for distributed pipelines
+      011_org_storage_settings.sql # Adds per-org artifact storage backend settings
+      012_artifact_download_events_and_project_retention.sql # Adds artifact download audit table + project retention override
 packages/
   contracts/                    # Shared API/contracts (active)
 ```
@@ -310,6 +325,8 @@ STUDIO_TOKEN=               # Token presented to Studio as X-Runner-Token (defau
 PIPELINE_QUEUE=             # Pipeline queue name
 PIPELINE_CONCURRENCY=       # Max concurrent pipeline jobs
 PIPELINE_RUN_TIMEOUT=       # Overall run timeout (e.g. 2h)
+PIPELINE_REQUIRE_WORKER=    # Enforce worker-based pipeline execution (default true)
+WORKER_LEASE_TTL=           # Worker heartbeat lease window (default 45s)
 RUNNER_DATA_DIR=            # Local logs/artifacts root
 PIPELINE_LOG_RETENTION_DAYS=
 PIPELINE_ARTIFACT_RETENTION_DAYS=
@@ -345,6 +362,10 @@ concurrency = 4
 run_timeout = "2h"
 log_retention_days = 30
 artifact_retention_days = 30
+require_worker = true
+
+[worker]
+lease_ttl = "45s"
 
 [security]
 encryption_key = ""
@@ -354,9 +375,25 @@ url = ""
 token = ""
 ```
 
+**Worker env (apps/worker):**
+```
+RUNNER_BASE_URL=            # Runner control-plane URL (e.g. http://runner:8200)
+RUNNER_TOKEN=               # Same shared token used by Runner auth
+WORKER_ID=                  # Stable worker identifier (required in production)
+WORKER_HOSTNAME=            # Optional display hostname
+WORKER_VERSION=             # Optional worker version metadata
+WORKER_MAX_CONCURRENCY=     # Parallel job slots per worker (default 1)
+WORKER_CAPABILITIES=        # Comma list: shell,docker,source_checkout,review_gate
+WORKER_LABELS=              # Comma kv list: env=production,region=cn-shanghai
+WORKER_WORKSPACE_ROOT=      # Run workspace root on worker (default /tmp/spec-axis-runs)
+WORKER_HEARTBEAT_SECONDS=   # Heartbeat interval (default 10)
+WORKER_RECONNECT_DELAY=     # Reconnect backoff (default 3s)
+```
+
 Environment files for Studio live under `apps/studio` (e.g. `apps/studio/.env`).
 
 **VCS and AI integrations** are configured via web UI at **Settings > Integrations** — NOT via env vars.
+- **Artifact storage backend** is configured per organization via web UI at **Settings > Storage** (`GET/PUT /api/storage-settings`) — NOT via env vars.
 - VCS: GitHub, GitLab, Generic Git
 - AI: Any OpenAI API-format provider (Claude, GPT-4, DeepSeek, etc.)
 - AI config supports `model` (manual model ID allowed), required `apiStyle` (`openai|anthropic`), optional `maxTokens`, `temperature`, and optional `reasoningEffort` (`none|minimal|low|medium|high|xhigh`)
@@ -382,7 +419,8 @@ pnpm start   # Console production server
 pnpm lint    # Console ESLint
 pnpm codebase:cleanup   # Cleanup stale workspaces (uses TASK_RUNNER_TOKEN; optional STUDIO_BASE_URL)
 psql "$DATABASE_URL" -f docs/db/init.sql   # Initialize schema (fresh DB)
-cd apps/runner && go run ./cmd/runner   # Runner service (reads config.toml if present)
+cd apps/runner && go run .   # Runner service (reads config.toml if present)
+cd apps/worker && go run .   # Worker service
 ```
 
 `pnpm codebase:cleanup` uses `TASK_RUNNER_TOKEN` and optional `STUDIO_BASE_URL` (default `http://localhost:8109`).
@@ -424,11 +462,21 @@ If new install warnings appear, approve the dependency and update the allowlist.
 - **Pipeline secrets** are stored in `pipeline_secrets` encrypted at rest (AES-256-GCM, `ENCRYPTION_KEY`) and injected into every step as environment variables (write-only in UI).
 - **Execution model**: jobs form a DAG via `needs`; steps run sequentially inside a job.
 - **Step types**: `shell` (default) runs via `/bin/sh -c`; `docker` runs `docker run --rm -w /workspace -v {workingDir}:/workspace {envFlags} {image} /bin/sh -c "{script}"`. Set `type: "docker"` and `dockerImage` on a step to use Docker.
+- **Step artifacts**: each user-defined step can declare `artifactPaths` (glob/file list, one per line in UI). Worker resolves patterns within the workspace (supports `**`) and uploads matched files after successful step execution.
+- **Artifact upload reliability**: worker uploads each artifact with bounded retry (`maxAttempts=3`) and emits attempt metadata; runner records observability events (`step.artifact.uploaded`, `step.artifact.upload_failed`, `step.artifact.upload_observed`) for timing/error-category analysis.
 - **Concurrency modes**: each pipeline has a `concurrency_mode` column (`allow` / `queue` / `cancel_previous`). Studio API enforces this before creating a new run. Included in `docs/db/init.sql`; existing DBs should apply `docs/db/migrations/add_concurrency_mode.sql`.
 - **Events** are appended to `pipeline_run_events` for UI polling and audit.
-- **Logs** and **artifacts** are stored locally under `RUNNER_DATA_DIR`:
+- **Logs** are stored locally under `RUNNER_DATA_DIR`:
   - `logs/{run_id}/{job_key}/{step_key}.log`
-  - `artifacts/{run_id}/{job_key}/{step_key}/...`
+- **Artifacts** use org-level storage backend settings (`org_storage_settings`):
+  - `local` provider: `{RUNNER_DATA_DIR}/{localBasePath}/{org_id}/{run_id}/{job_id}/{step_id}/...`
+  - `s3` provider: `s3://{bucket}/{prefix}/{org_id}/{run_id}/{job_id}/{step_id}/...`
+  - Worker uploads artifacts through Runner internal API `PUT /v1/workers/artifacts/upload`
+  - Artifact rows include optional `expires_at`; runner performs periodic expiry cleanup (storage delete + DB row delete) based on retention policy.
+- **Artifact download path**:
+  - Studio issues short-lived signed download tokens at `POST /api/pipeline-runs/:runId/artifacts/:artifactId/download-token`
+  - Studio streams artifact content via `GET /api/pipeline-runs/:runId/artifacts/:artifactId/download?token=...`
+  - Studio fetches raw bytes from runner private endpoint `GET /v1/pipeline-runs/:runId/artifacts/:artifactId/content` using `X-Runner-Token`
 - **Runner → Studio callbacks (pipelines)**:
   - `source_checkout` fetches repo info from `GET /api/projects/:id`
   - `review_gate` fetches latest completed report score from `GET /api/reports?projectId=...&limit=1`

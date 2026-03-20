@@ -21,14 +21,15 @@ type Store struct {
 var ErrReportNotRunning = errors.New("report is not in running status")
 
 type Project struct {
-	ID               string
-	Repo             string
-	IgnorePatterns   []string
-	QualityThreshold *int
-	WebhookURL       *string
-	OrgID            string
-	VCSIntegrationID *string
-	AIIntegrationID  *string
+	ID                    string
+	Repo                  string
+	IgnorePatterns        []string
+	QualityThreshold      *int
+	ArtifactRetentionDays *int
+	WebhookURL            *string
+	OrgID                 string
+	VCSIntegrationID      *string
+	AIIntegrationID       *string
 }
 
 type Report struct {
@@ -118,13 +119,14 @@ func (s *Store) Close() {
 
 func (s *Store) GetProject(ctx context.Context, projectID string) (*Project, error) {
 	var qualityThreshold pgtype.Int4
+	var artifactRetentionDays pgtype.Int4
 	var webhookURL pgtype.Text
 	var vcsID pgtype.UUID
 	var aiID pgtype.UUID
 
 	row := s.pool.QueryRow(
 		ctx,
-		`select id, repo, ignore_patterns, quality_threshold, webhook_url, org_id, vcs_integration_id, ai_integration_id
+		`select id, repo, ignore_patterns, quality_threshold, artifact_retention_days, webhook_url, org_id, vcs_integration_id, ai_integration_id
 		 from code_projects where id=$1`,
 		projectID,
 	)
@@ -135,6 +137,7 @@ func (s *Store) GetProject(ctx context.Context, projectID string) (*Project, err
 		&project.Repo,
 		&project.IgnorePatterns,
 		&qualityThreshold,
+		&artifactRetentionDays,
 		&webhookURL,
 		&project.OrgID,
 		&vcsID,
@@ -147,6 +150,10 @@ func (s *Store) GetProject(ctx context.Context, projectID string) (*Project, err
 	if qualityThreshold.Valid {
 		value := int(qualityThreshold.Int32)
 		project.QualityThreshold = &value
+	}
+	if artifactRetentionDays.Valid {
+		value := int(artifactRetentionDays.Int32)
+		project.ArtifactRetentionDays = &value
 	}
 	if webhookURL.Valid {
 		value := webhookURL.String

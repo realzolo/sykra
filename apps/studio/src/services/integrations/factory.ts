@@ -156,7 +156,7 @@ export async function resolveVCSIntegration(projectId: string): Promise<{
  * Priority: Project-specific > Org default
  */
 export async function resolveAIIntegration(projectId: string): Promise<{
-  integration: Integration | null;
+  integration: Integration;
   client: AIClient;
 }> {
   const project = await queryOne<{ ai_integration_id: string | null; org_id: string | null }>(

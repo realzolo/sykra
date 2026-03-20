@@ -13,6 +13,7 @@ type fileConfig struct {
 	Database databaseConfig `toml:"database"`
 	Redis    redisConfig    `toml:"redis"`
 	Pipeline pipelineConfig `toml:"pipeline"`
+	Worker   workerConfig   `toml:"worker"`
 	Security securityConfig `toml:"security"`
 	Studio   studioConfig   `toml:"studio"`
 }
@@ -40,6 +41,11 @@ type pipelineConfig struct {
 	RunTimeout            *string `toml:"run_timeout"`
 	LogRetentionDays      *int    `toml:"log_retention_days"`
 	ArtifactRetentionDays *int    `toml:"artifact_retention_days"`
+	RequireWorker         *bool   `toml:"require_worker"`
+}
+
+type workerConfig struct {
+	LeaseTTL *string `toml:"lease_ttl"`
 }
 
 type securityConfig struct {
@@ -97,7 +103,7 @@ func loadFileConfig(path string) (fileConfig, error) {
 	return cfg, nil
 }
 
-func applyFileConfig(cfg *Config, fileCfg fileConfig, analyzeTimeoutRaw *string, pipelineTimeoutRaw *string) {
+func applyFileConfig(cfg *Config, fileCfg fileConfig, analyzeTimeoutRaw *string, pipelineTimeoutRaw *string, workerLeaseTTLRaw *string) {
 	if fileCfg.Runner.Port != nil {
 		cfg.Port = *fileCfg.Runner.Port
 	}
@@ -134,6 +140,9 @@ func applyFileConfig(cfg *Config, fileCfg fileConfig, analyzeTimeoutRaw *string,
 	if fileCfg.Pipeline.ArtifactRetentionDays != nil {
 		cfg.ArtifactRetentionDays = *fileCfg.Pipeline.ArtifactRetentionDays
 	}
+	if fileCfg.Pipeline.RequireWorker != nil {
+		cfg.RequireWorkerNode = *fileCfg.Pipeline.RequireWorker
+	}
 	if fileCfg.Runner.AnalyzeTimeout != nil {
 		*analyzeTimeoutRaw = *fileCfg.Runner.AnalyzeTimeout
 	}
@@ -145,5 +154,8 @@ func applyFileConfig(cfg *Config, fileCfg fileConfig, analyzeTimeoutRaw *string,
 	}
 	if fileCfg.Studio.Token != nil {
 		cfg.StudioToken = *fileCfg.Studio.Token
+	}
+	if fileCfg.Worker.LeaseTTL != nil {
+		*workerLeaseTTLRaw = *fileCfg.Worker.LeaseTTL
 	}
 }

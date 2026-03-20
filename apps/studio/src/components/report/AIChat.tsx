@@ -414,9 +414,10 @@ export default function AIChat({
   }
 
   const selectedRowIndex = conversationId ? historyRows.findIndex((row) => row.id === conversationId) : -1;
-  const selectedConversationLabel = selectedRowIndex >= 0
+  const selectedRow = selectedRowIndex >= 0 ? historyRows[selectedRowIndex] : undefined;
+  const selectedConversationLabel = selectedRow
     ? clip(
-        conversationLabel(historyRows[selectedRowIndex], selectedRowIndex),
+        conversationLabel(selectedRow, selectedRowIndex),
         18,
       )
     : dict.reportDetail.aiChatNewConversation;
@@ -887,6 +888,7 @@ function textBlocks(text: string): Block[] {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
+    if (line == null) break;
     if (!line.trim()) {
       i += 1;
       continue;
@@ -897,11 +899,14 @@ function textBlocks(text: string): Block[] {
       continue;
     }
     if (isTableStart(lines, i)) {
-      const headers = parseTableRow(lines[i]);
+      const headerLine = lines[i];
+      if (headerLine == null) break;
+      const headers = parseTableRow(headerLine);
       i += 2; // header + delimiter
       const rows: string[][] = [];
       while (i < lines.length) {
         const current = lines[i];
+        if (current == null) break;
         if (!current.trim() || !current.includes('|') || isTableDelimiter(current)) break;
         rows.push(parseTableRow(current));
         i += 1;
@@ -911,14 +916,20 @@ function textBlocks(text: string): Block[] {
     }
     const h = line.match(/^(#{1,6})\s+(.+)$/);
     if (h) {
-      blocks.push({ type: 'heading', level: h[1].length, text: h[2].trim() });
+      const hashes = h[1];
+      const headingText = h[2];
+      if (hashes && headingText) {
+        blocks.push({ type: 'heading', level: hashes.length, text: headingText.trim() });
+      }
       i += 1;
       continue;
     }
     if (/^>\s?/.test(line)) {
       const arr: string[] = [];
-      while (i < lines.length && /^>\s?/.test(lines[i])) {
-        arr.push(lines[i].replace(/^>\s?/, ''));
+      while (i < lines.length) {
+        const quoteLine = lines[i];
+        if (quoteLine == null || !/^>\s?/.test(quoteLine)) break;
+        arr.push(quoteLine.replace(/^>\s?/, ''));
         i += 1;
       }
       blocks.push({ type: 'quote', text: arr.join('\n').trim() });
@@ -926,9 +937,15 @@ function textBlocks(text: string): Block[] {
     }
     if (/^- \[( |x|X)\]\s+/.test(line)) {
       const arr: Array<{ checked: boolean; text: string }> = [];
-      while (i < lines.length && /^- \[( |x|X)\]\s+/.test(lines[i])) {
-        const m = lines[i].match(/^- \[( |x|X)\]\s+(.+)$/);
-        if (m) arr.push({ checked: m[1].toLowerCase() === 'x', text: m[2].trim() });
+      while (i < lines.length) {
+        const taskLine = lines[i];
+        if (taskLine == null || !/^- \[( |x|X)\]\s+/.test(taskLine)) break;
+        const m = taskLine.match(/^- \[( |x|X)\]\s+(.+)$/);
+        const checked = m?.[1];
+        const taskText = m?.[2];
+        if (checked && taskText) {
+          arr.push({ checked: checked.toLowerCase() === 'x', text: taskText.trim() });
+        }
         i += 1;
       }
       blocks.push({ type: 'task', items: arr });
@@ -936,8 +953,10 @@ function textBlocks(text: string): Block[] {
     }
     if (/^(\*|-|\+)\s+/.test(line)) {
       const arr: string[] = [];
-      while (i < lines.length && /^(\*|-|\+)\s+/.test(lines[i])) {
-        arr.push(lines[i].replace(/^(\*|-|\+)\s+/, '').trim());
+      while (i < lines.length) {
+        const bulletLine = lines[i];
+        if (bulletLine == null || !/^(\*|-|\+)\s+/.test(bulletLine)) break;
+        arr.push(bulletLine.replace(/^(\*|-|\+)\s+/, '').trim());
         i += 1;
       }
       blocks.push({ type: 'ul', items: arr });
@@ -945,8 +964,10 @@ function textBlocks(text: string): Block[] {
     }
     if (/^\d+\.\s+/.test(line)) {
       const arr: string[] = [];
-      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
-        arr.push(lines[i].replace(/^\d+\.\s+/, '').trim());
+      while (i < lines.length) {
+        const numberedLine = lines[i];
+        if (numberedLine == null || !/^\d+\.\s+/.test(numberedLine)) break;
+        arr.push(numberedLine.replace(/^\d+\.\s+/, '').trim());
         i += 1;
       }
       blocks.push({ type: 'ol', items: arr });
@@ -954,8 +975,16 @@ function textBlocks(text: string): Block[] {
     }
     const arr = [line];
     i += 1;
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s+|>\s?|(\*|-|\+)\s+|\d+\.\s+|([-*_])\1{2,}$)/.test(lines[i])) {
-      arr.push(lines[i]);
+    while (i < lines.length) {
+      const paragraphLine = lines[i];
+      if (
+        paragraphLine == null
+        || !paragraphLine.trim()
+        || /^(#{1,6}\s+|>\s?|(\*|-|\+)\s+|\d+\.\s+|([-*_])\1{2,}$)/.test(paragraphLine)
+      ) {
+        break;
+      }
+      arr.push(paragraphLine);
       i += 1;
     }
     blocks.push({ type: 'paragraph', text: arr.join('\n').trim() });
@@ -967,6 +996,7 @@ function isTableStart(lines: string[], index: number): boolean {
   if (index + 1 >= lines.length) return false;
   const header = lines[index];
   const delimiter = lines[index + 1];
+  if (header == null || delimiter == null) return false;
   if (!header.includes('|')) return false;
   return isTableDelimiter(delimiter);
 }
@@ -1062,8 +1092,9 @@ function clip(text: string, max: number): string {
 
 function preview(messages: unknown): string {
   const items = normalizeMessages(messages);
-  if (items.length === 0) return '...';
-  return clip(items[items.length - 1].content, 30);
+  const last = items.at(-1);
+  if (!last) return '...';
+  return clip(last.content, 30);
 }
 
 function uuid(): string {

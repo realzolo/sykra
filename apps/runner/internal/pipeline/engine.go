@@ -6,16 +6,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	runnercrypto "spec-axis/runner/internal/crypto"
 	"spec-axis/runner/internal/store"
+	"spec-axis/runner/internal/workerhub"
+	"spec-axis/runner/pkg/workerprotocol"
 )
 
 type Engine struct {
@@ -26,6 +30,9 @@ type Engine struct {
 	// Studio integration for source_checkout and review_gate
 	StudioURL   string
 	StudioToken string
+	WorkerHub   *workerhub.Hub
+	// Enforce distributed execution by default; fail fast when no worker is available.
+	RequireWorkerNode bool
 }
 
 func (e *Engine) postStudioEvent(ctx context.Context, typ string, payload map[string]any) {
@@ -66,6 +73,9 @@ func (e *Engine) postStudioEvent(ctx context.Context, typ string, payload map[st
 func (e *Engine) Execute(ctx context.Context, runID string) error {
 	if runID == "" {
 		return errors.New("runId is required")
+	}
+	if e.WorkerHub != nil {
+		defer e.WorkerHub.ReleaseRun(runID)
 	}
 
 	run, version, err := e.Store.GetPipelineRunWithVersion(ctx, runID)
@@ -320,6 +330,15 @@ func (e *Engine) runJob(ctx context.Context, runID string, cfg PipelineConfig, s
 		"startedAt": time.Now().UTC().Format(time.RFC3339),
 	})
 
+	if e.WorkerHub != nil && e.WorkerHub.HasWorkers() {
+		return e.runJobOnWorker(ctx, runID, cfg, secrets, job, record)
+	}
+	if e.RequireWorkerNode {
+		err := errors.New("no worker node available for pipeline execution")
+		_ = e.Store.MarkPipelineJobFailed(ctx, record.ID, err.Error())
+		return err
+	}
+
 	jobCtx := ctx
 	if job.TimeoutSeconds != nil && *job.TimeoutSeconds > 0 {
 		var cancelFn context.CancelFunc
@@ -371,6 +390,256 @@ func (e *Engine) runJob(ctx context.Context, runID string, cfg PipelineConfig, s
 	_ = e.Store.AppendRunEvent(ctx, runID, "job.completed", map[string]any{
 		"runId":      runID,
 		"jobId":      record.ID,
+		"jobKey":     job.ID,
+		"status":     StatusSuccess,
+		"finishedAt": time.Now().UTC().Format(time.RFC3339),
+	})
+	return nil
+}
+
+func (e *Engine) runJobOnWorker(
+	ctx context.Context,
+	runID string,
+	cfg PipelineConfig,
+	secrets map[string]string,
+	job PipelineJob,
+	jobRecord store.PipelineJob,
+) error {
+	if e.WorkerHub == nil {
+		return errors.New("worker hub is not configured")
+	}
+
+	steps := make([]workerprotocol.ExecuteStep, 0, len(job.Steps))
+	stepRecords := map[string]store.PipelineStep{}
+	for _, step := range job.Steps {
+		stepRecord, err := e.Store.GetPipelineStepByKey(ctx, jobRecord.ID, step.ID)
+		if err != nil {
+			return err
+		}
+		if stepRecord.ID == "" {
+			return fmt.Errorf("step record missing for %s", step.ID)
+		}
+		stepRecords[step.ID] = stepRecord
+		stepEnv := buildEnv(runID, cfg, secrets, job, step)
+		steps = append(steps, workerprotocol.ExecuteStep{
+			ID:              step.ID,
+			Name:            step.Name,
+			Script:          step.Script,
+			Type:            step.Type,
+			DockerImage:     step.DockerImage,
+			ArtifactPaths:   append([]string(nil), step.ArtifactPaths...),
+			Env:             stepEnv,
+			WorkingDir:      step.WorkingDir,
+			TimeoutSeconds:  step.TimeoutSeconds,
+			ContinueOnError: step.ContinueOnError,
+		})
+	}
+
+	logWriters := map[string]io.WriteCloser{}
+	var logsMu sync.Mutex
+	closeLog := func(stepID string) {
+		logsMu.Lock()
+		defer logsMu.Unlock()
+		writer, ok := logWriters[stepID]
+		if !ok {
+			return
+		}
+		_ = writer.Close()
+		delete(logWriters, stepID)
+	}
+	defer func() {
+		logsMu.Lock()
+		defer logsMu.Unlock()
+		for stepID, writer := range logWriters {
+			_ = writer.Close()
+			delete(logWriters, stepID)
+		}
+	}()
+
+	var (
+		result      workerhub.DispatchResult
+		dispatchErr error
+		stepStarted atomic.Bool
+	)
+
+	callbacks := workerhub.DispatchCallbacks{
+		OnAssigned: func(workerID string) {
+			_ = e.Store.AssignPipelineJobRunner(ctx, jobRecord.ID, workerID)
+			_ = e.Store.AppendRunEvent(ctx, runID, "job.assigned", map[string]any{
+				"runId":     runID,
+				"jobId":     jobRecord.ID,
+				"jobKey":    job.ID,
+				"workerId":  workerID,
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+			})
+		},
+		OnStepStarted: func(stepID string) {
+			stepStarted.Store(true)
+			stepRecord, ok := stepRecords[stepID]
+			if !ok {
+				return
+			}
+			_ = e.Store.MarkPipelineStepRunning(ctx, stepRecord.ID)
+			logPath, writer, err := e.Storage.OpenStepLog(runID, job.ID, stepID)
+			if err == nil {
+				_ = e.Store.UpdatePipelineStepLogPath(ctx, stepRecord.ID, logPath)
+				logsMu.Lock()
+				logWriters[stepID] = writer
+				logsMu.Unlock()
+			}
+			_ = e.Store.AppendRunEvent(ctx, runID, "step.started", map[string]any{
+				"runId":     runID,
+				"jobId":     jobRecord.ID,
+				"jobKey":    job.ID,
+				"stepId":    stepRecord.ID,
+				"stepKey":   stepID,
+				"status":    StatusRunning,
+				"startedAt": time.Now().UTC().Format(time.RFC3339),
+			})
+		},
+		OnStepLog: func(stepID string, chunk string) {
+			logsMu.Lock()
+			writer := logWriters[stepID]
+			logsMu.Unlock()
+			if writer == nil {
+				return
+			}
+			_, _ = writer.Write([]byte(chunk))
+		},
+		OnStepFinished: func(stepID string, status string, exitCode int, errorMessage string) {
+			stepRecord, ok := stepRecords[stepID]
+			if !ok {
+				return
+			}
+			closeLog(stepID)
+
+			switch status {
+			case string(StatusSuccess):
+				_ = e.Store.MarkPipelineStepSuccess(ctx, stepRecord.ID, exitCode)
+				_ = e.Store.AppendRunEvent(ctx, runID, "step.completed", map[string]any{
+					"runId":      runID,
+					"jobId":      jobRecord.ID,
+					"jobKey":     job.ID,
+					"stepId":     stepRecord.ID,
+					"stepKey":    stepID,
+					"status":     StatusSuccess,
+					"exitCode":   exitCode,
+					"finishedAt": time.Now().UTC().Format(time.RFC3339),
+				})
+			case string(StatusCanceled):
+				_ = e.Store.MarkPipelineStepCanceled(ctx, stepRecord.ID, errorMessage)
+				_ = e.Store.AppendRunEvent(ctx, runID, "step.failed", map[string]any{
+					"runId":      runID,
+					"jobId":      jobRecord.ID,
+					"jobKey":     job.ID,
+					"stepId":     stepRecord.ID,
+					"stepKey":    stepID,
+					"status":     StatusCanceled,
+					"exitCode":   exitCode,
+					"finishedAt": time.Now().UTC().Format(time.RFC3339),
+					"error":      errorMessage,
+				})
+			case string(StatusTimedOut):
+				_ = e.Store.MarkPipelineStepFailed(ctx, stepRecord.ID, string(StatusTimedOut), exitCode, errorMessage)
+				_ = e.Store.AppendRunEvent(ctx, runID, "step.failed", map[string]any{
+					"runId":      runID,
+					"jobId":      jobRecord.ID,
+					"jobKey":     job.ID,
+					"stepId":     stepRecord.ID,
+					"stepKey":    stepID,
+					"status":     StatusTimedOut,
+					"exitCode":   exitCode,
+					"finishedAt": time.Now().UTC().Format(time.RFC3339),
+					"error":      errorMessage,
+				})
+			default:
+				_ = e.Store.MarkPipelineStepFailed(ctx, stepRecord.ID, string(StatusFailed), exitCode, errorMessage)
+				_ = e.Store.AppendRunEvent(ctx, runID, "step.failed", map[string]any{
+					"runId":      runID,
+					"jobId":      jobRecord.ID,
+					"jobKey":     job.ID,
+					"stepId":     stepRecord.ID,
+					"stepKey":    stepID,
+					"status":     StatusFailed,
+					"exitCode":   exitCode,
+					"finishedAt": time.Now().UTC().Format(time.RFC3339),
+					"error":      errorMessage,
+				})
+			}
+		},
+	}
+
+	dispatchRequest := workerhub.DispatchRequest{
+		RunID:              runID,
+		JobID:              jobRecord.ID,
+		JobKey:             job.ID,
+		JobType:            job.Type,
+		Environment:        "",
+		ProjectID:          job.ProjectID,
+		Branch:             job.Branch,
+		MinScore:           job.MinScore,
+		StudioURL:          job.StudioURL,
+		StudioToken:        job.StudioToken,
+		WorkspaceRoot:      filepath.ToSlash(filepath.Join("/tmp/spec-axis-runs", runID)),
+		JobWorkingDir:      job.WorkingDir,
+		Steps:              steps,
+		RequiredCapability: requiredCapabilities(job, steps),
+	}
+
+	maxDispatchAttempts := 2
+	for attempt := 1; attempt <= maxDispatchAttempts; attempt++ {
+		stepStarted.Store(false)
+		result, dispatchErr = e.WorkerHub.DispatchJob(ctx, dispatchRequest, callbacks)
+		if dispatchErr == nil {
+			break
+		}
+		if stepStarted.Load() || attempt == maxDispatchAttempts {
+			break
+		}
+		_ = e.Store.AppendRunEvent(ctx, runID, "job.reassigning", map[string]any{
+			"runId":        runID,
+			"jobId":        jobRecord.ID,
+			"jobKey":       job.ID,
+			"attempt":      attempt + 1,
+			"reason":       dispatchErr.Error(),
+			"reassignedAt": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	if dispatchErr != nil {
+		_ = e.Store.MarkPipelineJobFailed(ctx, jobRecord.ID, dispatchErr.Error())
+		_ = e.Store.AppendRunEvent(ctx, runID, "job.failed", map[string]any{
+			"runId":      runID,
+			"jobId":      jobRecord.ID,
+			"jobKey":     job.ID,
+			"status":     StatusFailed,
+			"error":      dispatchErr.Error(),
+			"finishedAt": time.Now().UTC().Format(time.RFC3339),
+		})
+		return dispatchErr
+	}
+
+	if !strings.EqualFold(result.Status, string(StatusSuccess)) {
+		message := result.ErrorMessage
+		if message == "" {
+			message = "worker returned non-success status"
+		}
+		_ = e.Store.MarkPipelineJobFailed(ctx, jobRecord.ID, message)
+		_ = e.Store.AppendRunEvent(ctx, runID, "job.failed", map[string]any{
+			"runId":      runID,
+			"jobId":      jobRecord.ID,
+			"jobKey":     job.ID,
+			"status":     StatusFailed,
+			"error":      message,
+			"finishedAt": time.Now().UTC().Format(time.RFC3339),
+		})
+		return errors.New(message)
+	}
+
+	_ = e.Store.MarkPipelineJobSuccess(ctx, jobRecord.ID)
+	_ = e.Store.AppendRunEvent(ctx, runID, "job.completed", map[string]any{
+		"runId":      runID,
+		"jobId":      jobRecord.ID,
 		"jobKey":     job.ID,
 		"status":     StatusSuccess,
 		"finishedAt": time.Now().UTC().Format(time.RFC3339),
@@ -539,6 +808,34 @@ func buildEnv(runID string, cfg PipelineConfig, secrets map[string]string, job P
 	env["PIPELINE_JOB_ID"] = job.ID
 	env["PIPELINE_STEP_ID"] = step.ID
 	return env
+}
+
+func requiredCapabilities(job PipelineJob, steps []workerprotocol.ExecuteStep) []string {
+	seen := map[string]bool{}
+	capabilities := []string{}
+	add := func(value string) {
+		value = strings.TrimSpace(strings.ToLower(value))
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		capabilities = append(capabilities, value)
+	}
+
+	switch job.Type {
+	case "source_checkout":
+		add("source_checkout")
+	case "review_gate":
+		add("review_gate")
+	default:
+		add("shell")
+	}
+	for _, step := range steps {
+		if strings.EqualFold(step.Type, "docker") {
+			add("docker")
+		}
+	}
+	return capabilities
 }
 
 // collectArtifacts is kept for possible future shell-step artifact support.

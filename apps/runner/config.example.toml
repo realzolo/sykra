@@ -20,6 +20,10 @@ concurrency = 4
 run_timeout = "2h"
 log_retention_days = 30
 artifact_retention_days = 30
+require_worker = true
+
+[worker]
+lease_ttl = "45s"
 
 [security]
 encryption_key = ""

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, Plug, Shield, Users } from 'lucide-react';
+import { Bell, HardDrive, Plug, Shield, Users } from 'lucide-react';
 import { stripOrgPrefix, withOrgPrefix } from '@/lib/orgPath';
 import { cn } from '@/lib/utils';
 import { useClientDictionary } from '@/i18n/client';
@@ -15,6 +15,7 @@ export default function SettingsNav() {
     { href: '/settings/organizations', label: dict.settings.organizations, icon: Users },
     { href: '/settings/notifications', label: dict.settings.notifications, icon: Bell },
     { href: '/settings/integrations', label: dict.settings.integrations, icon: Plug },
+    { href: '/settings/storage', label: dict.settings.storage, icon: HardDrive },
     { href: '/settings/security', label: dict.settings.security, icon: Shield },
   ];
 

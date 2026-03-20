@@ -220,6 +220,7 @@ create table code_projects (
   ruleset_id uuid references quality_rule_sets(id) on delete set null,
   ignore_patterns text[] not null default '{}',
   quality_threshold int check (quality_threshold between 0 and 100),
+  artifact_retention_days int check (artifact_retention_days between 1 and 3650),
   auto_analyze boolean not null default false,
   webhook_url text,
   last_analyzed_at timestamptz,
@@ -927,6 +928,23 @@ create table pipeline_artifacts (
   expires_at timestamptz
 );
 
+create table pipeline_artifact_download_events (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references organizations(id) on delete cascade,
+  project_id uuid references code_projects(id) on delete set null,
+  run_id uuid not null references pipeline_runs(id) on delete cascade,
+  artifact_id uuid not null,
+  artifact_path text,
+  status text not null check (status in ('success', 'failed')),
+  error_category text,
+  error_message text,
+  duration_ms int not null default 0 check (duration_ms >= 0),
+  requester_user_id uuid references auth_users(id) on delete set null,
+  requester_ip text,
+  requester_user_agent text,
+  created_at timestamptz not null default now()
+);
+
 create index pipelines_org_project_idx on pipelines (org_id, project_id);
 create index pipeline_versions_pipeline_idx on pipeline_versions (pipeline_id);
 create index pipeline_runs_pipeline_idx on pipeline_runs (pipeline_id, created_at desc);
@@ -935,6 +953,41 @@ create index pipeline_jobs_run_idx on pipeline_jobs (run_id);
 create index pipeline_steps_job_idx on pipeline_steps (job_id);
 create index pipeline_run_events_run_idx on pipeline_run_events (run_id, seq);
 create index pipeline_artifacts_run_idx on pipeline_artifacts (run_id);
+create index pipeline_artifact_download_events_project_idx on pipeline_artifact_download_events (project_id, created_at desc);
+create index pipeline_artifact_download_events_run_idx on pipeline_artifact_download_events (run_id, created_at desc);
+create index pipeline_artifact_download_events_artifact_idx on pipeline_artifact_download_events (artifact_id, created_at desc);
+create index pipeline_artifact_download_events_status_idx on pipeline_artifact_download_events (status, created_at desc);
+
+create table runner_nodes (
+  id text primary key,
+  hostname text,
+  version text,
+  labels jsonb not null default '{}',
+  capabilities text[] not null default '{}',
+  status text not null default 'online'
+    check (status in ('online', 'offline', 'draining')),
+  max_concurrency int not null default 1 check (max_concurrency > 0),
+  current_load int not null default 0 check (current_load >= 0),
+  last_heartbeat_at timestamptz not null default now(),
+  connected_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index runner_nodes_status_idx on runner_nodes (status);
+create index runner_nodes_last_heartbeat_idx on runner_nodes (last_heartbeat_at desc);
+
+create table org_storage_settings (
+  org_id uuid primary key references organizations(id) on delete cascade,
+  provider text not null check (provider in ('local', 's3')),
+  config jsonb not null default '{}',
+  updated_by uuid references auth_users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index org_storage_settings_provider_idx on org_storage_settings (provider);
 
 -- ============================================================
 -- Functions & triggers

@@ -32,6 +32,7 @@
     "info": "Info",
     "copy": "Copy",
     "copied": "Copied",
+    "download": "Download",
     "settings": "Settings"
   },
   "nav": {
@@ -236,6 +237,9 @@
     "qualityThreshold": "Quality Threshold",
     "qualityThresholdPlaceholder": "e.g.: 80",
     "qualityThresholdHelp": "Warnings will be issued when the score is below this value. Leave blank to not set a threshold.",
+    "artifactRetentionDays": "Artifact Retention (Days)",
+    "artifactRetentionDaysPlaceholder": "Use org default when empty",
+    "artifactRetentionDaysHelp": "Override artifact retention for this project. Leave empty to use the runner default retention policy.",
     "autoAnalyze": "Auto Analyze",
     "autoAnalyzeHelp": "Automatically trigger code review when new commits are detected",
     "webhookHelp": "A POST request will be sent to this URL after analysis is complete.",
@@ -471,6 +475,16 @@
     },
     "runs": "Runs",
     "artifactsLabel": "Artifacts ({{count}})",
+    "artifactAuditTitle": "Artifact Download Health",
+    "artifactAuditDescription": "Download reliability and latency for this project",
+    "artifactAuditWindow": "Last {{days}} days",
+    "artifactAuditTotal": "Total downloads",
+    "artifactAuditSuccessRate": "Success rate",
+    "artifactAuditP95Latency": "P95 latency",
+    "artifactAuditFailures": "Failures",
+    "artifactAuditTopErrors": "Top errors:",
+    "artifactAuditRecentFailures": "Recent failures",
+    "artifactAuditEmpty": "No artifact download data yet",
     "noLogs": "No logs yet",
     "selectStep": "Select a step to view logs",
     "concurrencyMode": {
@@ -488,7 +502,10 @@
       "typeShell": "Shell",
       "typeDocker": "Docker",
       "dockerImage": "Docker Image",
-      "dockerImagePlaceholder": "e.g. node:22-alpine"
+      "dockerImagePlaceholder": "e.g. node:22-alpine",
+      "artifactPathsLabel": "Artifact Paths",
+      "artifactPathsPlaceholder": "dist/**\ncoverage/lcov.info",
+      "artifactPathsHelp": "One glob or file path per line. Matched files are uploaded after the step succeeds."
     }
   },
   "dashboard": {
@@ -691,6 +708,7 @@
     "organizations": "Organizations",
     "notifications": "Notifications",
     "integrations": "Integrations",
+    "storage": "Storage",
     "security": "Security",
     "vcs": "VCS",
     "ai": "AI",
@@ -718,6 +736,30 @@
       "dailyDigestDescription": "Not implemented yet.",
       "weeklyDigestTitle": "Weekly digest",
       "weeklyDigestDescription": "Not implemented yet."
+    },
+    "storagePage": {
+      "title": "Artifact Storage",
+      "description": "Configure pipeline artifact storage backend. Local mode stores artifacts on the runner host filesystem; S3 mode stores artifacts in object storage.",
+      "providerLabel": "Storage provider",
+      "providerHelp": "Choose where pipeline build/deploy artifacts are persisted.",
+      "providerLocal": "Local File Server",
+      "providerS3": "S3 Compatible",
+      "localBasePathLabel": "Local base path",
+      "s3EndpointLabel": "S3 endpoint",
+      "s3EndpointPlaceholder": "https://s3.amazonaws.com or https://minio.example.com",
+      "s3RegionLabel": "Region",
+      "s3BucketLabel": "Bucket",
+      "s3PrefixLabel": "Key prefix",
+      "s3AccessKeyLabel": "Access key ID",
+      "s3SecretKeyLabel": "Secret access key",
+      "s3ForcePathStyleLabel": "Force path-style addressing",
+      "secretPlaceholder": "Leave blank to keep current secret",
+      "secretKeepHint": "Current secret key is stored securely; only enter a value to replace it.",
+      "save": "Save",
+      "saving": "Saving...",
+      "saveSuccess": "Storage settings saved",
+      "saveFailed": "Failed to save storage settings",
+      "loadFailed": "Failed to load storage settings"
     },
     "securityPage": {
       "title": "Security",

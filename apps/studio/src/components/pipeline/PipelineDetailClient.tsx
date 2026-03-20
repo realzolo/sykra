@@ -113,6 +113,7 @@ export default function PipelineDetailClient({
   const [secretValue, setSecretValue] = useState("");
   const [secretSaving, setSecretSaving] = useState(false);
   const [secretDeleting, setSecretDeleting] = useState<string | null>(null);
+  const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   type Artifact = {
@@ -392,6 +393,25 @@ export default function PipelineDetailClient({
       toast.error(p.settingsTab.deleteFailed);
     } finally {
       setSecretDeleting(null);
+    }
+  }
+
+  async function downloadArtifact(artifactId: string) {
+    if (!selectedRunId) return;
+    setDownloadingArtifactId(artifactId);
+    try {
+      const response = await fetch(`/api/pipeline-runs/${selectedRunId}/artifacts/${artifactId}/download-token`, {
+        method: "POST",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || typeof data?.url !== "string") {
+        throw new Error(data?.error ?? "Failed to prepare artifact download");
+      }
+      window.location.assign(data.url);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Artifact download failed");
+    } finally {
+      setDownloadingArtifactId(null);
     }
   }
 
@@ -860,6 +880,16 @@ export default function PipelineDetailClient({
                                     {a.sha256.slice(0, 8)}
                                   </span>
                                 )}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => downloadArtifact(a.id)}
+                                  disabled={downloadingArtifactId === a.id}
+                                >
+                                  {downloadingArtifactId === a.id ? dict.common.loading : dict.common.download}
+                                </Button>
                               </div>
                             );
                           })}
@@ -1405,6 +1435,14 @@ function ConfigStepEditor({
 }) {
   const stageConfig = config[stage];
   const stageP = p[stage];
+
+  function toArtifactPaths(value: string): string[] {
+    return value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }
+
   return (
     <div className="space-y-4 max-w-2xl">
       <div>
@@ -1483,6 +1521,23 @@ function ConfigStepEditor({
                 rows={3}
                 className="text-xs font-mono resize-none"
               />
+              <div className="space-y-1.5">
+                <span className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                  {p.steps.artifactPathsLabel}
+                </span>
+                <Textarea
+                  value={(step.artifactPaths ?? []).join("\n")}
+                  onChange={(e) =>
+                    onUpdate(step.id, { artifactPaths: toArtifactPaths(e.target.value) })
+                  }
+                  placeholder={p.steps.artifactPathsPlaceholder}
+                  rows={2}
+                  className="text-xs font-mono resize-none"
+                />
+                <span className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                  {p.steps.artifactPathsHelp}
+                </span>
+              </div>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={onAdd} className="w-full">

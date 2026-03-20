@@ -12,12 +12,14 @@ import (
 
 	"github.com/hibiken/asynq"
 
+	"spec-axis/runner/internal/artifacts"
 	"spec-axis/runner/internal/config"
 	"spec-axis/runner/internal/events"
 	"spec-axis/runner/internal/httpapi"
 	"spec-axis/runner/internal/pipeline"
 	"spec-axis/runner/internal/queue"
 	"spec-axis/runner/internal/store"
+	"spec-axis/runner/internal/workerhub"
 )
 
 func main() {
@@ -31,11 +33,13 @@ func main() {
 		log.Fatalf("config error: %v", err)
 	}
 	log.Printf(
-		"runner config loaded: queue=%s analyze_timeout=%s pipeline_queue=%s pipeline_run_timeout=%s",
+		"runner config loaded: queue=%s analyze_timeout=%s pipeline_queue=%s pipeline_run_timeout=%s require_worker=%t worker_lease_ttl=%s",
 		cfg.Queue,
 		cfg.AnalyzeTimeout,
 		cfg.PipelineQueue,
 		cfg.PipelineRunTimeout,
+		cfg.RequireWorkerNode,
+		cfg.WorkerLeaseTTL,
 	)
 
 	ctx := context.Background()
@@ -73,13 +77,18 @@ func main() {
 	executors := pipeline.NewExecutorRegistry()
 	executors.Register("shell", &pipeline.ShellExecutor{})
 	engine := &pipeline.Engine{
-		Store:       st,
-		Executors:   executors,
-		Storage:     storage,
-		Concurrency: cfg.PipelineConcurrency,
-		StudioURL:   cfg.StudioURL,
-		StudioToken: cfg.StudioToken,
+		Store:             st,
+		Executors:         executors,
+		Storage:           storage,
+		Concurrency:       cfg.PipelineConcurrency,
+		StudioURL:         cfg.StudioURL,
+		StudioToken:       cfg.StudioToken,
+		RequireWorkerNode: cfg.RequireWorkerNode,
 	}
+	hub := workerhub.New(st, cfg.WorkerLeaseTTL)
+	hub.Start()
+	defer hub.Stop()
+	engine.WorkerHub = hub
 
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(queue.TaskTypeAnalyze, queue.HandleAnalyzeTask(st, publisher, cfg.AnalyzeTimeout))
@@ -97,27 +106,35 @@ func main() {
 	defer inspector.Close()
 
 	pipelineService := &pipeline.Service{
-		Store:       st,
-		Queue:       client,
-		QueueName:   cfg.PipelineQueue,
-		RunTimeout:  cfg.PipelineRunTimeout,
-		Storage:     storage,
-		StudioURL:   cfg.StudioURL,
-		StudioToken: cfg.StudioToken,
+		Store:                 st,
+		Queue:                 client,
+		QueueName:             cfg.PipelineQueue,
+		RunTimeout:            cfg.PipelineRunTimeout,
+		Storage:               storage,
+		Artifacts:             &artifacts.Manager{Store: st, LocalDataDir: cfg.DataDir},
+		ArtifactRetentionDays: cfg.ArtifactRetentionDays,
+		StudioURL:             cfg.StudioURL,
+		StudioToken:           cfg.StudioToken,
 	}
 
 	httpServer := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: httpapi.New(cfg, client, inspector, pipelineService).Handler(),
+		Handler: httpapi.New(cfg, client, inspector, pipelineService, hub).Handler(),
 	}
 
 	go func() {
 		logRetention := time.Duration(cfg.LogRetentionDays) * 24 * time.Hour
-		artifactRetention := time.Duration(cfg.ArtifactRetentionDays) * 24 * time.Hour
-		storage.Cleanup(logRetention, artifactRetention)
+		storage.Cleanup(logRetention, 0)
+		if _, err := pipelineService.Artifacts.CleanupExpiredArtifacts(context.Background(), 500); err != nil {
+			log.Printf("artifact cleanup failed: %v", err)
+		}
 		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
 		for range ticker.C {
-			storage.Cleanup(logRetention, artifactRetention)
+			storage.Cleanup(logRetention, 0)
+			if _, err := pipelineService.Artifacts.CleanupExpiredArtifacts(context.Background(), 500); err != nil {
+				log.Printf("artifact cleanup failed: %v", err)
+			}
 		}
 	}()
 

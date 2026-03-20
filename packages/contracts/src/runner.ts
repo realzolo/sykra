@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 // Runner API contracts. Treat these as a hard contract with schema-first validation.
 
-const isoDateString = z.string().datetime();
+// Runner timestamps are RFC3339/ISO8601 and may include timezone offsets (e.g. +08:00).
+const isoDateString = z.string().datetime({ offset: true });
 
 export const runnerPipelineSchema = z.object({
   id: z.string().uuid(),

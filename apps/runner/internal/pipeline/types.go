@@ -66,6 +66,7 @@ type PipelineStep struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Script          string            `json:"script"`
+	ArtifactPaths   []string          `json:"artifactPaths,omitempty"`
 	Env             map[string]string `json:"env,omitempty"`
 	WorkingDir      string            `json:"workingDir,omitempty"`
 	TimeoutSeconds  *int              `json:"timeoutSeconds,omitempty"`

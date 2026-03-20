@@ -167,7 +167,15 @@ export default function CreatePipelineWizard({
       [stage]: {
         ...prev[stage],
         steps: prev[stage].steps.map((s) =>
-          s.id === stepId ? { ...s, ...patch } : s
+          s.id === stepId
+            ? (() => {
+                const next = { ...s, ...patch };
+                if (patch.type === "shell") {
+                  delete next.dockerImage;
+                }
+                return next;
+              })()
+            : s
         ),
       },
     }));
@@ -753,6 +761,13 @@ function StepEditor({
   dict,
   templates,
 }: StepEditorProps) {
+  function toArtifactPaths(value: string): string[] {
+    return value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -805,6 +820,23 @@ function StepEditor({
                 rows={3}
                 className="text-xs font-mono resize-none"
               />
+              <div className="space-y-1.5">
+                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                  {dict.steps.artifactPathsLabel}
+                </div>
+                <Textarea
+                  value={(step.artifactPaths ?? []).join("\n")}
+                  onChange={(e) =>
+                    onUpdate(step.id, { artifactPaths: toArtifactPaths(e.target.value) })
+                  }
+                  placeholder={dict.steps.artifactPathsPlaceholder}
+                  rows={2}
+                  className="text-xs font-mono resize-none"
+                />
+                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                  {dict.steps.artifactPathsHelp}
+                </div>
+              </div>
             </div>
           ))}
 

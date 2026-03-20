@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 type ProjectConfig = {
   ignore_patterns: string[];
   quality_threshold: number | null;
+  artifact_retention_days: number | null;
   auto_analyze: boolean;
   webhook_url: string | null;
   ai_integration_id: string | null;
@@ -58,6 +59,7 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
   const [config, setConfig] = useState<ProjectConfig>({
     ignore_patterns: [],
     quality_threshold: null,
+    artifact_retention_days: null,
     auto_analyze: false,
     webhook_url: null,
     ai_integration_id: null,
@@ -86,6 +88,10 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
           ignore_patterns: Array.isArray(configData.ignore_patterns) ? configData.ignore_patterns : [],
           quality_threshold:
             typeof configData.quality_threshold === 'number' ? configData.quality_threshold : null,
+          artifact_retention_days:
+            typeof configData.artifact_retention_days === 'number'
+              ? configData.artifact_retention_days
+              : null,
           auto_analyze: configData.auto_analyze === true,
           webhook_url: typeof configData.webhook_url === 'string' ? configData.webhook_url : null,
           ai_integration_id:
@@ -126,6 +132,7 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
       body: JSON.stringify({
         ignorePatterns,
         qualityThreshold: config.quality_threshold,
+        artifactRetentionDays: config.artifact_retention_days,
         autoAnalyze: config.auto_analyze,
         webhookUrl: config.webhook_url,
         aiIntegrationId: config.ai_integration_id,
@@ -264,6 +271,34 @@ export default function ProjectConfigPanel({ projectId, dict }: { projectId: str
         />
         <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
           {dict.projects.qualityThresholdHelp}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="artifact-retention-days" className="text-sm font-medium">
+          {dict.projects.artifactRetentionDays}
+        </label>
+        <Input
+          id="artifact-retention-days"
+          type="number"
+          min="1"
+          max="3650"
+          value={String(config.artifact_retention_days ?? '')}
+          onChange={e =>
+            setConfig(prev => ({
+              ...prev,
+              artifact_retention_days: e.target.value
+                ? (() => {
+                    const parsed = parseInt(e.target.value, 10);
+                    return Number.isNaN(parsed) ? null : parsed;
+                  })()
+                : null,
+            }))
+          }
+          placeholder={dict.projects.artifactRetentionDaysPlaceholder}
+        />
+        <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
+          {dict.projects.artifactRetentionDaysHelp}
         </p>
       </div>
 

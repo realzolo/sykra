@@ -25,7 +25,7 @@ export async function GET(
   const { id } = await params;
   await requireProjectAccess(id, user.id);
   const data = await queryOne<Record<string, unknown>>(
-    `select ignore_patterns, quality_threshold, auto_analyze, webhook_url, ai_integration_id
+    `select ignore_patterns, quality_threshold, artifact_retention_days, auto_analyze, webhook_url, ai_integration_id
      from code_projects
      where id = $1`,
     [id]
@@ -53,7 +53,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { ignorePatterns, qualityThreshold, autoAnalyze, webhookUrl, aiIntegrationId } = body;
+  const { ignorePatterns, qualityThreshold, artifactRetentionDays, autoAnalyze, webhookUrl, aiIntegrationId } = body;
 
   const project = await requireProjectAccess(id, user.id);
   if (project.org_id) {
@@ -65,6 +65,23 @@ export async function PATCH(
   const updateData: Record<string, unknown> = {};
   if (ignorePatterns !== undefined) updateData.ignore_patterns = ignorePatterns;
   if (qualityThreshold !== undefined) updateData.quality_threshold = qualityThreshold;
+  if (artifactRetentionDays !== undefined) {
+    if (artifactRetentionDays === null || artifactRetentionDays === '') {
+      updateData.artifact_retention_days = null;
+    } else if (
+      typeof artifactRetentionDays === 'number' &&
+      Number.isInteger(artifactRetentionDays) &&
+      artifactRetentionDays >= 1 &&
+      artifactRetentionDays <= 3650
+    ) {
+      updateData.artifact_retention_days = artifactRetentionDays;
+    } else {
+      return NextResponse.json(
+        { error: 'artifactRetentionDays must be an integer between 1 and 3650' },
+        { status: 400 }
+      );
+    }
+  }
   if (autoAnalyze !== undefined) updateData.auto_analyze = autoAnalyze;
   if (webhookUrl !== undefined) updateData.webhook_url = webhookUrl;
   if (aiIntegrationId !== undefined) {

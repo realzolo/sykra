@@ -59,6 +59,7 @@ const pipelineStepSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   script: z.string(),
+  artifactPaths: z.array(z.string().min(1)).optional(),
   type: z.enum(['shell', 'docker']).optional(),
   dockerImage: z.string().min(1).optional(),
   continueOnError: z.boolean().optional(),

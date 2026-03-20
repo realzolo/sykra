@@ -5,23 +5,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/jackc/pgx/v5"
 
+	"spec-axis/runner/internal/artifacts"
 	"spec-axis/runner/internal/queue"
 	"spec-axis/runner/internal/store"
 )
 
 type Service struct {
-	Store       *store.Store
-	Queue       *asynq.Client
-	QueueName   string
-	RunTimeout  time.Duration
-	Storage     *LocalStorage
-	StudioURL   string
-	StudioToken string
+	Store                 *store.Store
+	Queue                 *asynq.Client
+	QueueName             string
+	RunTimeout            time.Duration
+	Storage               *LocalStorage
+	Artifacts             *artifacts.Manager
+	ArtifactRetentionDays int
+	StudioURL             string
+	StudioToken           string
 }
 
 type CreatePipelineInput struct {
@@ -318,4 +323,127 @@ func (s *Service) CancelRun(ctx context.Context, runID string) error {
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	})
 	return nil
+}
+
+type UploadWorkerArtifactInput struct {
+	RunID         string
+	JobID         string
+	StepKey       string
+	Path          string
+	Content       io.Reader
+	ContentLength int64
+	Attempt       int
+	MaxAttempts   int
+}
+
+func (s *Service) resolveArtifactRetentionDays(ctx context.Context, run *store.PipelineRun) (int, error) {
+	if run.ProjectID != nil && strings.TrimSpace(*run.ProjectID) != "" {
+		project, err := s.Store.GetProject(ctx, *run.ProjectID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return 0, err
+		}
+		if project != nil && project.ArtifactRetentionDays != nil {
+			return *project.ArtifactRetentionDays, nil
+		}
+	}
+	return s.ArtifactRetentionDays, nil
+}
+
+func (s *Service) UploadWorkerArtifact(ctx context.Context, input UploadWorkerArtifactInput) (*store.PipelineArtifact, error) {
+	if strings.TrimSpace(input.RunID) == "" {
+		return nil, errors.New("runId is required")
+	}
+	if strings.TrimSpace(input.JobID) == "" {
+		return nil, errors.New("jobId is required")
+	}
+	if strings.TrimSpace(input.StepKey) == "" {
+		return nil, errors.New("stepKey is required")
+	}
+	if strings.TrimSpace(input.Path) == "" {
+		return nil, errors.New("path is required")
+	}
+	if s.Artifacts == nil {
+		return nil, errors.New("artifact manager is not configured")
+	}
+
+	run, err := s.Store.GetPipelineRun(ctx, input.RunID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.New("pipeline run not found")
+		}
+		return nil, err
+	}
+	step, err := s.Store.GetPipelineStepByKey(ctx, input.JobID, input.StepKey)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.New("pipeline step not found")
+		}
+		return nil, err
+	}
+
+	artifact, err := s.Artifacts.SaveArtifact(ctx, artifacts.SaveArtifactInput{
+		OrgID:         run.OrgID,
+		RunID:         input.RunID,
+		JobID:         input.JobID,
+		StepID:        step.ID,
+		RelativePath:  input.Path,
+		Content:       input.Content,
+		ContentLength: input.ContentLength,
+	})
+	if err != nil {
+		return nil, err
+	}
+	retentionDays, err := s.resolveArtifactRetentionDays(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	if retentionDays > 0 {
+		expiresAt := time.Now().UTC().Add(time.Duration(retentionDays) * 24 * time.Hour)
+		artifact.ExpiresAt = &expiresAt
+	}
+	if err := s.Store.InsertPipelineArtifact(ctx, artifact); err != nil {
+		return nil, err
+	}
+	_ = s.Store.AppendRunEvent(ctx, input.RunID, "step.artifact.uploaded", map[string]any{
+		"runId":       input.RunID,
+		"jobId":       input.JobID,
+		"stepId":      step.ID,
+		"path":        artifact.Path,
+		"storagePath": artifact.StoragePath,
+		"sizeBytes":   artifact.SizeBytes,
+		"sha256":      artifact.Sha256,
+		"attempt":     input.Attempt,
+		"maxAttempts": input.MaxAttempts,
+		"uploadedAt":  time.Now().UTC().Format(time.RFC3339),
+	})
+	return &artifact, nil
+}
+
+func (s *Service) OpenArtifactContent(ctx context.Context, runID string, artifactID string) (*store.PipelineArtifact, *artifacts.OpenArtifactOutput, error) {
+	if strings.TrimSpace(runID) == "" {
+		return nil, nil, errors.New("runId is required")
+	}
+	if strings.TrimSpace(artifactID) == "" {
+		return nil, nil, errors.New("artifactId is required")
+	}
+	if s.Artifacts == nil {
+		return nil, nil, errors.New("artifact manager is not configured")
+	}
+
+	artifact, err := s.Store.GetPipelineArtifact(ctx, runID, artifactID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if artifact == nil {
+		return nil, nil, errors.New("artifact not found")
+	}
+	if artifact.ExpiresAt != nil && artifact.ExpiresAt.Before(time.Now().UTC()) {
+		return nil, nil, errors.New("artifact expired")
+	}
+
+	content, err := s.Artifacts.OpenArtifact(ctx, artifact.OrgID, artifact.StoragePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	return artifact, content, nil
 }

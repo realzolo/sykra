@@ -102,7 +102,10 @@ token = "dev-runner"
 pnpm dev
 
 # Terminal 2
-cd apps/runner && go run ./cmd/runner
+cd apps/runner && go run .
+
+# Terminal 3 (optional, for distributed pipeline execution)
+cd apps/worker && go run .
 ```
 
 Open [http://localhost:8109](http://localhost:8109).
@@ -114,7 +117,9 @@ pnpm dev                                  # Studio dev server
 pnpm build                                # Production build + TypeScript check
 pnpm lint                                 # ESLint
 cd apps/runner && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...  # Build runner
-cd apps/runner && go run ./cmd/runner     # Start runner
+cd apps/worker && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...  # Build worker
+cd apps/runner && go run .                # Start runner
+cd apps/worker && go run .                # Start worker
 psql "$DATABASE_URL" -f docs/db/init.sql  # Reset schema
 ```
 

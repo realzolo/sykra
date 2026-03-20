@@ -24,6 +24,9 @@ type Config struct {
 	// Studio integration — used by source_checkout and review_gate job types
 	StudioURL   string
 	StudioToken string
+	// Worker control plane settings.
+	WorkerLeaseTTL    time.Duration
+	RequireWorkerNode bool
 }
 
 func Load() (Config, error) {
@@ -47,4 +50,19 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func envBool(key string, fallback bool) bool {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	switch raw {
+	case "1", "true", "TRUE", "yes", "YES", "on", "ON":
+		return true
+	case "0", "false", "FALSE", "no", "NO", "off", "OFF":
+		return false
+	default:
+		return fallback
+	}
 }

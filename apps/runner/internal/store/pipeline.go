@@ -109,13 +109,17 @@ type PipelineStep struct {
 }
 
 type PipelineArtifact struct {
-	RunID       string `json:"run_id"`
-	JobID       string `json:"job_id,omitempty"`
-	StepID      string `json:"step_id,omitempty"`
-	Path        string `json:"path"`
-	StoragePath string `json:"storage_path"`
-	SizeBytes   int64  `json:"size_bytes"`
-	Sha256      string `json:"sha256,omitempty"`
+	ID          string     `json:"id,omitempty"`
+	OrgID       string     `json:"org_id,omitempty"`
+	RunID       string     `json:"run_id"`
+	JobID       string     `json:"job_id,omitempty"`
+	StepID      string     `json:"step_id,omitempty"`
+	Path        string     `json:"path"`
+	StoragePath string     `json:"storage_path"`
+	SizeBytes   int64      `json:"size_bytes"`
+	Sha256      string     `json:"sha256,omitempty"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
 type RunEvent struct {
@@ -666,6 +670,76 @@ func (s *Store) GetPipelineRunWithVersion(ctx context.Context, runID string) (*P
 		version.CreatedBy = &val
 	}
 	return &run, &version, nil
+}
+
+func (s *Store) GetPipelineRun(ctx context.Context, runID string) (*PipelineRun, error) {
+	row := s.pool.QueryRow(
+		ctx,
+		`select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt,
+		        error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
+		 from pipeline_runs
+		 where id=$1`,
+		runID,
+	)
+
+	var run PipelineRun
+	var projectID pgtype.UUID
+	var triggeredBy pgtype.UUID
+	var idempotency pgtype.Text
+	var rollbackOf pgtype.UUID
+	var errorCode pgtype.Text
+	var errorMessage pgtype.Text
+	var metadata []byte
+	if err := row.Scan(
+		&run.ID,
+		&run.PipelineID,
+		&run.VersionID,
+		&run.OrgID,
+		&projectID,
+		&run.Status,
+		&run.TriggerType,
+		&triggeredBy,
+		&idempotency,
+		&rollbackOf,
+		&run.Attempt,
+		&errorCode,
+		&errorMessage,
+		&metadata,
+		&run.CreatedAt,
+		&run.StartedAt,
+		&run.FinishedAt,
+		&run.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if projectID.Valid {
+		value := projectID.String()
+		run.ProjectID = &value
+	}
+	if triggeredBy.Valid {
+		value := triggeredBy.String()
+		run.TriggeredBy = &value
+	}
+	if idempotency.Valid {
+		value := idempotency.String
+		run.IdempotencyKey = &value
+	}
+	if rollbackOf.Valid {
+		value := rollbackOf.String()
+		run.RollbackOf = &value
+	}
+	if errorCode.Valid {
+		value := errorCode.String
+		run.ErrorCode = &value
+	}
+	if errorMessage.Valid {
+		value := errorMessage.String
+		run.ErrorMessage = &value
+	}
+	if len(metadata) > 0 {
+		run.Metadata = metadata
+	}
+	return &run, nil
 }
 
 func (s *Store) ListPipelineRuns(ctx context.Context, pipelineID string, limit int) ([]PipelineRun, error) {
@@ -1255,6 +1329,18 @@ func (s *Store) MarkPipelineJobRunning(ctx context.Context, jobID string) error 
 	return err
 }
 
+func (s *Store) AssignPipelineJobRunner(ctx context.Context, jobID string, runnerID string) error {
+	_, err := s.pool.Exec(
+		ctx,
+		`update pipeline_jobs
+		 set runner_id=$2, updated_at=now()
+		 where id=$1`,
+		jobID,
+		nullIfEmpty(runnerID),
+	)
+	return err
+}
+
 func (s *Store) MarkPipelineJobSuccess(ctx context.Context, jobID string) error {
 	_, err := s.pool.Exec(
 		ctx,
@@ -1362,8 +1448,8 @@ func (s *Store) MarkPipelineStepCanceled(ctx context.Context, stepID string, mes
 func (s *Store) InsertPipelineArtifact(ctx context.Context, artifact PipelineArtifact) error {
 	_, err := s.pool.Exec(
 		ctx,
-		`insert into pipeline_artifacts (run_id, job_id, step_id, path, storage_path, size_bytes, sha256, created_at)
-		 values ($1,$2,$3,$4,$5,$6,$7,now())`,
+		`insert into pipeline_artifacts (run_id, job_id, step_id, path, storage_path, size_bytes, sha256, created_at, expires_at)
+		 values ($1,$2,$3,$4,$5,$6,$7,now(),$8)`,
 		artifact.RunID,
 		nullIfEmpty(artifact.JobID),
 		nullIfEmpty(artifact.StepID),
@@ -1371,6 +1457,139 @@ func (s *Store) InsertPipelineArtifact(ctx context.Context, artifact PipelineArt
 		artifact.StoragePath,
 		artifact.SizeBytes,
 		nullIfEmpty(artifact.Sha256),
+		artifact.ExpiresAt,
+	)
+	return err
+}
+
+func (s *Store) GetPipelineArtifact(ctx context.Context, runID string, artifactID string) (*PipelineArtifact, error) {
+	row := s.pool.QueryRow(
+		ctx,
+		`select a.id, r.org_id, a.run_id, a.job_id, a.step_id, a.path, a.storage_path, a.size_bytes, a.sha256, a.created_at, a.expires_at
+		 from pipeline_artifacts a
+		 join pipeline_runs r on r.id = a.run_id
+		 where a.run_id = $1 and a.id = $2`,
+		runID,
+		artifactID,
+	)
+
+	var out PipelineArtifact
+	var jobID pgtype.UUID
+	var stepID pgtype.UUID
+	var sha pgtype.Text
+	var createdAt pgtype.Timestamptz
+	var expiresAt pgtype.Timestamptz
+	if err := row.Scan(
+		&out.ID,
+		&out.OrgID,
+		&out.RunID,
+		&jobID,
+		&stepID,
+		&out.Path,
+		&out.StoragePath,
+		&out.SizeBytes,
+		&sha,
+		&createdAt,
+		&expiresAt,
+	); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if jobID.Valid {
+		out.JobID = jobID.String()
+	}
+	if stepID.Valid {
+		out.StepID = stepID.String()
+	}
+	if sha.Valid {
+		out.Sha256 = sha.String
+	}
+	if createdAt.Valid {
+		value := createdAt.Time
+		out.CreatedAt = &value
+	}
+	if expiresAt.Valid {
+		value := expiresAt.Time
+		out.ExpiresAt = &value
+	}
+	return &out, nil
+}
+
+func (s *Store) ListExpiredPipelineArtifacts(ctx context.Context, now time.Time, limit int) ([]PipelineArtifact, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.pool.Query(
+		ctx,
+		`select a.id, r.org_id, a.run_id, a.job_id, a.step_id, a.path, a.storage_path, a.size_bytes, a.sha256, a.created_at, a.expires_at
+		 from pipeline_artifacts a
+		 join pipeline_runs r on r.id = a.run_id
+		 where a.expires_at is not null and a.expires_at <= $1
+		 order by a.expires_at asc
+		 limit $2`,
+		now,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]PipelineArtifact, 0, limit)
+	for rows.Next() {
+		var artifact PipelineArtifact
+		var jobID pgtype.UUID
+		var stepID pgtype.UUID
+		var sha pgtype.Text
+		var createdAt pgtype.Timestamptz
+		var expiresAt pgtype.Timestamptz
+		if err := rows.Scan(
+			&artifact.ID,
+			&artifact.OrgID,
+			&artifact.RunID,
+			&jobID,
+			&stepID,
+			&artifact.Path,
+			&artifact.StoragePath,
+			&artifact.SizeBytes,
+			&sha,
+			&createdAt,
+			&expiresAt,
+		); err != nil {
+			return nil, err
+		}
+		if jobID.Valid {
+			artifact.JobID = jobID.String()
+		}
+		if stepID.Valid {
+			artifact.StepID = stepID.String()
+		}
+		if sha.Valid {
+			artifact.Sha256 = sha.String
+		}
+		if createdAt.Valid {
+			value := createdAt.Time
+			artifact.CreatedAt = &value
+		}
+		if expiresAt.Valid {
+			value := expiresAt.Time
+			artifact.ExpiresAt = &value
+		}
+		out = append(out, artifact)
+	}
+	return out, nil
+}
+
+func (s *Store) DeletePipelineArtifactsByID(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(
+		ctx,
+		`delete from pipeline_artifacts where id = any($1::uuid[])`,
+		ids,
 	)
 	return err
 }

@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId } from '@/services/orgs';
-import { query } from '@/lib/db';
+import { queryOne } from '@/lib/db';
+import { issueArtifactDownloadToken } from '@/lib/artifactDownloadToken';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 
@@ -10,9 +12,9 @@ export const dynamic = 'force-dynamic';
 
 const rateLimiter = createRateLimiter(RATE_LIMITS.general);
 
-export async function GET(
+export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ runId: string }> }
+  { params }: { params: Promise<{ runId: string; artifactId: string }> }
 ) {
   const rl = rateLimiter(request);
   if (rl) return rl;
@@ -21,34 +23,33 @@ export async function GET(
   if (!user) return unauthorized();
 
   try {
-    const { runId } = await params;
+    const { runId, artifactId } = await params;
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
     if (!orgId) return unauthorized();
 
-    // Verify the run belongs to this org
-    const artifacts = await query<{
-      id: string;
-      job_id: string | null;
-      step_id: string | null;
-      path: string;
-      storage_path: string;
-      size_bytes: string;
-      sha256: string | null;
-      created_at: string;
-      expires_at: string | null;
-    }>(
-      `select a.id, a.job_id, a.step_id, a.path, a.storage_path,
-              a.size_bytes::text, a.sha256, a.created_at, a.expires_at
+    const artifact = await queryOne<{ id: string }>(
+      `select a.id
        from pipeline_artifacts a
        join pipeline_runs r on r.id = a.run_id
-       where a.run_id = $1
-         and r.org_id = $2
-         and (a.expires_at is null or a.expires_at > now())
-       order by a.created_at asc`,
-      [runId, orgId]
+       where a.run_id = $1 and a.id = $2 and r.org_id = $3`,
+      [runId, artifactId, orgId]
     );
+    if (!artifact) {
+      return NextResponse.json({ error: 'Artifact not found' }, { status: 404 });
+    }
 
-    return NextResponse.json({ artifacts });
+    const token = issueArtifactDownloadToken({
+      orgId,
+      userId: user.id,
+      runId,
+      artifactId,
+      expiresInSeconds: 120,
+    });
+
+    return NextResponse.json({
+      url: `/api/pipeline-runs/${runId}/artifacts/${artifactId}/download?token=${encodeURIComponent(token)}`,
+      expiresInSeconds: 120,
+    });
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     return NextResponse.json({ error }, { status: statusCode });

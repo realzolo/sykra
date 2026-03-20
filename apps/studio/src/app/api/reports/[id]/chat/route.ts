@@ -457,7 +457,7 @@ function getReasoningEffort(
 }
 
 function shouldUseResponsesAPIForChat(config: ReturnType<typeof sanitizeAIConfig>): boolean {
-  if (!isOpenAIOfficialBase(config.baseUrl)) return false;
+  if (!config.baseUrl || !isOpenAIOfficialBase(config.baseUrl)) return false;
   const effort = getReasoningEffort(config.reasoningEffort);
   return Boolean(effort) || supportsReasoningEffort(config.model);
 }
@@ -516,7 +516,7 @@ async function* requestAnthropicChatStream(input: {
   messages: ChatMessage[];
   signal: AbortSignal;
 }): AsyncGenerator<string> {
-  const base = input.config.baseUrl.replace(/\/+$/, '');
+  const base = requiredBaseUrl(input.config);
   const endpoint = base.endsWith('/v1') ? `${base}/messages` : `${base}/v1/messages`;
   const payload: Record<string, unknown> = {
     model: input.config.model,
@@ -575,6 +575,7 @@ async function* requestOpenAIChatStream(input: {
   messages: ChatMessage[];
   signal: AbortSignal;
 }): AsyncGenerator<string> {
+  const base = requiredBaseUrl(input.config);
   const payload: Record<string, unknown> = {
     model: input.config.model,
     messages: [{ role: 'system', content: input.system }, ...input.messages],
@@ -585,7 +586,7 @@ async function* requestOpenAIChatStream(input: {
     payload.temperature = input.config.temperature ?? 0.7;
   }
 
-  const response = await fetch(`${input.config.baseUrl}/chat/completions`, {
+  const response = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -631,6 +632,7 @@ async function* requestOpenAIResponsesStream(input: {
   messages: ChatMessage[];
   signal: AbortSignal;
 }): AsyncGenerator<string> {
+  const base = requiredBaseUrl(input.config);
   const transcript = input.messages
     .map((item) => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
     .join('\n\n');
@@ -649,7 +651,7 @@ async function* requestOpenAIResponsesStream(input: {
     payload.temperature = input.config.temperature ?? 0.7;
   }
 
-  const response = await fetch(`${input.config.baseUrl}/responses`, {
+  const response = await fetch(`${base}/responses`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -726,6 +728,7 @@ async function requestOpenAIResponsesOnce(input: {
   messages: ChatMessage[];
   signal: AbortSignal;
 }): Promise<string> {
+  const base = requiredBaseUrl(input.config);
   const transcript = input.messages
     .map((item) => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
     .join('\n\n');
@@ -743,7 +746,7 @@ async function requestOpenAIResponsesOnce(input: {
     payload.temperature = input.config.temperature ?? 0.7;
   }
 
-  const response = await fetch(`${input.config.baseUrl}/responses`, {
+  const response = await fetch(`${base}/responses`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -803,6 +806,14 @@ async function* iterateSSEDataLines(
       yield data;
     }
   }
+}
+
+function requiredBaseUrl(config: ReturnType<typeof sanitizeAIConfig>): string {
+  const value = config.baseUrl?.trim();
+  if (!value) {
+    throw new Error('AI integration base URL is required');
+  }
+  return value.replace(/\/+$/, '');
 }
 
 function parseSSEData(raw: string): string | null {

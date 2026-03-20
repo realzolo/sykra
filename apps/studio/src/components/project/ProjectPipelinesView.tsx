@@ -20,7 +20,7 @@ import type { PipelineSummary, PipelineRunStatus } from '@/services/pipelineType
 import { durationLabel, ENV_LABELS, STATUS_VARIANTS } from '@/services/pipelineTypes';
 import { withOrgPrefix } from '@/lib/orgPath';
 import CreatePipelineWizard from '@/components/pipeline/CreatePipelineWizard';
-import { formatLocalDate } from '@/lib/dateFormat';
+import { formatLocalDate, formatLocalDateTime } from '@/lib/dateFormat';
 
 const STATUS_ICONS: Record<PipelineRunStatus, React.ReactNode> = {
   success:   <CheckCircle className="size-3.5 text-success" />,
@@ -38,6 +38,25 @@ const ENV_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'mute
   development: 'muted',
 };
 
+type ArtifactDownloadStats = {
+  days: number;
+  summary: {
+    totalDownloads: number;
+    successfulDownloads: number;
+    failedDownloads: number;
+    successRate: number;
+    p95DurationMs: number;
+  };
+  topErrors: Array<{ category: string; count: number }>;
+  recentFailures: Array<{
+    createdAt: string;
+    artifactPath: string | null;
+    errorCategory: string | null;
+    errorMessage: string | null;
+    durationMs: number;
+  }>;
+};
+
 export default function ProjectPipelinesView({
   projectId,
   dict,
@@ -53,6 +72,8 @@ export default function ProjectPipelinesView({
   const [loading, setLoading] = useState(true);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+  const [downloadStats, setDownloadStats] = useState<ArtifactDownloadStats | null>(null);
+  const [downloadStatsLoading, setDownloadStatsLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -61,6 +82,26 @@ export default function ProjectPipelinesView({
       .then(data => { if (alive) { setPipelines(Array.isArray(data) ? data : []); setLoading(false); } })
       .catch(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
+  }, [projectId]);
+
+  useEffect(() => {
+    let alive = true;
+    setDownloadStatsLoading(true);
+    fetch(`/api/projects/${projectId}/artifact-download-stats?days=7`)
+      .then(async (response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (!alive) return;
+        setDownloadStats(payload as ArtifactDownloadStats | null);
+        setDownloadStatsLoading(false);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setDownloadStats(null);
+        setDownloadStatsLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, [projectId]);
 
   function handleCreated(pipelineId: string) {
@@ -105,6 +146,89 @@ export default function ProjectPipelinesView({
             {p.new}
           </Button>
         </div>
+      </div>
+
+      <div className="px-6 py-3 border-b border-[hsl(var(--ds-border-1))] bg-background shrink-0">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[13px] font-medium text-foreground">{p.artifactAuditTitle}</div>
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+              {p.artifactAuditDescription}
+            </div>
+          </div>
+          {downloadStats && (
+            <Badge variant="muted" size="sm">
+              {p.artifactAuditWindow.replace('{{days}}', String(downloadStats.days))}
+            </Badge>
+          )}
+        </div>
+        {downloadStatsLoading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+            <Skeleton className="h-16 rounded-[8px]" />
+            <Skeleton className="h-16 rounded-[8px]" />
+            <Skeleton className="h-16 rounded-[8px]" />
+            <Skeleton className="h-16 rounded-[8px]" />
+          </div>
+        ) : downloadStats ? (
+          <div className="mt-3 space-y-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditTotal}</div>
+                <div className="text-[16px] font-semibold text-foreground">{downloadStats.summary.totalDownloads}</div>
+              </div>
+              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditSuccessRate}</div>
+                <div className="text-[16px] font-semibold text-success">{downloadStats.summary.successRate.toFixed(1)}%</div>
+              </div>
+              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditP95Latency}</div>
+                <div className="text-[16px] font-semibold text-foreground">{downloadStats.summary.p95DurationMs} ms</div>
+              </div>
+              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditFailures}</div>
+                <div className="text-[16px] font-semibold text-danger">{downloadStats.summary.failedDownloads}</div>
+              </div>
+            </div>
+            {downloadStats.topErrors.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditTopErrors}</span>
+                {downloadStats.topErrors.map((item) => (
+                  <Badge key={item.category} variant="warning" size="sm">
+                    {item.category} · {item.count}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {downloadStats.recentFailures.length > 0 && (
+              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] overflow-hidden">
+                <div className="px-3 py-2 bg-[hsl(var(--ds-surface-1))] text-[11px] font-medium text-[hsl(var(--ds-text-2))]">
+                  {p.artifactAuditRecentFailures}
+                </div>
+                <div className="max-h-28 overflow-auto">
+                  {downloadStats.recentFailures.map((item, index) => (
+                    <div
+                      key={`${item.createdAt}-${item.errorCategory ?? 'unknown'}-${index}`}
+                      className="px-3 py-2 border-t border-[hsl(var(--ds-border-1))] text-[12px] text-foreground flex items-center gap-3"
+                    >
+                      <span className="w-40 shrink-0 text-[hsl(var(--ds-text-2))]">
+                        {formatLocalDateTime(item.createdAt)}
+                      </span>
+                      <span className="flex-1 truncate" title={item.artifactPath ?? 'unknown'}>
+                        {item.artifactPath ?? 'unknown'}
+                      </span>
+                      <Badge variant="danger" size="sm">
+                        {item.errorCategory ?? 'unknown'}
+                      </Badge>
+                      <span className="w-20 text-right text-[hsl(var(--ds-text-2))]">{item.durationMs} ms</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mt-3 text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditEmpty}</div>
+        )}
       </div>
 
       {/* Column headers */}
