@@ -55,6 +55,10 @@ type TriggerRunInput struct {
 	RollbackOf     *string
 }
 
+type ResumeRunInput struct {
+	RunID string
+}
+
 func (s *Service) CreatePipeline(ctx context.Context, input CreatePipelineInput) (*store.Pipeline, *store.PipelineVersion, error) {
 	if input.OrgID == "" {
 		return nil, nil, errors.New("orgId is required")
@@ -289,6 +293,63 @@ func (s *Service) CancelRun(ctx context.Context, runID string) error {
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	})
 	return nil
+}
+
+func (s *Service) ResumeRun(ctx context.Context, input ResumeRunInput) error {
+	if strings.TrimSpace(input.RunID) == "" {
+		return errors.New("runId is required")
+	}
+
+	run, version, err := s.Store.GetPipelineRunWithVersion(ctx, input.RunID)
+	if err != nil {
+		return err
+	}
+	if run == nil || version == nil {
+		return errors.New("run not found")
+	}
+
+	control, err := decodeRunControlMetadata(run.Metadata)
+	if err != nil {
+		return err
+	}
+	if control.WaitingStage == "" {
+		return errors.New("run is not waiting for manual stage approval")
+	}
+	control.ApprovedStages = appendUniqueStage(control.ApprovedStages, control.WaitingStage)
+	control.WaitingStage = ""
+
+	metadataRaw, err := encodeRunControlMetadata(run.Metadata, control)
+	if err != nil {
+		return err
+	}
+	ok, err := s.Store.ResumePipelineRun(ctx, input.RunID, metadataRaw)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("run cannot be resumed")
+	}
+
+	_ = s.Store.AppendRunEvent(ctx, input.RunID, "run.resumed", map[string]any{
+		"runId":     input.RunID,
+		"status":    StatusQueued,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	})
+
+	if s.Queue == nil {
+		return errors.New("queue client is not configured")
+	}
+	task, err := queue.NewPipelineRunTask(input.RunID)
+	if err != nil {
+		return err
+	}
+	_, err = s.Queue.Enqueue(task,
+		asynq.Queue(s.QueueName),
+		asynq.MaxRetry(1),
+		asynq.Timeout(s.RunTimeout),
+		asynq.TaskID("pipeline:"+input.RunID+":resume:"+time.Now().UTC().Format("20060102150405")),
+	)
+	return err
 }
 
 type UploadWorkerArtifactInput struct {

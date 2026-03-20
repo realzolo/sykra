@@ -219,6 +219,19 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parts) == 2 && parts[1] == "resume" {
+		if r.Method != http.MethodPost {
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if err := a.service.ResumeRun(r.Context(), ResumeRunInput{RunID: runID}); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+
 	if len(parts) == 1 {
 		if r.Method != http.MethodGet {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")

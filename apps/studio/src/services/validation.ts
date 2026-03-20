@@ -72,6 +72,18 @@ const pipelineStepSchema = z.object({
 const pipelineJobSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  stage: z
+    .enum([
+      'source',
+      'after_source',
+      'review',
+      'after_review',
+      'build',
+      'after_build',
+      'deploy',
+      'after_deploy',
+    ])
+    .optional(),
   needs: z.array(z.string().min(1)).optional(),
   steps: z.array(pipelineStepSchema).min(1),
   timeoutSeconds: z.number().int().positive().optional(),
@@ -93,6 +105,24 @@ const pipelineNotificationsSchema = z.object({
   channels: z.array(z.enum(['email', 'inapp'])).default(['inapp', 'email']),
 });
 
+const pipelineStageConfigSchema = z.object({
+  entryMode: z.enum(['auto', 'manual']).optional(),
+  dispatchMode: z.enum(['parallel', 'serial']).optional(),
+});
+
+const pipelineStagesSchema = z
+  .object({
+    source: pipelineStageConfigSchema.optional(),
+    after_source: pipelineStageConfigSchema.optional(),
+    review: pipelineStageConfigSchema.optional(),
+    after_review: pipelineStageConfigSchema.optional(),
+    build: pipelineStageConfigSchema.optional(),
+    after_build: pipelineStageConfigSchema.optional(),
+    deploy: pipelineStageConfigSchema.optional(),
+    after_deploy: pipelineStageConfigSchema.optional(),
+  })
+  .optional();
+
 export const pipelineConfigSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().optional(),
@@ -100,6 +130,7 @@ export const pipelineConfigSchema = z.object({
   environment: z.enum(['development', 'staging', 'production']).default('production'),
   trigger: pipelineTriggerSchema,
   notifications: pipelineNotificationsSchema,
+  stages: pipelineStagesSchema,
   jobs: z.array(pipelineJobSchema).min(1),
 });
 

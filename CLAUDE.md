@@ -30,7 +30,7 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 ## Project Overview
 
 AI code review + CI/CD platform: Next.js 16 + React 19 + TypeScript + Tailwind CSS v4.
-Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring, and pipeline DAG builder.
+Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring, and a stage-based pipeline builder.
 Backend: PostgreSQL for core data, Go scheduler executes analysis jobs and orchestrates pipeline runs via Redis queue; pipeline step execution is worker-only and handled by long-lived Worker agents connected over WebSocket control channels (Scheduler=control plane, Worker=execution plane); status updates stream via SSE with polling fallback.
 Monorepo layout: `apps/studio` (Next.js), `apps/scheduler` (Go scheduler control plane), `apps/worker` (Go execution agent), `packages/*` (shared contracts).
 Unless stated otherwise, paths in this guide are relative to `apps/studio`.
@@ -40,8 +40,8 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Rule set template marketplace: 5 built-in templates (React, Go, Security/OWASP, Python, Performance) importable via `GET /api/rules/templates` + `POST /api/rules/templates/[id]/import`
 - Report comparison view: diff two reports side-by-side (new / resolved / persisting issues) at `/o/:orgId/projects/:id/reports/compare?a=...&b=...`
 - Pipeline concurrency control: `allow | queue | cancel_previous` modes stored in `pipelines.concurrency_mode` column (included in `docs/db/init.sql`; use migration for existing DBs)
-- Pipeline config is canonical DAG (`trigger + jobs + notifications`); Studio writes and edits the canonical DAG contract directly (no intermediate stage-template compiler)
-- Pipeline Jobs editor UX is constraint-driven: dependency selection is multi-select (not free-text), job ID renames propagate to `needs`, adding jobs uses a guided modal (type + dependencies first), DAG drag-linking validates self/duplicate/cycle edges before apply, execution preview (topological order + parallel layers) is visible during editing, and real-time diagnostics block invalid saves
+- Pipeline config is authored as a stage-based profile (`trigger + stages + jobs + notifications`) with fixed core columns (`source`, `review`, `build`, `deploy`) plus automation slots between them; Studio derives runtime `needs` edges from stage order and dispatch mode
+- Pipeline editor UX is stage-driven: `source` is a fixed single-entry system stage, `review/build/deploy` expose stage-level `entryMode` (`auto | manual`) and `dispatchMode` (`parallel | serial`), automation slots are inserted on demand between core stages, and automation slots are fixed to `auto + parallel`
 - Pipeline artifact observability: project pipelines page includes artifact download health cards (total, success rate, p95 latency, failures) powered by `GET /api/projects/:id/artifact-download-stats`
 - Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; scheduler uses project override first, then global scheduler default
 - Worker artifact handoff: deploy steps can declare `artifactInputs` patterns; Worker downloads matched artifacts from earlier steps in the same run before step execution, with checksum validation + retry and run events (`step.artifact.pull_*`)
@@ -87,7 +87,6 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 | Radix UI Primitives | ^2.1.4 | `@radix-ui/react-primitive` (Radix Select/Popper dependency) |
 | CodeMirror | 6.x | Read-only codebase viewer (`CodeViewer`) with dynamic language loading via `@codemirror/language-data` |
 | react-diff-viewer-continued | ^4.2.0 | Split diff viewer for commit detail modal (IDE-style review UI) |
-| React Flow (XYFlow) | ^12.7 | Pipeline DAG builder |
 | Lezer Highlight | ^1.2 | Diff syntax highlighting for commit review |
 | PostgreSQL | 14+ | Primary database (self-managed) |
 | Octokit | `^5.0.5` | GitHub API |
@@ -267,7 +266,7 @@ apps/
     internal/pipeline/
       executor.go               # ShellExecutor, DockerExecutor, SourceCheckoutExecutor, ReviewGateExecutor
       engine.go                 # Worker-dispatched job execution engine (no local fallback)
-      types.go                  # DAG pipeline config + step/job contracts
+      types.go                  # Pipeline config + step/job contracts
       storage.go, api.go, graph.go, service.go
   apps/worker/
     main.go                     # Go worker agent entrypoint (execution plane)
@@ -281,7 +280,7 @@ docs/
       010_worker_nodes.sql      # Legacy migration creating worker_nodes (renamed later)
       011_org_storage_settings.sql # Adds per-org artifact storage backend settings
       012_artifact_download_events_and_project_retention.sql # Adds artifact download audit table + project retention override
-      013_orchestrator_dag_schema.sql # Drops fixed-stage pipeline metadata columns; renames worker_nodes/worker_id to worker_nodes/worker_id
+      013_orchestrator_dag_schema.sql # Scheduler/worker schema normalization after control-plane redesign
 packages/
   contracts/                    # Shared API/contracts (active)
 ```
@@ -458,11 +457,12 @@ If new install warnings appear, approve the dependency and update the allowlist.
 
 ## Pipeline Engine (CI/CD)
 
-- **Studio** ships a native DAG job editor under `/pipelines` with direct job/needs/step configuration and an interactive DAG overview (click node to focus, drag link anchors to add dependencies, click edges to remove dependencies).
+- **Studio** ships a native stage builder under `/pipelines` with fixed lifecycle columns (`source -> after_source -> review -> after_review -> build -> after_build -> deploy -> after_deploy`), on-demand automation insertion, stage-level controls for core stages, and an in-place job inspector.
 - **Pipelines** always belong to a project (`project_id` is required, never null).
 - **Pipeline config** is versioned in `pipeline_versions` and linked from `pipelines.current_version_id`.
 - **Pipeline secrets** are stored in `pipeline_secrets` encrypted at rest (AES-256-GCM, `ENCRYPTION_KEY`) and injected into every step as environment variables (write-only in UI).
-- **Execution model**: jobs form a DAG via `needs`; steps run sequentially inside a job.
+- **Authoring model**: users edit stage settings plus stage-local jobs; `source` is fixed single-entry, automation slots are fixed `auto + parallel`, and runtime `needs` edges are derived from stage order and stage `dispatchMode`.
+- **Execution model**: jobs still execute as a DAG after derivation, and steps run sequentially inside a job.
 - **Step types**: `shell` (default) runs via `/bin/sh -c`; `docker` runs `docker run --rm -w /workspace -v {workingDir}:/workspace {envFlags} {image} /bin/sh -c "{script}"`. Set `type: "docker"` and `dockerImage` on a step to use Docker.
 - **Step artifacts**: each user-defined step can declare `artifactPaths` (glob/file list, one per line in UI). Worker resolves patterns within the workspace (supports `**`) and uploads matched files after successful step execution.
 - **Artifact upload reliability**: worker uploads each artifact with bounded retry (`maxAttempts=3`) and emits attempt metadata; scheduler records observability events (`step.artifact.uploaded`, `step.artifact.upload_failed`, `step.artifact.upload_observed`) for timing/error-category analysis.

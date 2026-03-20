@@ -1,4 +1,32 @@
 export type PipelineEnvironment = 'development' | 'staging' | 'production';
+export type PipelineStageKey =
+  | 'source'
+  | 'after_source'
+  | 'review'
+  | 'after_review'
+  | 'build'
+  | 'after_build'
+  | 'deploy'
+  | 'after_deploy';
+export const PIPELINE_STAGE_SEQUENCE: PipelineStageKey[] = [
+  'source',
+  'after_source',
+  'review',
+  'after_review',
+  'build',
+  'after_build',
+  'deploy',
+  'after_deploy',
+];
+export type PipelineStageEntryMode = 'auto' | 'manual';
+export type PipelineStageDispatchMode = 'parallel' | 'serial';
+
+export type PipelineStageConfig = {
+  entryMode?: PipelineStageEntryMode;
+  dispatchMode?: PipelineStageDispatchMode;
+};
+
+export type PipelineStageSettings = Partial<Record<PipelineStageKey, PipelineStageConfig>>;
 
 export type PipelineStep = {
   id: string;
@@ -9,7 +37,7 @@ export type PipelineStep = {
   type?: 'shell' | 'docker';
   dockerImage?: string;
   continueOnError?: boolean;
-  timeoutSeconds?: number;
+  timeoutSeconds?: number | undefined;
   env?: Record<string, string>;
   workingDir?: string;
 };
@@ -19,9 +47,10 @@ export type PipelineJobType = 'shell' | 'source_checkout' | 'review_gate';
 export type PipelineJob = {
   id: string;
   name: string;
+  stage?: PipelineStageKey;
   needs?: string[];
   steps: PipelineStep[];
-  timeoutSeconds?: number;
+  timeoutSeconds?: number | undefined;
   env?: Record<string, string>;
   workingDir?: string;
   type?: PipelineJobType;
@@ -49,7 +78,19 @@ export type PipelineConfig = {
   environment?: PipelineEnvironment;
   trigger: PipelineTrigger;
   notifications: PipelineNotifications;
+  stages?: PipelineStageSettings;
   jobs: PipelineJob[];
+};
+
+export const DEFAULT_STAGE_SETTINGS: Record<PipelineStageKey, PipelineStageConfig> = {
+  source: { entryMode: 'auto', dispatchMode: 'parallel' },
+  after_source: { entryMode: 'auto', dispatchMode: 'parallel' },
+  review: { entryMode: 'auto', dispatchMode: 'parallel' },
+  after_review: { entryMode: 'auto', dispatchMode: 'parallel' },
+  build: { entryMode: 'auto', dispatchMode: 'parallel' },
+  after_build: { entryMode: 'auto', dispatchMode: 'parallel' },
+  deploy: { entryMode: 'auto', dispatchMode: 'parallel' },
+  after_deploy: { entryMode: 'auto', dispatchMode: 'parallel' },
 };
 
 // ─────────────────────────────────────────────
@@ -153,6 +194,10 @@ export type PipelineJobDiagnostic = {
   message: string;
 };
 
+function isAutomationStage(stage: PipelineStageKey): boolean {
+  return stage.startsWith('after_');
+}
+
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
@@ -209,6 +254,7 @@ export function createDefaultJob(name = 'New Job', existingIds: string[] = []): 
   return {
     id,
     name,
+    stage: 'build',
     type: 'shell',
     needs: [],
     steps: [createDefaultStep('Run command')],
@@ -224,6 +270,7 @@ export function createDefaultPipelineConfig(name: string): PipelineConfig {
     name,
     environment: 'production',
     trigger: { branch: 'main', autoTrigger: false },
+    stages: { ...DEFAULT_STAGE_SETTINGS },
     notifications: {
       onSuccess: true,
       onFailure: true,
@@ -233,6 +280,7 @@ export function createDefaultPipelineConfig(name: string): PipelineConfig {
       {
         id: sourceJobId,
         name: 'Source',
+        stage: 'source',
         type: 'source_checkout',
         branch: 'main',
         needs: [],
@@ -241,6 +289,7 @@ export function createDefaultPipelineConfig(name: string): PipelineConfig {
       {
         id: reviewJobId,
         name: 'Code Review',
+        stage: 'review',
         type: 'review_gate',
         minScore: 60,
         needs: [sourceJobId],
@@ -249,6 +298,7 @@ export function createDefaultPipelineConfig(name: string): PipelineConfig {
       {
         id: buildJobId,
         name: 'Build',
+        stage: 'build',
         type: 'shell',
         needs: [reviewJobId],
         steps: [
@@ -259,11 +309,35 @@ export function createDefaultPipelineConfig(name: string): PipelineConfig {
       {
         id: 'deploy',
         name: 'Deploy',
+        stage: 'deploy',
         type: 'shell',
         needs: [buildJobId],
         steps: [{ id: newId('step'), name: 'Deploy', script: '# add deploy commands here' }],
       },
     ],
+  };
+}
+
+export function getStageConfig(
+  settings: PipelineStageSettings | undefined,
+  stage: PipelineStageKey
+): PipelineStageConfig {
+  return {
+    ...DEFAULT_STAGE_SETTINGS[stage],
+    ...(settings?.[stage] ?? {}),
+  };
+}
+
+export function normalizeStageSettings(settings?: PipelineStageSettings): Record<PipelineStageKey, PipelineStageConfig> {
+  return {
+    source: { entryMode: 'auto', dispatchMode: 'parallel' },
+    after_source: { entryMode: 'auto', dispatchMode: 'parallel' },
+    review: getStageConfig(settings, 'review'),
+    after_review: { entryMode: 'auto', dispatchMode: 'parallel' },
+    build: getStageConfig(settings, 'build'),
+    after_build: { entryMode: 'auto', dispatchMode: 'parallel' },
+    deploy: getStageConfig(settings, 'deploy'),
+    after_deploy: { entryMode: 'auto', dispatchMode: 'parallel' },
   };
 }
 
@@ -306,6 +380,191 @@ function hasCycle(jobs: PipelineJob[]): boolean {
     if (dfs(id)) return true;
   }
   return false;
+}
+
+export function inferPipelineJobStage(job: PipelineJob, jobs: PipelineJob[]): PipelineStageKey {
+  if (job.stage && PIPELINE_STAGE_SEQUENCE.includes(job.stage)) return job.stage;
+  if (job.type === 'source_checkout') return 'source';
+  if (job.type === 'review_gate') return 'review';
+
+  const normalizedName = `${job.id} ${job.name}`.toLowerCase();
+  if (/(deploy|release|publish|rollout|ship)/.test(normalizedName)) return 'deploy';
+  if (/(notify|notification|email|slack|webhook|cleanup|archive|sync|tool|automation|script)/.test(normalizedName)) {
+    return 'after_deploy';
+  }
+
+  const dependencyIds = new Set((job.needs ?? []).filter((dependencyId) => dependencyId !== job.id));
+  const dependsOnReview = jobs.some(
+    (candidate) =>
+      dependencyIds.has(candidate.id) &&
+      (candidate.stage === 'review' || candidate.type === 'review_gate')
+  );
+  if (dependsOnReview) return 'build';
+
+  const dependents = jobs.filter((candidate) => (candidate.needs ?? []).includes(job.id));
+  if (dependents.length === 0) return 'deploy';
+  return 'build';
+}
+
+export function sortJobsByStage(jobs: PipelineJob[]): PipelineJob[] {
+  const order = new Map(PIPELINE_STAGE_SEQUENCE.map((stage, index) => [stage, index]));
+  return [...jobs].sort((a, b) => {
+    const stageOrder = (order.get(inferPipelineJobStage(a, jobs)) ?? 0) - (order.get(inferPipelineJobStage(b, jobs)) ?? 0);
+    if (stageOrder !== 0) return stageOrder;
+    return 0;
+  });
+}
+
+export function buildStageJobs(jobs: PipelineJob[]): Record<PipelineStageKey, PipelineJob[]> {
+  const grouped: Record<PipelineStageKey, PipelineJob[]> = {
+    source: [],
+    after_source: [],
+    review: [],
+    after_review: [],
+    build: [],
+    after_build: [],
+    deploy: [],
+    after_deploy: [],
+  };
+  for (const job of jobs) {
+    grouped[inferPipelineJobStage(job, jobs)].push(job);
+  }
+  return grouped;
+}
+
+export function createStageJob(
+  stage: PipelineStageKey,
+  existingIds: string[],
+  triggerBranch: string,
+  name?: string
+): PipelineJob {
+  if (stage === 'source') {
+    const sourceName = name?.trim() || 'Source';
+    return {
+      id: createUniqueJobId(sourceName, existingIds),
+      name: sourceName,
+      stage,
+      type: 'source_checkout',
+      branch: triggerBranch || 'main',
+      needs: [],
+      steps: [{ id: 'checkout', name: 'Checkout', script: '' }],
+    };
+  }
+  if (stage === 'review') {
+    const reviewName = name?.trim() || 'Code Review';
+    return {
+      id: createUniqueJobId(reviewName, existingIds),
+      name: reviewName,
+      stage,
+      type: 'review_gate',
+      minScore: 60,
+      needs: [],
+      steps: [{ id: 'gate', name: 'Quality Gate', script: '' }],
+    };
+  }
+  const shellName =
+    name?.trim() ||
+    (stage === 'build'
+      ? 'Build'
+      : stage === 'deploy'
+      ? 'Deploy'
+      : 'Automation');
+  return {
+    id: createUniqueJobId(shellName, existingIds),
+    name: shellName,
+    stage,
+    type: 'shell',
+    needs: [],
+    steps: [
+      createDefaultStep(
+        stage === 'build'
+          ? 'Run build command'
+          : stage === 'deploy'
+          ? 'Run deploy command'
+          : 'Run automation task'
+      ),
+    ],
+  };
+}
+
+export function normalizePipelineJobs(
+  jobs: PipelineJob[],
+  triggerBranch: string,
+  stageSettings?: PipelineStageSettings
+): PipelineJob[] {
+  const validIds = new Set(jobs.map((job) => job.id));
+  const grouped = buildStageJobs(jobs);
+  let previousStageIds: string[] = [];
+  const normalized: PipelineJob[] = [];
+  const normalizedStageSettings = normalizeStageSettings(stageSettings);
+
+  for (const stage of PIPELINE_STAGE_SEQUENCE) {
+    const stageJobs =
+      stage === 'source'
+        ? grouped[stage].slice(0, 1)
+        : [...grouped[stage]];
+    if (stageJobs.length === 0) continue;
+    const stageIds = stageJobs.map((job) => job.id);
+    const stageConfig = normalizedStageSettings[stage];
+    const stageDispatch = stageConfig.dispatchMode ?? 'parallel';
+
+    for (const rawJob of stageJobs) {
+      const stageIndex = stageJobs.findIndex((job) => job.id === rawJob.id);
+      const needs =
+        stage === 'source'
+          ? []
+          : stageDispatch === 'serial' && stageIndex > 0
+          ? [stageJobs[stageIndex - 1]!.id]
+          : [...previousStageIds];
+      if (stage === 'source') {
+        normalized.push({
+          ...rawJob,
+          stage,
+          type: 'source_checkout',
+          branch: rawJob.branch?.trim() || triggerBranch || 'main',
+          needs,
+          steps: rawJob.steps.length > 0 ? rawJob.steps : [{ id: 'checkout', name: 'Checkout', script: '' }],
+        });
+        continue;
+      }
+      if (stage === 'review') {
+        normalized.push({
+          ...rawJob,
+          stage,
+          type: 'review_gate',
+          minScore: Math.min(100, Math.max(0, rawJob.minScore ?? 60)),
+          needs,
+          steps: rawJob.steps.length > 0 ? rawJob.steps : [{ id: 'gate', name: 'Quality Gate', script: '' }],
+        });
+        continue;
+      }
+      normalized.push({
+        ...rawJob,
+        stage,
+        type: 'shell',
+        needs: needs.filter((dependencyId) => validIds.has(dependencyId)),
+        steps:
+          rawJob.steps.length > 0
+            ? rawJob.steps
+            : [
+                createDefaultStep(
+                  stage === 'build'
+                    ? 'Run build command'
+                    : stage === 'deploy'
+                    ? 'Run deploy command'
+                    : 'Run automation task'
+                ),
+              ],
+      });
+    }
+
+    previousStageIds =
+      stageDispatch === 'serial'
+        ? [stageIds[stageIds.length - 1]!]
+        : stageIds;
+  }
+
+  return normalized;
 }
 
 export function analyzePipelineJobs(jobs: PipelineJob[]): PipelineJobDiagnostic[] {
@@ -369,14 +628,11 @@ export function analyzePipelineJobs(jobs: PipelineJob[]): PipelineJobDiagnostic[
 
   if (sourceCheckoutCount === 0) {
     diagnostics.push({
-      level: 'suggestion',
-      message: 'Consider adding a source checkout job as the DAG entry point.',
+      level: 'error',
+      message: 'Exactly one source job is required.',
     });
   } else if (sourceCheckoutCount > 1) {
-    diagnostics.push({
-      level: 'warning',
-      message: 'Multiple source checkout jobs detected. Confirm this is intentional.',
-    });
+    diagnostics.push({ level: 'error', message: 'Only one source job is allowed.' });
   }
 
   const reviewGateCount = jobs.filter((job) => (job.type ?? 'shell') === 'review_gate').length;
@@ -385,6 +641,22 @@ export function analyzePipelineJobs(jobs: PipelineJob[]): PipelineJobDiagnostic[
       level: 'suggestion',
       message: 'Consider adding a review gate job for automated quality gating.',
     });
+  }
+
+  for (const job of jobs) {
+    const stage = inferPipelineJobStage(job, jobs);
+    if (stage === 'source' && (job.type ?? 'shell') !== 'source_checkout') {
+      diagnostics.push({
+        level: 'error',
+        message: `Source stage only supports source checkout jobs.`,
+      });
+    }
+    if (isAutomationStage(stage) && (job.type ?? 'shell') !== 'shell') {
+      diagnostics.push({
+        level: 'error',
+        message: `Automation stages only support shell jobs.`,
+      });
+    }
   }
 
   return diagnostics;

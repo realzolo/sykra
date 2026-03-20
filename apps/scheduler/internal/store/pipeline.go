@@ -1168,8 +1168,29 @@ func (s *Store) CreatePipelineStep(ctx context.Context, jobID string, stepKey st
 func (s *Store) MarkPipelineRunRunning(ctx context.Context, runID string) error {
 	_, err := s.pool.Exec(
 		ctx,
-		`update pipeline_runs set status='running', started_at=now(), updated_at=now() where id=$1`,
+		`update pipeline_runs
+		 set status='running',
+		     started_at=coalesce(started_at, now()),
+		     updated_at=now()
+		 where id=$1`,
 		runID,
+	)
+	return err
+}
+
+func (s *Store) MarkPipelineRunWaitingManual(ctx context.Context, runID string, message string, metadata json.RawMessage) error {
+	_, err := s.pool.Exec(
+		ctx,
+		`update pipeline_runs
+		 set status='waiting_manual',
+		     error_message=$2,
+		     metadata=$3,
+		     started_at=coalesce(started_at, now()),
+		     updated_at=now()
+		 where id=$1`,
+		runID,
+		message,
+		metadata,
 	)
 	return err
 }
@@ -1215,13 +1236,13 @@ func (s *Store) IsPipelineRunCanceled(ctx context.Context, runID string) (bool, 
 }
 
 func (s *Store) CancelPipelineRun(ctx context.Context, runID string, reason string) (bool, error) {
-	// Mark run canceled if it is still queued/running.
+	// Mark run canceled if it is still active.
 	// We also mark queued/running jobs and steps canceled for consistent UI behavior.
 	cmdTag, err := s.pool.Exec(
 		ctx,
 		`update pipeline_runs
 		 set status='canceled', error_message=$2, finished_at=now(), updated_at=now()
-		 where id=$1 and status in ('queued','running')`,
+		 where id=$1 and status in ('queued','running','waiting_manual')`,
 		runID,
 		reason,
 	)
@@ -1254,6 +1275,24 @@ func (s *Store) CancelPipelineRun(ctx context.Context, runID string, reason stri
 	)
 
 	return true, nil
+}
+
+func (s *Store) ResumePipelineRun(ctx context.Context, runID string, metadata json.RawMessage) (bool, error) {
+	cmdTag, err := s.pool.Exec(
+		ctx,
+		`update pipeline_runs
+		 set status='queued',
+		     error_message=null,
+		     metadata=$2,
+		     updated_at=now()
+		 where id=$1 and status='waiting_manual'`,
+		runID,
+		metadata,
+	)
+	if err != nil {
+		return false, err
+	}
+	return cmdTag.RowsAffected() > 0, nil
 }
 
 func (s *Store) MarkPipelineJobRunning(ctx context.Context, jobID string) error {

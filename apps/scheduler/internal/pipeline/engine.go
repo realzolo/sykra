@@ -80,7 +80,7 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 	if err != nil {
 		return err
 	}
-	if run.Status == string(StatusCanceled) {
+	if run.Status == string(StatusCanceled) || run.Status == string(StatusWaitingManual) {
 		return nil
 	}
 
@@ -89,6 +89,10 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 		return err
 	}
 	if err := ValidateConfig(cfg); err != nil {
+		return err
+	}
+	control, err := decodeRunControlMetadata(run.Metadata)
+	if err != nil {
 		return err
 	}
 
@@ -193,11 +197,25 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 	var mu sync.Mutex
 	remaining := map[string]int{}
 	dependents := map[string][]string{}
+	completedJobs := map[string]bool{}
+	for _, record := range jobRecords {
+		if record.Status == string(StatusSuccess) || record.Status == string(StatusSkipped) {
+			completedJobs[record.JobKey] = true
+		}
+	}
 	for _, job := range plan.Jobs {
-		remaining[job.ID] = len(job.Needs)
+		if completedJobs[job.ID] {
+			continue
+		}
+		unmetDependencies := 0
 		for _, dep := range job.Needs {
+			if completedJobs[dep] {
+				continue
+			}
+			unmetDependencies++
 			dependents[dep] = append(dependents[dep], job.ID)
 		}
+		remaining[job.ID] = unmetDependencies
 	}
 
 	ready := make([]string, 0)
@@ -209,7 +227,7 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 
 	total := len(plan.Jobs)
 	inFlight := 0
-	completed := 0
+	completed := len(completedJobs)
 	failed := false
 	canceled := false
 
@@ -221,7 +239,33 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 		}(jobID)
 	}
 
+	if completed == total {
+		_ = e.Store.MarkPipelineRunSuccess(ctx, runID)
+		return nil
+	}
+
 	for completed < total {
+		if !failed {
+			if waitingStage := nextManualStage(ready, jobIndex, cfg.Stages, control); waitingStage != "" {
+				control.WaitingStage = string(waitingStage)
+				metadataRaw, metaErr := encodeRunControlMetadata(run.Metadata, control)
+				if metaErr != nil {
+					return metaErr
+				}
+				message := fmt.Sprintf("Waiting for manual approval before stage %s", waitingStage)
+				if err := e.Store.MarkPipelineRunWaitingManual(ctx, runID, message, metadataRaw); err != nil {
+					return err
+				}
+				_ = e.Store.AppendRunEvent(ctx, runID, "run.waiting_manual", map[string]any{
+					"runId":     runID,
+					"status":    StatusWaitingManual,
+					"stage":     waitingStage,
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return nil
+			}
+		}
+
 		for len(ready) > 0 && inFlight < concurrency && !failed {
 			jobID := ready[0]
 			ready = ready[1:]
@@ -309,6 +353,88 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 	e.postStudioEvent(ctx, "pipeline.run.completed", map[string]any{"runId": runID})
 
 	return nil
+}
+
+type runControlMetadata struct {
+	ApprovedStages []string `json:"approvedStages,omitempty"`
+	WaitingStage   string   `json:"waitingStage,omitempty"`
+}
+
+func decodeRunControlMetadata(raw []byte) (runControlMetadata, error) {
+	if len(raw) == 0 {
+		return runControlMetadata{}, nil
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return runControlMetadata{}, nil
+	}
+	value, ok := payload["_scheduler"]
+	if !ok || len(value) == 0 {
+		return runControlMetadata{}, nil
+	}
+	var control runControlMetadata
+	if err := json.Unmarshal(value, &control); err != nil {
+		return runControlMetadata{}, err
+	}
+	return control, nil
+}
+
+func encodeRunControlMetadata(raw []byte, control runControlMetadata) ([]byte, error) {
+	payload := map[string]any{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			payload = map[string]any{}
+		}
+	}
+	payload["_scheduler"] = control
+	return json.Marshal(payload)
+}
+
+func appendUniqueStage(stages []string, stage string) []string {
+	for _, item := range stages {
+		if item == stage {
+			return stages
+		}
+	}
+	return append(stages, stage)
+}
+
+func nextManualStage(
+	ready []string,
+	jobIndex map[string]PipelineJob,
+	settings PipelineStageSettings,
+	control runControlMetadata,
+) PipelineStageKey {
+	approved := make(map[string]struct{}, len(control.ApprovedStages))
+	for _, stage := range control.ApprovedStages {
+		approved[stage] = struct{}{}
+	}
+
+	var nextStage PipelineStageKey
+	nextOrder := len(pipelineStageSequence) + 1
+	for _, jobID := range ready {
+		job, ok := jobIndex[jobID]
+		if !ok {
+			continue
+		}
+		stage := normalizeStageKey(job.Stage, job)
+		order := stageOrder(stage)
+		if order < nextOrder {
+			nextOrder = order
+			nextStage = stage
+		}
+	}
+
+	if nextStage == "" {
+		return ""
+	}
+	if _, ok := approved[string(nextStage)]; ok {
+		return ""
+	}
+	if getStageConfig(settings, nextStage).EntryMode != "manual" {
+		return ""
+	}
+	return nextStage
 }
 
 func (e *Engine) runJob(ctx context.Context, runID string, cfg PipelineConfig, secrets map[string]string, job PipelineJob, record store.PipelineJob) error {

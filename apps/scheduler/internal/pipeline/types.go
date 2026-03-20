@@ -11,25 +11,67 @@ import (
 type RunStatus string
 
 const (
-	StatusQueued   RunStatus = "queued"
-	StatusRunning  RunStatus = "running"
-	StatusSuccess  RunStatus = "success"
-	StatusFailed   RunStatus = "failed"
-	StatusCanceled RunStatus = "canceled"
-	StatusTimedOut RunStatus = "timed_out"
-	StatusSkipped  RunStatus = "skipped"
+	StatusQueued        RunStatus = "queued"
+	StatusRunning       RunStatus = "running"
+	StatusWaitingManual RunStatus = "waiting_manual"
+	StatusSuccess       RunStatus = "success"
+	StatusFailed        RunStatus = "failed"
+	StatusCanceled      RunStatus = "canceled"
+	StatusTimedOut      RunStatus = "timed_out"
+	StatusSkipped       RunStatus = "skipped"
 )
 
-// ── Pipeline config (DAG format) ───────────────────────────────────────────
+type PipelineStageKey string
+
+const (
+	StageSource      PipelineStageKey = "source"
+	StageAfterSource PipelineStageKey = "after_source"
+	StageReview      PipelineStageKey = "review"
+	StageAfterReview PipelineStageKey = "after_review"
+	StageBuild       PipelineStageKey = "build"
+	StageAfterBuild  PipelineStageKey = "after_build"
+	StageDeploy      PipelineStageKey = "deploy"
+	StageAfterDeploy PipelineStageKey = "after_deploy"
+)
+
+var pipelineStageSequence = []PipelineStageKey{
+	StageSource,
+	StageAfterSource,
+	StageReview,
+	StageAfterReview,
+	StageBuild,
+	StageAfterBuild,
+	StageDeploy,
+	StageAfterDeploy,
+}
+
+type PipelineStageConfig struct {
+	EntryMode    string `json:"entryMode,omitempty"`    // "auto" | "manual"
+	DispatchMode string `json:"dispatchMode,omitempty"` // "parallel" | "serial"
+}
+
+type PipelineStageSettings struct {
+	Source      *PipelineStageConfig `json:"source,omitempty"`
+	AfterSource *PipelineStageConfig `json:"after_source,omitempty"`
+	Review      *PipelineStageConfig `json:"review,omitempty"`
+	AfterReview *PipelineStageConfig `json:"after_review,omitempty"`
+	Build       *PipelineStageConfig `json:"build,omitempty"`
+	AfterBuild  *PipelineStageConfig `json:"after_build,omitempty"`
+	Deploy      *PipelineStageConfig `json:"deploy,omitempty"`
+	AfterDeploy *PipelineStageConfig `json:"after_deploy,omitempty"`
+}
+
+// ── Pipeline config (stage-authored, runtime DAG-derived) ─────────────────
 
 type PipelineConfig struct {
-	Name          string            `json:"name"`
-	Description   string            `json:"description,omitempty"`
-	Variables     map[string]string `json:"variables,omitempty"`
-	Environment   string            `json:"environment,omitempty"`
-	Trigger       TriggerConfig     `json:"trigger"`
-	Notifications NotifyConfig      `json:"notifications"`
-	Jobs          []PipelineJob     `json:"jobs"`
+	Name          string                `json:"name"`
+	Description   string                `json:"description,omitempty"`
+	Variables     map[string]string     `json:"variables,omitempty"`
+	Environment   string                `json:"environment,omitempty"`
+	Trigger       TriggerConfig         `json:"trigger"`
+	Notifications NotifyConfig          `json:"notifications"`
+	Stages        PipelineStageSettings `json:"stages,omitempty"`
+	Jobs          []PipelineJob         `json:"jobs"`
 }
 
 type TriggerConfig struct {
@@ -64,6 +106,7 @@ type PipelineStep struct {
 type PipelineJob struct {
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
+	Stage          string            `json:"stage,omitempty"`
 	Needs          []string          `json:"needs,omitempty"`
 	Steps          []PipelineStep    `json:"steps"`
 	TimeoutSeconds *int              `json:"timeoutSeconds,omitempty"`
@@ -109,6 +152,7 @@ func BuildInternalPlan(cfg PipelineConfig, projectID, studioURL, studioToken str
 			jobType = "shell"
 		}
 		job.Type = jobType
+		job.Stage = string(normalizeStageKey(job.Stage, job))
 		switch job.Type {
 		case "source_checkout":
 			job.ProjectID = projectID
@@ -143,6 +187,79 @@ func BuildInternalPlan(cfg PipelineConfig, projectID, studioURL, studioToken str
 	}
 
 	return InternalPlan{Jobs: jobs, Stages: stages}
+}
+
+func normalizeStageKey(raw string, job PipelineJob) PipelineStageKey {
+	stage := PipelineStageKey(strings.TrimSpace(strings.ToLower(raw)))
+	switch stage {
+	case StageSource, StageAfterSource, StageReview, StageAfterReview, StageBuild, StageAfterBuild, StageDeploy, StageAfterDeploy:
+		return stage
+	}
+
+	switch strings.TrimSpace(strings.ToLower(job.Type)) {
+	case "source_checkout":
+		return StageSource
+	case "review_gate":
+		return StageReview
+	}
+
+	name := strings.ToLower(strings.TrimSpace(job.ID + " " + job.Name))
+	if strings.Contains(name, "deploy") || strings.Contains(name, "release") || strings.Contains(name, "publish") {
+		return StageDeploy
+	}
+	return StageBuild
+}
+
+func getStageConfig(settings PipelineStageSettings, stage PipelineStageKey) PipelineStageConfig {
+	var config *PipelineStageConfig
+	switch stage {
+	case StageSource:
+		config = settings.Source
+	case StageAfterSource:
+		config = settings.AfterSource
+	case StageReview:
+		config = settings.Review
+	case StageAfterReview:
+		config = settings.AfterReview
+	case StageBuild:
+		config = settings.Build
+	case StageAfterBuild:
+		config = settings.AfterBuild
+	case StageDeploy:
+		config = settings.Deploy
+	case StageAfterDeploy:
+		config = settings.AfterDeploy
+	}
+
+	if config == nil {
+		return PipelineStageConfig{
+			EntryMode:    "auto",
+			DispatchMode: "parallel",
+		}
+	}
+
+	entryMode := strings.TrimSpace(strings.ToLower(config.EntryMode))
+	if entryMode == "" {
+		entryMode = "auto"
+	}
+	dispatchMode := strings.TrimSpace(strings.ToLower(config.DispatchMode))
+	if dispatchMode == "" {
+		dispatchMode = "parallel"
+	}
+
+	return PipelineStageConfig{
+		EntryMode:    entryMode,
+		DispatchMode: dispatchMode,
+	}
+}
+
+func stageOrder(stage PipelineStageKey) int {
+	for index, item := range pipelineStageSequence {
+		if item == stage {
+			return index
+		}
+	}
+	return len(pipelineStageSequence)
 }
 
 // ── Validation ─────────────────────────────────────────────────────────────
