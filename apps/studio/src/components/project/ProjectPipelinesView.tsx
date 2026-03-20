@@ -143,7 +143,7 @@ export default function ProjectPipelinesView({
               {p.description}
             </div>
           </div>
-          <Button variant="default" size="sm" className="h-8 text-[13px]" onClick={() => setWizardOpen(true)}>
+          <Button variant="default" size="sm" className="h-9 text-[14px]" onClick={() => setWizardOpen(true)}>
             {p.new}
           </Button>
         </div>
@@ -174,25 +174,25 @@ export default function ProjectPipelinesView({
           <div className="mt-3 space-y-2">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
-                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditTotal}</div>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditTotal}</div>
                 <div className="text-[16px] font-semibold text-foreground">{downloadStats.summary.totalDownloads}</div>
               </div>
               <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
-                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditSuccessRate}</div>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditSuccessRate}</div>
                 <div className="text-[16px] font-semibold text-success">{downloadStats.summary.successRate.toFixed(1)}%</div>
               </div>
               <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
-                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditP95Latency}</div>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditP95Latency}</div>
                 <div className="text-[16px] font-semibold text-foreground">{downloadStats.summary.p95DurationMs} ms</div>
               </div>
               <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
-                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditFailures}</div>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditFailures}</div>
                 <div className="text-[16px] font-semibold text-danger">{downloadStats.summary.failedDownloads}</div>
               </div>
             </div>
             {downloadStats.topErrors.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditTopErrors}</span>
+                <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditTopErrors}</span>
                 {downloadStats.topErrors.map((item) => (
                   <Badge key={item.category} variant="warning" size="sm">
                     {item.category} · {item.count}
@@ -202,7 +202,7 @@ export default function ProjectPipelinesView({
             )}
             {downloadStats.recentFailures.length > 0 && (
               <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] overflow-hidden">
-                <div className="px-3 py-2 bg-[hsl(var(--ds-surface-1))] text-[11px] font-medium text-[hsl(var(--ds-text-2))]">
+                <div className="px-3 py-2 bg-[hsl(var(--ds-surface-1))] text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
                   {p.artifactAuditRecentFailures}
                 </div>
                 <div className="max-h-28 overflow-auto">
@@ -233,7 +233,7 @@ export default function ProjectPipelinesView({
       </div>
 
       {/* Column headers */}
-      <div className="flex items-center px-6 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[11px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider gap-4 shrink-0">
+      <div className="flex items-center px-6 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[12px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider gap-4 shrink-0">
         <div className="flex-1">{dict.common.name}</div>
         <div className="w-24 text-center">{p.environment}</div>
         <div className="w-20 text-center">{p.list.status}</div>

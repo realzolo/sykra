@@ -232,13 +232,13 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
             <div className="flex gap-2 flex-wrap">
               <Link
                 href={`/o/${orgId}/projects`}
-                className="inline-flex h-8 items-center gap-1.5 rounded-[6px] bg-foreground px-3 text-[13px] font-medium text-background hover:bg-foreground/90 transition-colors"
+                className="inline-flex h-9 items-center gap-1.5 rounded-[6px] bg-foreground px-3 text-[14px] font-medium text-background hover:bg-foreground/90 transition-colors"
               >
                 {dict.dashboard.emptyCreateProject}
               </Link>
               <Link
                 href={`/o/${orgId}/settings/integrations`}
-                className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-border px-3 text-[13px] font-medium text-foreground hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
+                className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-border px-3 text-[14px] font-medium text-foreground hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
               >
                 <Settings className="size-3.5" />
                 {dict.dashboard.emptySetupIntegration}
@@ -267,7 +267,7 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
                   )}
                 </div>
                 {scoreTrendData && scoreTrendData.dir !== 'flat' && (
-                  <div className={['flex items-center gap-0.5 mt-1 text-[11px]', scoreTrendData.dir === 'up' ? 'text-success' : 'text-danger'].join(' ')}>
+                  <div className={['flex items-center gap-0.5 mt-1 text-[12px]', scoreTrendData.dir === 'up' ? 'text-success' : 'text-danger'].join(' ')}>
                     {scoreTrendData.dir === 'up'
                       ? <TrendingUp className="size-3" />
                       : <TrendingDown className="size-3" />}
@@ -275,7 +275,7 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
                   </div>
                 )}
                 {scoreTrendData && scoreTrendData.dir === 'flat' && (
-                  <div className="flex items-center gap-0.5 mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                  <div className="flex items-center gap-0.5 mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
                     <Minus className="size-3" /><span>{dict.dashboard.noChange}</span>
                   </div>
                 )}
@@ -287,7 +287,7 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
                 <div className="text-[22px] font-semibold tracking-tight">{openIssues}</div>
                 {issueTrendData.dir !== 'flat' && (
                   /* For issues: up (more issues) is bad = danger; down (fewer) is good = success */
-                  <div className={['flex items-center gap-0.5 mt-1 text-[11px]', issueTrendData.dir === 'up' ? 'text-danger' : 'text-success'].join(' ')}>
+                  <div className={['flex items-center gap-0.5 mt-1 text-[12px]', issueTrendData.dir === 'up' ? 'text-danger' : 'text-success'].join(' ')}>
                     {issueTrendData.dir === 'up'
                       ? <TrendingUp className="size-3" />
                       : <TrendingDown className="size-3" />}
@@ -295,7 +295,7 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
                   </div>
                 )}
                 {issueTrendData.dir === 'flat' && (
-                  <div className="flex items-center gap-0.5 mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                  <div className="flex items-center gap-0.5 mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
                     <Minus className="size-3" /><span>{dict.dashboard.noChange}</span>
                   </div>
                 )}
@@ -308,7 +308,7 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
                   {pipelineSuccessRate !== null ? `${pipelineSuccessRate}%` : '—'}
                 </div>
                 {pipelineTotal > 0 && (
-                  <div className="text-[11px] text-[hsl(var(--ds-text-2))] mt-1">
+                  <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-1">
                     {pipelineSuccess}/{pipelineTotal} runs
                   </div>
                 )}
@@ -323,14 +323,14 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
               <div className="flex gap-2 flex-wrap">
                 <Link
                   href={createPipelineHref}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-border px-3 text-[13px] font-medium text-foreground hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-border px-3 text-[14px] font-medium text-foreground hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
                 >
                   <Zap className="size-3.5" />
                   {dict.dashboard.triggerAnalysis}
                 </Link>
                 <Link
                   href={`/o/${orgId}/projects`}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-border px-3 text-[13px] font-medium text-foreground hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-border px-3 text-[14px] font-medium text-foreground hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
                 >
                   <Plus className="size-3.5" />
                   {dict.dashboard.createPipeline}

@@ -129,7 +129,7 @@ export default function TrendChart({ projectId, dict }: { projectId: string; dic
                 </div>
               </div>
               {idx % Math.ceil(snapshots.length / 7) === 0 && (
-                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
                   {formatLocalDate(snap.snapshot_date)}
                 </div>
               )}

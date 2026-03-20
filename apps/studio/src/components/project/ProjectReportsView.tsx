@@ -155,7 +155,7 @@ export default function ProjectReportsView({
               </Button>
             )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-36 h-8 text-[13px]">
+              <SelectTrigger className="w-36 h-9 text-[14px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -169,7 +169,7 @@ export default function ProjectReportsView({
       </div>
 
       {/* Column headers */}
-      <div className="flex items-center px-6 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[11px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider gap-4 shrink-0">
+      <div className="flex items-center px-6 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[12px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider gap-4 shrink-0">
         <div className="flex-1">{dict.reports.commit}</div>
         <div className="w-20 text-center">{dict.reports.score}</div>
         <div className="w-24 text-center">{dict.common.status}</div>
@@ -266,7 +266,7 @@ export default function ProjectReportsView({
                 <div className="w-36 text-[12px] text-[hsl(var(--ds-text-2))]">
                   {formatLocalDateTime(report.created_at)}
                 </div>
-                <div className="w-8 flex justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                <div className="w-8 flex justify-center">
                   {(report.status === 'pending' || report.status === 'running') ? (
                     <Button
                       variant="ghost"

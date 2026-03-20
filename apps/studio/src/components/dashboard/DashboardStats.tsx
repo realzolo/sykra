@@ -64,7 +64,7 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
           <span className={['text-base font-semibold', scoreColor(stats.averageScore)].join(' ')}>{stats.averageScore}</span>
           <span className="text-[12px] text-[hsl(var(--ds-text-2))]">/ 100</span>
           {stats.trendValue !== 0 && (
-            <span className={['text-xs font-medium flex items-center gap-0.5', stats.recentTrend === 'up' ? 'text-success' : 'text-danger'].join(' ')}>
+            <span className={['text-[12px] font-medium flex items-center gap-0.5', stats.recentTrend === 'up' ? 'text-success' : 'text-danger'].join(' ')}>
               <TrendIcon className="size-3" />{Math.abs(stats.trendValue)}
             </span>
           )}
@@ -75,7 +75,7 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
         <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.dashboard.totalIssues}</div>
         <div className="text-base font-semibold">{stats.totalIssues}</div>
         {stats.criticalIssues > 0 && (
-          <div className="text-xs text-danger mt-0.5 flex items-center gap-1">
+          <div className="text-[12px] text-danger mt-0.5 flex items-center gap-1">
             <AlertTriangle className="size-3" />{stats.criticalIssues} {dict.dashboard.critical}
           </div>
         )}
@@ -86,7 +86,7 @@ export default function DashboardStats({ projectId, dict }: { projectId?: string
         <div className="flex items-baseline gap-1.5">
           <span className="text-base font-semibold">{stats.pendingReports}</span>
           {stats.pendingReports === 0 && (
-            <span className="text-xs text-success flex items-center gap-0.5">
+            <span className="text-[12px] text-success flex items-center gap-0.5">
               <CheckCircle className="size-3" />{dict.dashboard.allCompleted}
             </span>
           )}
