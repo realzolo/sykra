@@ -46,6 +46,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("/v1/tasks/analyze", s.handleAnalyze)
 	mux.HandleFunc("/v1/tasks/analyze/", s.handleAnalyzeTaskControl)
+	mux.HandleFunc("/v1/code-reviews", s.handleCodeReview)
 	s.pipelineAPI.Register(mux)
 	mux.HandleFunc("/v1/workers", s.handleWorkersList)
 	mux.HandleFunc("/v1/workers/", s.handleWorkerState)

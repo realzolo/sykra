@@ -51,6 +51,7 @@
     "project": {
       "commits": "提交",
       "reports": "报告",
+      "codeReviews": "代码审查",
       "pipelines": "流水线",
       "codebase": "代码库",
       "settings": "设置",
@@ -731,6 +732,44 @@
       "noResolvedIssues": "无已修复问题",
       "noPersistingIssues": "无持续问题",
       "compareButton": "对比"
+    }
+  },
+  "codeReviews": {
+    "title": "代码审查",
+    "description": "统一的静态扫描 + AI 审查运行",
+    "runId": "运行 ID",
+    "scope": "范围",
+    "score": "评分",
+    "allStatus": "全部状态",
+    "newReview": "新建审查",
+    "modeLabel": "审查范围",
+    "modeDiff": "差异",
+    "modeFull": "全量",
+    "scopeNoRange": "未指定范围",
+    "emptyTitle": "暂无代码审查记录",
+    "emptyDescription": "请在提交页面发起代码审查。",
+    "notFound": "未找到该代码审查运行。",
+    "toolsTitle": "基线工具",
+    "stagesTitle": "审查阶段",
+    "status": {
+      "pending": "待处理",
+      "running": "运行中",
+      "completed": "已完成",
+      "partialFailed": "部分失败",
+      "failed": "失败",
+      "canceled": "已取消"
+    },
+    "gate": {
+      "pending": "门禁待定",
+      "passed": "通过",
+      "warning": "告警",
+      "blocked": "阻断",
+      "skipped": "跳过"
+    },
+    "source": {
+      "baseline": "基线",
+      "ai": "AI",
+      "fused": "融合"
     }
   },
   "rules": {

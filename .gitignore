@@ -19,9 +19,9 @@
 
 # production
 **/build
-apps/runner/runner
-apps/worker/worker
-apps/runner/data/
+apps/scheduler/scheduler*
+apps/worker/worker*
+apps/scheduler/data/
 
 # misc
 .DS_Store

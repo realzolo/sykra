@@ -496,7 +496,6 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
   const [hasMore, setHasMore] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
-  const [ruleSetName, setRuleSetName] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailCommit, setDetailCommit] = useState<Commit | null>(null);
@@ -529,12 +528,6 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
   const diffViewerRef = useRef<ReactDiffViewer | null>(null);
   const fileSearchRef = useRef<HTMLInputElement>(null);
   const diffParserRef = useRef<ReturnType<typeof createDiffParserWorker> | null>(null);
-
-  useEffect(() => {
-    if (project.ruleset_id) {
-      fetch(`/api/rules/${project.ruleset_id}`).then(r => r.json()).then(d => setRuleSetName(d.name ?? '')).catch(() => {});
-    }
-  }, [project.ruleset_id]);
 
   useEffect(() => {
     diffParserRef.current = createDiffParserWorker();
@@ -600,14 +593,19 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
 
   async function startReview() {
     setConfirmOpen(false);
-    if (!project.ruleset_id) { toast.warning(dict.commits.configureRuleSetFirst); return; }
     setAnalyzing(true);
-    const res = await fetch('/api/analyze', {
+    const res = await fetch('/api/code-reviews', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: project.id, commits: selected }),
+      body: JSON.stringify({
+        projectId: project.id,
+        scope: {
+          mode: 'diff',
+          commits: selected,
+        },
+      }),
     });
-    const data = await res.json().catch(() => ({} as { error?: string; code?: string; reportId?: string }));
+    const data = await res.json().catch(() => ({} as { error?: string; code?: string; runId?: string }));
     if (!res.ok) {
       if (data.code === 'AI_INTEGRATION_REBIND_REQUIRED' || data.code === 'AI_INTEGRATION_MISSING') {
         toast.error(dict.commits.aiIntegrationRebindRequired, {
@@ -622,7 +620,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
       setAnalyzing(false);
       return;
     }
-    router.push(withOrgPrefix(pathname, `/projects/${project.id}/reports/${data.reportId}`));
+    router.push(withOrgPrefix(pathname, `/projects/${project.id}/code-reviews/${data.runId}`));
   }
 
   async function loadCommitDiff(commit: Commit) {
@@ -1261,7 +1259,6 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
         <Button
           disabled={!selected.length || analyzing}
           onClick={() => {
-            if (!project.ruleset_id) { toast.warning(dict.commits.configureRuleSetFirst); return; }
             setConfirmOpen(true);
           }}
           className="gap-1.5"
@@ -1407,8 +1404,8 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
                 <div className="text-2xl font-bold">{selected.length}</div>
               </div>
               <div className="flex-1">
-                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.projects.ruleSet}</div>
-                <div className="text-[13px] font-semibold">{ruleSetName || '—'}</div>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.codeReviews.modeLabel}</div>
+                <div className="text-[13px] font-semibold">{dict.codeReviews.modeDiff}</div>
               </div>
             </div>
             <p className="text-[13px] text-[hsl(var(--ds-text-2))] leading-relaxed">

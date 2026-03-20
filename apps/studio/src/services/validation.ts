@@ -28,6 +28,16 @@ export const analyzeRequestSchema = z.object({
   forceFullAnalysis: z.boolean().default(false),
 });
 
+export const createCodeReviewSchema = z.object({
+  projectId: projectIdSchema,
+  scope: z.object({
+    mode: z.enum(['diff', 'full']).default('diff'),
+    commits: z.array(z.string()).default([]),
+    baseRef: z.string().optional(),
+    headRef: z.string().optional(),
+  }),
+});
+
 export const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
   repo: z.string().min(1).max(255),

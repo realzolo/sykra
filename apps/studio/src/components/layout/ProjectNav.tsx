@@ -25,7 +25,7 @@ export default function ProjectNav({
 
   const tabs: TabItem[] = [
     { tab: 'commits', label: dict.nav.project.commits, icon: GitCommit },
-    { tab: 'reports', label: dict.nav.project.reports, icon: FileText },
+    { tab: 'code-reviews', label: dict.nav.project.codeReviews, icon: FileText },
     { tab: 'pipelines', label: dict.nav.project.pipelines, icon: GitBranch },
     { tab: 'codebase', label: dict.nav.project.codebase, icon: Code2 },
     { tab: 'settings', label: dict.nav.project.settings, icon: Sliders },

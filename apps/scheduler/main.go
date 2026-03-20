@@ -90,6 +90,7 @@ func main() {
 
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(queue.TaskTypeAnalyze, queue.HandleAnalyzeTask(st, publisher, cfg.AnalyzeTimeout))
+	mux.HandleFunc(queue.TaskTypeCodeReview, queue.HandleCodeReviewTask(st, cfg.AnalyzeTimeout, cfg.StudioURL, cfg.StudioToken))
 	mux.HandleFunc(queue.TaskTypePipelineRun, queue.HandlePipelineRunTask(engine))
 
 	go func() {

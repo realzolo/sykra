@@ -51,6 +51,7 @@
     "project": {
       "commits": "Commits",
       "reports": "Reports",
+      "codeReviews": "Code Reviews",
       "pipelines": "Pipelines",
       "codebase": "Codebase",
       "settings": "Settings",
@@ -730,6 +731,44 @@
       "noResolvedIssues": "No resolved issues",
       "noPersistingIssues": "No persisting issues",
       "compareButton": "Compare"
+    }
+  },
+  "codeReviews": {
+    "title": "Code Reviews",
+    "description": "Unified static + AI review runs",
+    "runId": "Run ID",
+    "scope": "Scope",
+    "score": "Score",
+    "allStatus": "All Status",
+    "newReview": "New Review",
+    "modeLabel": "Review Scope",
+    "modeDiff": "Diff",
+    "modeFull": "Full",
+    "scopeNoRange": "No explicit range",
+    "emptyTitle": "No code reviews yet",
+    "emptyDescription": "Start a review from the commits page.",
+    "notFound": "Code review run not found.",
+    "toolsTitle": "Baseline Tools",
+    "stagesTitle": "Review Stages",
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "completed": "Completed",
+      "partialFailed": "Partially Failed",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    },
+    "gate": {
+      "pending": "Gate Pending",
+      "passed": "Passed",
+      "warning": "Warning",
+      "blocked": "Blocked",
+      "skipped": "Skipped"
+    },
+    "source": {
+      "baseline": "Baseline",
+      "ai": "AI",
+      "fused": "Fused"
     }
   },
   "rules": {

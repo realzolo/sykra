@@ -29,13 +29,28 @@ type AnalyzePayload = {
   useIncremental: boolean;
 };
 
+type CodeReviewPayload = {
+  projectId: string;
+  runId: string;
+  repo: string;
+  profileId: string;
+  profileVersionId: string;
+  scopeMode: 'diff' | 'full';
+  baseRef?: string;
+  headRef?: string;
+  hashes: string[];
+  policy: Record<string, unknown>;
+};
+
 type SchedulerResponse = { taskId: string };
 type CancelAnalyzeResponse = { ok: true; taskId: string };
 
 function schedulerBaseUrl() {
-  const baseUrl = process.env.SCHEDULER_BASE_URL?.replace(/\/+$/, '');
+  const configured = process.env.SCHEDULER_BASE_URL?.trim();
+  const fallback = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8200';
+  const baseUrl = (configured || fallback).replace(/\/+$/, '');
   if (!baseUrl) {
-    throw new Error('SCHEDULER_BASE_URL is not configured');
+    throw new Error('SCHEDULER_BASE_URL is not configured (expected e.g. http://localhost:8200)');
   }
   return baseUrl;
 }
@@ -93,6 +108,21 @@ export async function cancelAnalyzeTask(reportId: string): Promise<CancelAnalyze
     throw new Error(`Scheduler cancel analyze failed: ${res.status} ${text}`);
   }
   return (await res.json()) as CancelAnalyzeResponse;
+}
+
+export async function enqueueCodeReview(payload: CodeReviewPayload): Promise<SchedulerResponse> {
+  const res = await fetch(`${schedulerBaseUrl()}/v1/code-reviews`, {
+    method: 'POST',
+    headers: schedulerHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Scheduler code review enqueue failed: ${res.status} ${text}`);
+  }
+
+  return (await res.json()) as SchedulerResponse;
 }
 
 export async function listPipelines(orgId: string, projectId?: string | null): Promise<SchedulerPipeline[]> {

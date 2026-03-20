@@ -1019,7 +1019,7 @@ func fetchProjectRepo(ctx context.Context, studioURL string, studioToken string,
 }
 
 func fetchLatestScore(ctx context.Context, studioURL string, studioToken string, projectID string) (int, error) {
-	endpoint := strings.TrimRight(studioURL, "/") + "/api/reports?projectId=" + projectID + "&limit=1"
+	endpoint := strings.TrimRight(studioURL, "/") + "/api/code-reviews?projectId=" + projectID + "&limit=1"
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return 0, err
@@ -1046,11 +1046,11 @@ func fetchLatestScore(ctx context.Context, studioURL string, studioToken string,
 		return 0, err
 	}
 	for _, item := range payload {
-		if item.Status == "done" && item.Score != nil {
+		if (item.Status == "completed" || item.Status == "partial_failed") && item.Score != nil {
 			return *item.Score, nil
 		}
 	}
-	return 0, errors.New("no completed report found")
+	return 0, errors.New("no completed code review found")
 }
 
 func shellCommand(script string) (string, []string) {

@@ -8,5 +8,5 @@ export default async function ProjectIndexPage({
   params: Promise<{ orgId: string; id: string }>;
 }) {
   const { orgId, id } = await params;
-  redirect(`/o/${orgId}/projects/${id}/commits`);
+  redirect(`/o/${orgId}/projects/${id}/code-reviews`);
 }

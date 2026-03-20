@@ -14,10 +14,12 @@ import (
 	"spec-axis/scheduler/internal/analysis"
 	"spec-axis/scheduler/internal/domain"
 	"spec-axis/scheduler/internal/events"
+	"spec-axis/scheduler/internal/review"
 	"spec-axis/scheduler/internal/store"
 )
 
 const TaskTypeAnalyze = "task:analyze"
+const TaskTypeCodeReview = "task:code-review"
 const TaskTypePipelineRun = "task:pipeline-run"
 
 type PipelineRunPayload struct {
@@ -42,6 +44,14 @@ func NewPipelineRunTask(runID string) (*asynq.Task, error) {
 		return nil, err
 	}
 	return asynq.NewTask(TaskTypePipelineRun, raw), nil
+}
+
+func NewCodeReviewTask(payload domain.CodeReviewRequest) (*asynq.Task, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(TaskTypeCodeReview, raw), nil
 }
 
 func HandleAnalyzeTask(st *store.Store, publisher *events.Publisher, timeout time.Duration) asynq.HandlerFunc {
@@ -141,5 +151,33 @@ func HandlePipelineRunTask(executor PipelineExecutor) asynq.HandlerFunc {
 			return nil
 		}
 		return executor.Execute(ctx, payload.RunID)
+	}
+}
+
+func HandleCodeReviewTask(st *store.Store, timeout time.Duration, studioURL string, studioToken string) asynq.HandlerFunc {
+	return func(ctx context.Context, task *asynq.Task) error {
+		var payload domain.CodeReviewRequest
+		if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+			return err
+		}
+		err := review.RunCodeReviewTask(ctx, st, payload, timeout, studioURL, studioToken)
+		if err != nil {
+			if errors.Is(err, store.ErrCodeReviewRunNotRunning) {
+				log.Printf("code review task skipped finalization: %v", err)
+				return nil
+			}
+			log.Printf("code review task failed: %v", err)
+			markErr := st.MarkCodeReviewRunFailed(ctx, payload.RunID, err.Error())
+			if errors.Is(markErr, store.ErrCodeReviewRunNotRunning) {
+				log.Printf("code review task skipped failure update due terminal run status: %v", err)
+				return nil
+			}
+			if markErr != nil {
+				log.Printf("failed to mark code review failed: %v", markErr)
+				return err
+			}
+			return fmt.Errorf("code review failed and run marked as failed: %v: %w", err, asynq.SkipRetry)
+		}
+		return nil
 	}
 }

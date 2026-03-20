@@ -214,6 +214,9 @@ apps/
             [id]/
               layout.tsx        # Fetches project, wraps in ProjectDataProvider
               commits/          # CommitsClient
+              code-reviews/
+                page.tsx        # ProjectCodeReviewsView (unified review run list)
+                [rid]/          # CodeReviewDetailClient
               reports/
                 page.tsx        # ProjectReportsView (with multi-select + compare)
                 [rid]/          # ReportDetailClient
@@ -243,6 +246,7 @@ apps/
         layout/Sidebar.tsx, Topbar.tsx
         project/ProjectCard, ProjectCommitsView, ProjectReportsView, ProjectPipelinesView
                 ProjectCodebaseView, ProjectSettingsView
+        review/ProjectCodeReviewsView, CodeReviewDetailClient
         report/IssueCard, AIChat, TrendChart, ExportButton, ReportCompareClient
         pipeline/PipelineDetailClient  # Builder, runs, concurrency mode, docker step editor
         dashboard/DashboardStats.tsx
@@ -295,7 +299,7 @@ packages/
 DATABASE_URL=               # Studio Postgres connection string
 ENCRYPTION_KEY=             # AES-256-GCM key for secrets
 EMAIL_VERIFICATION_REQUIRED= # Require email verification before login (true|false)
-SCHEDULER_BASE_URL=            # Scheduler base URL (e.g. http://localhost:8200)
+SCHEDULER_BASE_URL=            # Scheduler base URL (e.g. http://localhost:8200). In non-production, Studio defaults to http://localhost:8200 when unset.
 SCHEDULER_TOKEN=               # Shared token for scheduler auth
 TASK_SCHEDULER_TOKEN=          # Optional, protects internal task endpoints (e.g. /api/codebase/sync)
 EMAIL_PROVIDER=             # Email provider for notifications: console|resend
@@ -459,6 +463,22 @@ If new install warnings appear, approve the dependency and update the allowlist.
 11. Frontend subscribes to `/api/reports/[id]/stream` and receives `status_update` with `status`, `score`, `analysisProgress`, `analysisSections`, `tokenUsage`, `tokensUsed`, `errorMessage`, `sequence`.
 12. Studio SSE backend is event-driven via Postgres `LISTEN/NOTIFY` channel `analysis_report_updates` (with periodic timeout sweep checks), not fixed-interval polling.
 
+## Unified Code Review Flow
+
+1. `POST /api/code-reviews` (auth required) creates a unified review run (`code_review_runs`) using the org default review profile version.
+2. Studio enqueues Scheduler task `POST /v1/code-reviews` with canonical payload (`projectId`, `runId`, `repo`, `profileId`, `profileVersionId`, `scopeMode`, optional refs, commit hashes, policy snapshot).
+3. Scheduler runs unified review stages in order:
+   - `prepare`: requests workspace preparation from Studio internal endpoint
+   - `baseline_scan`: executes deterministic scanners on scheduler host (AI-first baseline)
+   - `normalize`: computes normalized findings + hotspot files
+   - `ai_review`: runs deep semantic review with baseline findings as context
+   - `fusion`: merges baseline and AI findings into one unified set
+   - `gate`: evaluates review gate status
+   - `finalize`: persists summary/score/risk and marks run completed
+4. Stage/tool updates are persisted in `code_review_stages` and `code_review_tool_runs`; normalized findings are persisted in `code_review_findings`.
+5. Review SSE is event-driven via Postgres `LISTEN/NOTIFY` channel `code_review_run_updates` and exposed at `GET /api/code-reviews/[id]/stream`.
+6. Scheduler never dispatches unified code review execution to Worker nodes; review execution is scheduler-host local and reuses Studio codebase workspace APIs.
+
 ## Pipeline Engine (CI/CD)
 
 - **Studio** ships a native stage builder under `/pipelines` with fixed lifecycle columns (`source -> after_source -> review -> after_review -> build -> after_build -> deploy -> after_deploy`), on-demand automation insertion, stage-level controls for core stages, and an in-place job inspector.
@@ -485,7 +505,7 @@ If new install warnings appear, approve the dependency and update the allowlist.
   - Studio fetches raw bytes from scheduler private endpoint `GET /v1/pipeline-runs/:runId/artifacts/:artifactId/content` using `X-Scheduler-Token`
 - **Scheduler → Studio callbacks (pipelines)**:
   - `source_checkout` fetches repo info from `GET /api/projects/:id`
-  - `review_gate` fetches latest completed report score from `GET /api/reports?projectId=...&limit=1`
+  - `review_gate` fetches latest completed unified code review score from `GET /api/code-reviews?projectId=...&limit=1`
   - Scheduler emits completion events to Studio at `POST /api/scheduler/events` (authorized via `X-Scheduler-Token`) so Studio can send notifications
   - Scheduler must be configured with `STUDIO_URL` and a token (`STUDIO_TOKEN`, defaults to `SCHEDULER_TOKEN`) and Studio must accept `X-Scheduler-Token` (shared secret)
 
@@ -553,6 +573,7 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - Rules learning endpoints are admin-only (org-scoped)
 - Public pages accessible without login: `/`, `/login`, `/verify`, `/reset`, `/auth/*`, `/invite/*`, `/terms`, `/privacy`
 - Dashboard routes must be accessed via `/o/:orgId/...` (middleware rewrites internally)
+- Project index route `/o/:orgId/projects/:id` redirects to `/o/:orgId/projects/:id/code-reviews`
 - Project detail tabs support deep links via query params: `?tab=commits|codebase|stats|config`. Codebase supports `ref`, `path`, `line`, `commentId` for jump-to-location/thread.
 - `PATCH /api/pipelines/[id]` updates `concurrency_mode` in Studio DB (schema must include `pipelines.concurrency_mode`; present in `init.sql`)
 - `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling scheduler (409 if `queue` mode and run active)
@@ -565,6 +586,13 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - `GET /api/reports/[id]/chat?issueId=<issue-uuid>` returns the latest conversation for that issue (used to restore chat history when reopening the same issue dialog).
 - `GET /api/reports/[id]/chat?latest=1` returns only the latest conversation for the report (used by AI chat initialization to avoid loading full history).
 - Chat history query responses include `updated_at` for ordering conversation history in the AI reviewer dialog.
+- `POST /api/code-reviews` starts unified review runs (baseline scanners first, AI deep review second) and returns `{ runId, taskId, status }`.
+- Scheduler unified review enqueue endpoint is `POST /v1/code-reviews` (authorized by `X-Scheduler-Token` or bearer token).
+- Studio internal workspace endpoints for scheduler-only review execution:
+  - `POST /api/code-reviews/workspaces` to prepare workspace
+  - `DELETE /api/code-reviews/workspaces?workspacePath=...` to cleanup workspace
+- `GET /api/code-reviews/[id]` returns run detail with stages/tool runs/findings.
+- `GET /api/code-reviews/[id]/stream` emits unified review `status_update` events based on `code_review_run_updates` notifications.
 - Studio AI runtime implementation is SDK-free and uses a single HTTP adapter strategy across providers (including Anthropic Messages API).
 - Scheduler analysis error normalization: token-limit truncation and empty upstream body are surfaced as actionable messages instead of raw JSON parse errors.
 - Scheduler AI client performs one automatic token-budget retry on output truncation (`max_tokens` / `max_output_tokens`) before failing.
@@ -587,6 +615,7 @@ psql "$DATABASE_URL" -f docs/db/migrations/006_commit_review_items.sql
 psql "$DATABASE_URL" -f docs/db/migrations/007_codebase_comment_threads.sql
 psql "$DATABASE_URL" -f docs/db/migrations/008_codebase_thread_projections.sql
 psql "$DATABASE_URL" -f docs/db/migrations/009_phased_analysis_sections.sql
+psql "$DATABASE_URL" -f docs/db/migrations/010_code_review_engine.sql
 ```
 
 | File | Description |
@@ -598,6 +627,7 @@ psql "$DATABASE_URL" -f docs/db/migrations/009_phased_analysis_sections.sql
 | `007_codebase_comment_threads.sql` | Adds thread model (`codebase_comment_threads`) and links `codebase_comments.thread_id` |
 | `008_codebase_thread_projections.sql` | Adds immutable thread anchors and per-commit projection cache/status tables |
 | `009_phased_analysis_sections.sql` | Adds phased analysis sections, `analysis_snapshot`, `sse_seq`, and canonical report running status constraint |
+| `010_code_review_engine.sql` | Adds unified code review engine schema (`code_review_*`) and review-run notification triggers |
 
 ## FAQ
 

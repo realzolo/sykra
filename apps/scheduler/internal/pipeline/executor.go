@@ -269,7 +269,7 @@ func (e *ReviewGateExecutor) fetchLatestScore(ctx context.Context) (int, error) 
 	if e.StudioURL == "" || e.ProjectID == "" {
 		return 0, fmt.Errorf("studioURL and projectId are required")
 	}
-	url := strings.TrimRight(e.StudioURL, "/") + "/api/reports?projectId=" + e.ProjectID + "&limit=1"
+	url := strings.TrimRight(e.StudioURL, "/") + "/api/code-reviews?projectId=" + e.ProjectID + "&limit=1"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return 0, err
@@ -294,7 +294,7 @@ func (e *ReviewGateExecutor) fetchLatestScore(ctx context.Context) (int, error) 
 		return 0, fmt.Errorf("decode error: %w", err)
 	}
 	for _, r := range reports {
-		if r.Status == "done" && r.Score != nil {
+		if (r.Status == "completed" || r.Status == "partial_failed") && r.Score != nil {
 			return *r.Score, nil
 		}
 	}
