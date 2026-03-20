@@ -42,6 +42,7 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Pipeline concurrency control: `allow | queue | cancel_previous` modes stored in `pipelines.concurrency_mode` column (included in `docs/db/init.sql`; use migration for existing DBs)
 - Pipeline artifact observability: project pipelines page includes artifact download health cards (total, success rate, p95 latency, failures) powered by `GET /api/projects/:id/artifact-download-stats`
 - Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; runner uses project override first, then global runner default
+- Worker artifact handoff: deploy steps can declare `artifactInputs` patterns; Worker downloads matched artifacts from earlier steps in the same run before step execution, with checksum validation + retry and run events (`step.artifact.pull_*`)
 - Notification settings UI at `/o/:orgId/settings/notifications` backed by `/api/notification-settings`
 - Dashboard org home page (`/o/:orgId`) shows 4 stat cards (projects, avg score, open issues, pipeline success rate), quick actions, per-project score list, and recent activity
 - Integration deletion is non-blocking: deleting an integration does not check `code_projects` usage references.
@@ -264,7 +265,7 @@ apps/
     internal/pipeline/
       executor.go               # ShellExecutor, DockerExecutor, SourceCheckoutExecutor, ReviewGateExecutor
       engine.go                 # runStep() routes to DockerExecutor when step.Type == "docker"
-      types.go                  # PipelineStep: Type, DockerImage fields
+      types.go                  # PipelineStep: Type, DockerImage, ArtifactInputs fields
       storage.go, api.go, graph.go, service.go
   apps/worker/
     main.go                     # Go worker agent entrypoint (execution plane)

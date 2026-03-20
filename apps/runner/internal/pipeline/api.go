@@ -291,6 +291,20 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parts) == 2 && parts[1] == "artifacts" {
+		if r.Method != http.MethodGet {
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		artifacts, err := a.service.ListRunArtifacts(r.Context(), runID)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, artifacts)
+		return
+	}
+
 	if len(parts) >= 4 && parts[1] == "artifacts" && parts[3] == "content" {
 		if r.Method != http.MethodGet {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")

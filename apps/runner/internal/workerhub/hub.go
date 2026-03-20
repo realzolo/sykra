@@ -43,6 +43,7 @@ type DispatchCallbacks struct {
 	OnAssigned     func(workerID string)
 	OnStepStarted  func(stepID string)
 	OnStepLog      func(stepID string, chunk string)
+	OnStepArtifact func(message workerprotocol.StepArtifactMessage)
 	OnStepFinished func(stepID string, status string, exitCode int, errorMessage string)
 }
 
@@ -413,6 +414,14 @@ func (h *Hub) readLoop(worker *workerConn) {
 			}
 			if pending := h.getPending(worker, message.RequestID); pending != nil && pending.callbacks.OnStepLog != nil {
 				pending.callbacks.OnStepLog(message.StepID, message.Chunk)
+			}
+		case workerprotocol.WorkerMessageTypeStepArtifact:
+			var message workerprotocol.StepArtifactMessage
+			if err := json.Unmarshal(raw, &message); err != nil {
+				continue
+			}
+			if pending := h.getPending(worker, message.RequestID); pending != nil && pending.callbacks.OnStepArtifact != nil {
+				pending.callbacks.OnStepArtifact(message)
 			}
 		case workerprotocol.WorkerMessageTypeStepFinished:
 			var message workerprotocol.StepFinishedMessage

@@ -295,6 +295,13 @@ func (s *Service) ListEvents(ctx context.Context, runID string, afterSeq int64, 
 	return s.Store.ListRunEvents(ctx, runID, afterSeq, limit)
 }
 
+func (s *Service) ListRunArtifacts(ctx context.Context, runID string) ([]store.PipelineArtifact, error) {
+	if strings.TrimSpace(runID) == "" {
+		return nil, errors.New("runId is required")
+	}
+	return s.Store.ListPipelineArtifactsForRun(ctx, runID)
+}
+
 func (s *Service) ReadLog(ctx context.Context, stepID string, offset int64, limit int64) ([]byte, int64, error) {
 	step, err := s.Store.GetPipelineStep(ctx, stepID)
 	if err != nil {

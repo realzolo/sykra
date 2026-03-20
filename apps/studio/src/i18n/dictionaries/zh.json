@@ -507,7 +507,10 @@
       "dockerImagePlaceholder": "例如 node:22-alpine",
       "artifactPathsLabel": "制品路径",
       "artifactPathsPlaceholder": "dist/**\ncoverage/lcov.info",
-      "artifactPathsHelp": "每行一个 Glob 或文件路径。步骤成功后会上传匹配到的文件。"
+      "artifactPathsHelp": "每行一个 Glob 或文件路径。步骤成功后会上传匹配到的文件。",
+      "artifactInputsLabel": "制品输入",
+      "artifactInputsPlaceholder": "dist/**\nrelease/*.tar.gz",
+      "artifactInputsHelp": "仅部署步骤生效。执行前会下载同一次运行中此前步骤产出的匹配制品。"
     }
   },
   "dashboard": {

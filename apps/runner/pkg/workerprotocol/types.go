@@ -7,6 +7,7 @@ const (
 	WorkerMessageTypeJobAck       = "job_ack"
 	WorkerMessageTypeStepStarted  = "step_started"
 	WorkerMessageTypeStepLog      = "step_log"
+	WorkerMessageTypeStepArtifact = "step_artifact"
 	WorkerMessageTypeStepFinished = "step_finished"
 	WorkerMessageTypeJobFinished  = "job_finished"
 )
@@ -55,6 +56,20 @@ type StepLogMessage struct {
 	StepID    string `json:"stepId"`
 	Chunk     string `json:"chunk"`
 	Stream    string `json:"stream,omitempty"`
+}
+
+type StepArtifactMessage struct {
+	Type          string `json:"type"`
+	RequestID     string `json:"requestId"`
+	StepID        string `json:"stepId"`
+	Status        string `json:"status"` // started | downloaded | failed
+	ArtifactID    string `json:"artifactId,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Attempt       int    `json:"attempt,omitempty"`
+	DurationMs    int64  `json:"durationMs,omitempty"`
+	SizeBytes     int64  `json:"sizeBytes,omitempty"`
+	ErrorCategory string `json:"errorCategory,omitempty"`
+	ErrorMessage  string `json:"errorMessage,omitempty"`
 }
 
 type StepFinishedMessage struct {
@@ -113,6 +128,7 @@ type ExecuteStep struct {
 	Type            string            `json:"type,omitempty"`
 	DockerImage     string            `json:"dockerImage,omitempty"`
 	ArtifactPaths   []string          `json:"artifactPaths,omitempty"`
+	ArtifactInputs  []string          `json:"artifactInputs,omitempty"`
 	Env             map[string]string `json:"env,omitempty"`
 	WorkingDir      string            `json:"workingDir,omitempty"`
 	TimeoutSeconds  *int              `json:"timeoutSeconds,omitempty"`

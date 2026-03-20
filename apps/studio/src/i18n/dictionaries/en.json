@@ -505,7 +505,10 @@
       "dockerImagePlaceholder": "e.g. node:22-alpine",
       "artifactPathsLabel": "Artifact Paths",
       "artifactPathsPlaceholder": "dist/**\ncoverage/lcov.info",
-      "artifactPathsHelp": "One glob or file path per line. Matched files are uploaded after the step succeeds."
+      "artifactPathsHelp": "One glob or file path per line. Matched files are uploaded after the step succeeds.",
+      "artifactInputsLabel": "Artifact Inputs",
+      "artifactInputsPlaceholder": "dist/**\nrelease/*.tar.gz",
+      "artifactInputsHelp": "Deploy step only. Matched artifacts from earlier steps in the same run are downloaded before executing this step."
     }
   },
   "dashboard": {

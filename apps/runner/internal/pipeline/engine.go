@@ -428,6 +428,7 @@ func (e *Engine) runJobOnWorker(
 			Type:            step.Type,
 			DockerImage:     step.DockerImage,
 			ArtifactPaths:   append([]string(nil), step.ArtifactPaths...),
+			ArtifactInputs:  append([]string(nil), step.ArtifactInputs...),
 			Env:             stepEnv,
 			WorkingDir:      step.WorkingDir,
 			TimeoutSeconds:  step.TimeoutSeconds,
@@ -505,6 +506,37 @@ func (e *Engine) runJobOnWorker(
 				return
 			}
 			_, _ = writer.Write([]byte(chunk))
+		},
+		OnStepArtifact: func(message workerprotocol.StepArtifactMessage) {
+			stepRecord, ok := stepRecords[message.StepID]
+			if !ok {
+				return
+			}
+			eventType := "step.artifact.pull_observed"
+			switch strings.ToLower(strings.TrimSpace(message.Status)) {
+			case "started":
+				eventType = "step.artifact.pull_started"
+			case "downloaded":
+				eventType = "step.artifact.pulled"
+			case "failed":
+				eventType = "step.artifact.pull_failed"
+			}
+			_ = e.Store.AppendRunEvent(ctx, runID, eventType, map[string]any{
+				"runId":         runID,
+				"jobId":         jobRecord.ID,
+				"jobKey":        job.ID,
+				"stepId":        stepRecord.ID,
+				"stepKey":       message.StepID,
+				"status":        message.Status,
+				"path":          message.Path,
+				"artifactId":    message.ArtifactID,
+				"attempt":       message.Attempt,
+				"durationMs":    message.DurationMs,
+				"sizeBytes":     message.SizeBytes,
+				"errorCategory": message.ErrorCategory,
+				"error":         message.ErrorMessage,
+				"timestamp":     time.Now().UTC().Format(time.RFC3339),
+			})
 		},
 		OnStepFinished: func(stepID string, status string, exitCode int, errorMessage string) {
 			stepRecord, ok := stepRecords[stepID]
@@ -833,6 +865,9 @@ func requiredCapabilities(job PipelineJob, steps []workerprotocol.ExecuteStep) [
 	for _, step := range steps {
 		if strings.EqualFold(step.Type, "docker") {
 			add("docker")
+		}
+		if len(step.ArtifactInputs) > 0 {
+			add("artifact_download")
 		}
 	}
 	return capabilities

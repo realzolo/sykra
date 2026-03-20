@@ -10,6 +10,7 @@ export type PipelineStep = {
   name: string;
   script: string;
   artifactPaths?: string[];
+  artifactInputs?: string[];
   type?: 'shell' | 'docker';
   dockerImage?: string;
   continueOnError?: boolean;

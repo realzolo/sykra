@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -211,8 +214,25 @@ func (a *workerAgent) executeJob(message workerprotocol.ExecuteJobMessage) {
 		if step.TimeoutSeconds != nil && *step.TimeoutSeconds > 0 {
 			stepCtx, cancelStep = context.WithTimeout(jobCtx, time.Duration(*step.TimeoutSeconds)*time.Second)
 		}
-
-		exitCode, status, runErr := runStep(stepCtx, message, step, workingDir, writer)
+		exitCode := 0
+		status := "success"
+		var runErr error
+		if len(step.ArtifactInputs) > 0 {
+			runErr = a.downloadStepArtifacts(stepCtx, message, step, workingDir, writer)
+			if runErr != nil {
+				exitCode = 1
+				if errors.Is(stepCtx.Err(), context.Canceled) {
+					status = "canceled"
+				} else if errors.Is(stepCtx.Err(), context.DeadlineExceeded) {
+					status = "timed_out"
+				} else {
+					status = "failed"
+				}
+			}
+		}
+		if runErr == nil {
+			exitCode, status, runErr = runStep(stepCtx, message, step, workingDir, writer)
+		}
 		cancelStep()
 		if runErr == nil && status == "success" && len(step.ArtifactPaths) > 0 {
 			if artifactErr := a.uploadStepArtifacts(message, step, workingDir); artifactErr != nil {
@@ -338,6 +358,344 @@ func (a *workerAgent) uploadSingleArtifact(
 		lastErr = errors.New("artifact upload failed")
 	}
 	return lastErr
+}
+
+type runArtifact struct {
+	ID        string  `json:"id"`
+	Path      string  `json:"path"`
+	Sha256    string  `json:"sha256"`
+	SizeBytes int64   `json:"size_bytes"`
+	CreatedAt *string `json:"created_at,omitempty"`
+}
+
+type artifactDownloadError struct {
+	category  string
+	message   string
+	retryable bool
+}
+
+func (e *artifactDownloadError) Error() string {
+	return e.message
+}
+
+func (a *workerAgent) downloadStepArtifacts(
+	ctx context.Context,
+	message workerprotocol.ExecuteJobMessage,
+	step workerprotocol.ExecuteStep,
+	workingDir string,
+	output io.Writer,
+) error {
+	artifacts, err := a.listRunArtifacts(ctx, message.RunID)
+	if err != nil {
+		return err
+	}
+	if len(artifacts) == 0 {
+		return errors.New("no artifacts are available for this run")
+	}
+
+	matched, err := filterArtifactInputs(artifacts, step.ArtifactInputs)
+	if err != nil {
+		return err
+	}
+	if len(matched) == 0 {
+		return fmt.Errorf("no artifacts matched artifactInputs for step %s", step.ID)
+	}
+	_, _ = fmt.Fprintf(output, "[artifact] Preparing %d artifact(s) for step %s\n", len(matched), step.ID)
+
+	for _, artifact := range matched {
+		if err := a.downloadArtifactWithRetry(ctx, message.RequestID, step.ID, message.RunID, artifact, workingDir); err != nil {
+			return err
+		}
+	}
+	_, _ = fmt.Fprintf(output, "[artifact] Prepared %d artifact(s) for step %s\n", len(matched), step.ID)
+	return nil
+}
+
+func (a *workerAgent) listRunArtifacts(ctx context.Context, runID string) ([]runArtifact, error) {
+	httpBase, err := toRunnerHTTPBase(a.cfg.RunnerBaseURL)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := strings.TrimRight(httpBase, "/") + "/v1/pipeline-runs/" + url.PathEscape(runID) + "/artifacts"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token := strings.TrimSpace(a.cfg.RunnerToken); token != "" {
+		request.Header.Set("X-Runner-Token", token)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		return nil, fmt.Errorf("list run artifacts failed: status=%d body=%s", response.StatusCode, string(body))
+	}
+
+	var artifacts []runArtifact
+	if err := json.NewDecoder(response.Body).Decode(&artifacts); err != nil {
+		return nil, err
+	}
+	return artifacts, nil
+}
+
+func filterArtifactInputs(artifacts []runArtifact, patterns []string) ([]runArtifact, error) {
+	matched := make([]runArtifact, 0)
+	seen := map[string]bool{}
+	for _, rawPattern := range patterns {
+		pattern := strings.TrimSpace(strings.ReplaceAll(rawPattern, "\\", "/"))
+		if pattern == "" {
+			continue
+		}
+		for _, artifact := range artifacts {
+			target := strings.TrimSpace(strings.ReplaceAll(artifact.Path, "\\", "/"))
+			ok, err := doublestar.Match(pattern, target)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
+			if seen[artifact.ID] {
+				continue
+			}
+			seen[artifact.ID] = true
+			matched = append(matched, artifact)
+		}
+	}
+	sort.Slice(matched, func(i int, j int) bool {
+		if matched[i].Path == matched[j].Path {
+			return matched[i].ID < matched[j].ID
+		}
+		return matched[i].Path < matched[j].Path
+	})
+	return matched, nil
+}
+
+func (a *workerAgent) downloadArtifactWithRetry(
+	ctx context.Context,
+	requestID string,
+	stepID string,
+	runID string,
+	artifact runArtifact,
+	workingDir string,
+) error {
+	const maxAttempts = 3
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		startedAt := time.Now()
+		_ = a.send(workerprotocol.StepArtifactMessage{
+			Type:       workerprotocol.WorkerMessageTypeStepArtifact,
+			RequestID:  requestID,
+			StepID:     stepID,
+			Status:     "started",
+			ArtifactID: artifact.ID,
+			Path:       artifact.Path,
+			Attempt:    attempt,
+		})
+
+		sizeBytes, err := a.downloadSingleArtifact(ctx, runID, artifact, workingDir)
+		if err == nil {
+			_ = a.send(workerprotocol.StepArtifactMessage{
+				Type:       workerprotocol.WorkerMessageTypeStepArtifact,
+				RequestID:  requestID,
+				StepID:     stepID,
+				Status:     "downloaded",
+				ArtifactID: artifact.ID,
+				Path:       artifact.Path,
+				Attempt:    attempt,
+				DurationMs: time.Since(startedAt).Milliseconds(),
+				SizeBytes:  sizeBytes,
+			})
+			return nil
+		}
+		lastErr = err
+
+		category := "unknown"
+		retryable := false
+		var downloadErr *artifactDownloadError
+		if errors.As(err, &downloadErr) {
+			category = downloadErr.category
+			retryable = downloadErr.retryable
+		}
+		_ = a.send(workerprotocol.StepArtifactMessage{
+			Type:          workerprotocol.WorkerMessageTypeStepArtifact,
+			RequestID:     requestID,
+			StepID:        stepID,
+			Status:        "failed",
+			ArtifactID:    artifact.ID,
+			Path:          artifact.Path,
+			Attempt:       attempt,
+			DurationMs:    time.Since(startedAt).Milliseconds(),
+			ErrorCategory: category,
+			ErrorMessage:  err.Error(),
+		})
+		if !retryable || attempt == maxAttempts {
+			break
+		}
+		time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
+	}
+
+	if lastErr == nil {
+		lastErr = errors.New("artifact download failed")
+	}
+	return lastErr
+}
+
+func (a *workerAgent) downloadSingleArtifact(
+	ctx context.Context,
+	runID string,
+	artifact runArtifact,
+	workingDir string,
+) (int64, error) {
+	relativePath, err := sanitizeArtifactRelativePath(artifact.Path)
+	if err != nil {
+		return 0, &artifactDownloadError{
+			category:  "validation",
+			message:   fmt.Sprintf("invalid artifact path %q: %v", artifact.Path, err),
+			retryable: false,
+		}
+	}
+	workingAbs, err := filepath.Abs(workingDir)
+	if err != nil {
+		return 0, err
+	}
+	destination := filepath.Clean(filepath.Join(workingAbs, filepath.FromSlash(relativePath)))
+	if !isWithinBasePath(workingAbs, destination) {
+		return 0, &artifactDownloadError{
+			category:  "validation",
+			message:   fmt.Sprintf("artifact path escapes working directory: %s", artifact.Path),
+			retryable: false,
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return 0, err
+	}
+
+	httpBase, err := toRunnerHTTPBase(a.cfg.RunnerBaseURL)
+	if err != nil {
+		return 0, err
+	}
+	endpoint := strings.TrimRight(httpBase, "/") + "/v1/pipeline-runs/" + url.PathEscape(runID) + "/artifacts/" + url.PathEscape(artifact.ID) + "/content"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, err
+	}
+	if token := strings.TrimSpace(a.cfg.RunnerToken); token != "" {
+		request.Header.Set("X-Runner-Token", token)
+	}
+
+	client := &http.Client{Timeout: 15 * time.Minute}
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, classifyArtifactDownloadHTTPError(nil, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		return 0, classifyArtifactDownloadHTTPError(response, fmt.Errorf("status=%d body=%s", response.StatusCode, string(body)))
+	}
+
+	tempFile, err := os.CreateTemp(filepath.Dir(destination), ".artifact-*.tmp")
+	if err != nil {
+		return 0, err
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		_ = os.Remove(tempPath)
+	}()
+
+	hasher := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(tempFile, hasher), response.Body)
+	closeErr := tempFile.Close()
+	if copyErr != nil {
+		return 0, classifyArtifactDownloadHTTPError(response, copyErr)
+	}
+	if closeErr != nil {
+		return 0, closeErr
+	}
+
+	expectedHash := strings.TrimSpace(strings.ToLower(artifact.Sha256))
+	if expectedHash != "" {
+		computedHash := hex.EncodeToString(hasher.Sum(nil))
+		if computedHash != expectedHash {
+			return 0, &artifactDownloadError{
+				category:  "checksum",
+				message:   fmt.Sprintf("artifact checksum mismatch for %s", artifact.Path),
+				retryable: true,
+			}
+		}
+	}
+
+	if err := os.Rename(tempPath, destination); err != nil {
+		return 0, err
+	}
+	return written, nil
+}
+
+func sanitizeArtifactRelativePath(value string) (string, error) {
+	normalized := strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
+	if normalized == "" {
+		return "", errors.New("empty path")
+	}
+	cleaned := path.Clean("/" + normalized)
+	if strings.HasPrefix(cleaned, "/..") {
+		return "", errors.New("path traversal is not allowed")
+	}
+	relative := strings.TrimPrefix(cleaned, "/")
+	if relative == "" || relative == "." {
+		return "", errors.New("empty path")
+	}
+	return relative, nil
+}
+
+func classifyArtifactDownloadHTTPError(response *http.Response, err error) error {
+	if err == nil {
+		return &artifactDownloadError{
+			category:  "unknown",
+			message:   "artifact download failed",
+			retryable: false,
+		}
+	}
+	errString := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(errString, "timeout") || strings.Contains(errString, "deadline exceeded") {
+		return &artifactDownloadError{
+			category:  "timeout",
+			message:   err.Error(),
+			retryable: true,
+		}
+	}
+	if response == nil {
+		return &artifactDownloadError{
+			category:  "network",
+			message:   err.Error(),
+			retryable: true,
+		}
+	}
+	if response.StatusCode >= 500 {
+		return &artifactDownloadError{
+			category:  "upstream_server",
+			message:   err.Error(),
+			retryable: true,
+		}
+	}
+	if response.StatusCode == http.StatusTooManyRequests {
+		return &artifactDownloadError{
+			category:  "rate_limit",
+			message:   err.Error(),
+			retryable: true,
+		}
+	}
+	return &artifactDownloadError{
+		category:  "upstream_client",
+		message:   err.Error(),
+		retryable: false,
+	}
 }
 
 func classifyUploadError(response *http.Response, err error) string {
@@ -807,7 +1165,7 @@ func loadConfig() (workerConfig, error) {
 
 	capabilities := parseList(os.Getenv("WORKER_CAPABILITIES"))
 	if len(capabilities) == 0 {
-		capabilities = []string{"shell", "docker", "source_checkout", "review_gate"}
+		capabilities = []string{"shell", "docker", "source_checkout", "review_gate", "artifact_download"}
 	}
 
 	return workerConfig{

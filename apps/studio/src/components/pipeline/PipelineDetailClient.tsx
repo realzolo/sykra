@@ -1443,6 +1443,13 @@ function ConfigStepEditor({
       .filter((line) => line.length > 0);
   }
 
+  function toArtifactInputs(value: string): string[] {
+    return value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }
+
   return (
     <div className="space-y-4 max-w-2xl">
       <div>
@@ -1538,6 +1545,25 @@ function ConfigStepEditor({
                   {p.steps.artifactPathsHelp}
                 </span>
               </div>
+              {stage === "deploy" && (
+                <div className="space-y-1.5">
+                  <span className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                    {p.steps.artifactInputsLabel}
+                  </span>
+                  <Textarea
+                    value={(step.artifactInputs ?? []).join("\n")}
+                    onChange={(e) =>
+                      onUpdate(step.id, { artifactInputs: toArtifactInputs(e.target.value) })
+                    }
+                    placeholder={p.steps.artifactInputsPlaceholder}
+                    rows={2}
+                    className="text-xs font-mono resize-none"
+                  />
+                  <span className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                    {p.steps.artifactInputsHelp}
+                  </span>
+                </div>
+              )}
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={onAdd} className="w-full">

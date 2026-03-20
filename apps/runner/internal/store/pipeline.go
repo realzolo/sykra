@@ -1517,6 +1517,67 @@ func (s *Store) GetPipelineArtifact(ctx context.Context, runID string, artifactI
 	return &out, nil
 }
 
+func (s *Store) ListPipelineArtifactsForRun(ctx context.Context, runID string) ([]PipelineArtifact, error) {
+	rows, err := s.pool.Query(
+		ctx,
+		`select a.id, r.org_id, a.run_id, a.job_id, a.step_id, a.path, a.storage_path, a.size_bytes, a.sha256, a.created_at, a.expires_at
+		 from pipeline_artifacts a
+		 join pipeline_runs r on r.id = a.run_id
+		 where a.run_id = $1
+		   and (a.expires_at is null or a.expires_at > now())
+		 order by a.created_at asc`,
+		runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]PipelineArtifact, 0)
+	for rows.Next() {
+		var out PipelineArtifact
+		var jobID pgtype.UUID
+		var stepID pgtype.UUID
+		var sha pgtype.Text
+		var createdAt pgtype.Timestamptz
+		var expiresAt pgtype.Timestamptz
+		if err := rows.Scan(
+			&out.ID,
+			&out.OrgID,
+			&out.RunID,
+			&jobID,
+			&stepID,
+			&out.Path,
+			&out.StoragePath,
+			&out.SizeBytes,
+			&sha,
+			&createdAt,
+			&expiresAt,
+		); err != nil {
+			return nil, err
+		}
+		if jobID.Valid {
+			out.JobID = jobID.String()
+		}
+		if stepID.Valid {
+			out.StepID = stepID.String()
+		}
+		if sha.Valid {
+			out.Sha256 = sha.String
+		}
+		if createdAt.Valid {
+			value := createdAt.Time
+			out.CreatedAt = &value
+		}
+		if expiresAt.Valid {
+			value := expiresAt.Time
+			out.ExpiresAt = &value
+		}
+		items = append(items, out)
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) ListExpiredPipelineArtifacts(ctx context.Context, now time.Time, limit int) ([]PipelineArtifact, error) {
 	if limit <= 0 {
 		limit = 200
