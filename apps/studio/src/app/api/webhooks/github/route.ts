@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { exec, queryOne } from '@/lib/db';
 import { getProjectById, listProjectsByRepo, getRulesBySetId, createReport, updateReport } from '@/services/db';
 import { buildReportCommits } from '@/services/analyzeTask';
-import { enqueueAnalyze, listPipelines, createPipelineRun } from '@/services/runnerClient';
+import { enqueueAnalyze, listPipelines, createPipelineRun, getPipeline } from '@/services/schedulerClient';
 import { logger } from '@/services/logger';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { codebaseService } from '@/services/CodebaseService';
@@ -125,8 +125,12 @@ export async function POST(request: NextRequest) {
           const allPipelines = await listPipelines(orgId);
           if (!Array.isArray(allPipelines)) continue;
           for (const p of allPipelines) {
-            if (!p.auto_trigger) continue;
-            const branch = p.trigger_branch || 'main';
+            const detail = await getPipeline(p.id).catch(() => null);
+            const trigger = detail?.version?.config && typeof detail.version.config === 'object'
+              ? ((detail.version.config as { trigger?: { autoTrigger?: boolean; branch?: string } }).trigger ?? null)
+              : null;
+            if (!trigger?.autoTrigger) continue;
+            const branch = typeof trigger.branch === 'string' && trigger.branch.trim() !== '' ? trigger.branch : 'main';
             if (branch !== pushedBranch) continue;
             try {
               await createPipelineRun(p.id, {
@@ -272,7 +276,7 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       await updateReport(report.id, {
         status: 'failed',
-        error_message: err instanceof Error ? err.message : 'Runner enqueue failed',
+        error_message: err instanceof Error ? err.message : 'Scheduler enqueue failed',
       });
       throw err;
     }

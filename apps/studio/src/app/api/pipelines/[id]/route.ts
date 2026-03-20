@@ -5,7 +5,7 @@ import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { updatePipelineSchema, validateRequest } from '@/services/validation';
-import { getPipeline, updatePipeline } from '@/services/runnerClient';
+import { getPipeline, updatePipeline } from '@/services/schedulerClient';
 import { query as dbQuery } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -76,15 +76,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       name: validated.name ?? '',
       description: validated.description ?? '',
       config: validated.config,
-      ...(validated.environment ? { environment: validated.environment } : {}),
-      ...(validated.config ? {
-        autoTrigger: validated.config.source.autoTrigger,
-        triggerBranch: validated.config.source.branch,
-        qualityGateEnabled: validated.config.review.qualityGateEnabled,
-        qualityGateMinScore: validated.config.review.qualityGateMinScore,
-        notifyOnSuccess: validated.config.notifications.onSuccess,
-        notifyOnFailure: validated.config.notifications.onFailure,
-      } : {}),
       updatedBy: user.id,
     };
     const result = await updatePipeline(id, payload);

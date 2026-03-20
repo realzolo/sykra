@@ -1,13 +1,13 @@
 # spec-axis
 
-AI-powered code review and CI/CD pipeline platform. Connect GitHub/GitLab repositories, run Claude AI analysis against configurable rule sets, track quality scores over time, and automate builds and deploys with a drag-and-drop pipeline builder.
+AI-powered code review and CI/CD pipeline platform. Connect GitHub/GitLab repositories, run Claude AI analysis against configurable rule sets, track quality scores over time, and automate builds and deploys with a native DAG job editor.
 
 ## Features
 
 - **AI Code Review** — Submit commits for analysis. Issues are ranked by severity, scored 0–100, and tracked across reports.
 - **Rule Set Template Marketplace** — Import pre-built rule sets for React, Go, Security (OWASP Top 10), Python, and Performance. Rules > Import Template.
 - **Report Comparison** — Select any two reports and diff them side-by-side: new issues, resolved issues, persisting issues, score delta.
-- **CI/CD Pipelines** — Four-stage DAG builder (Source → Review → Build → Deploy). Shell and Docker step types, per-step timeouts, secrets injection, concurrency modes (Allow / Queue / Cancel Previous).
+- **CI/CD Pipelines** — DAG-based pipeline engine (`trigger + jobs + notifications`) with interactive DAG overview (drag to add dependency edges, click edges to remove), Shell and Docker step types, per-step timeouts, artifact handoff, and concurrency modes (Allow / Queue / Cancel Previous).
 - **Notification Settings** — Email notifications on complete, on critical issues, and score threshold. Settings > Notifications.
 - **Dashboard Overview** — Pipeline success rate, per-project quality scores, quick actions, and recent activity on the org home page.
 - **Multi-VCS & AI** — GitHub, GitLab, Generic Git; Claude, GPT-4, DeepSeek, and other OpenAI API-format models.
@@ -23,7 +23,7 @@ AI-powered code review and CI/CD pipeline platform. Connect GitHub/GitLab reposi
 | AI | Anthropic Claude SDK (supports custom `ANTHROPIC_BASE_URL`) |
 | Database | PostgreSQL 14+ |
 | Queue | Redis + Asynq |
-| Runner | Go 1.24 |
+| Scheduler (Control Plane) | Go 1.24 |
 | Auth | Session cookies + email verification |
 
 ## Monorepo Layout
@@ -31,7 +31,8 @@ AI-powered code review and CI/CD pipeline platform. Connect GitHub/GitLab reposi
 ```
 apps/
   studio/     Next.js web app (port 8109 in dev)
-  runner/     Go runner service (port 8200 in dev)
+  scheduler/     Go control-plane service (port 8200 in dev)
+  worker/     Go execution agent (optional in local dev, required for pipeline steps)
 docs/
   db/         init.sql schema + incremental migrations
 ```
@@ -58,8 +59,8 @@ Create `apps/studio/.env`:
 ```env
 DATABASE_URL=postgres://user:pass@localhost/specaxis
 ENCRYPTION_KEY=<64-char hex>          # openssl rand -hex 32
-RUNNER_BASE_URL=http://localhost:8200
-RUNNER_TOKEN=dev-runner
+SCHEDULER_BASE_URL=http://localhost:8200
+SCHEDULER_TOKEN=dev-scheduler
 EMAIL_PROVIDER=console
 EMAIL_VERIFICATION_REQUIRED=false
 ```
@@ -69,17 +70,17 @@ EMAIL_VERIFICATION_REQUIRED=false
 ```bash
 psql "$DATABASE_URL" -f docs/db/init.sql
 # Incremental migrations:
-psql "$DATABASE_URL" -f docs/db/migrations/add_concurrency_mode.sql
+psql "$DATABASE_URL" -f docs/db/migrations/013_orchestrator_dag_schema.sql
 ```
 
-### 4. Configure the Runner
+### 4. Configure the Scheduler
 
-Create `apps/runner/config.toml`:
+Create `apps/scheduler/config.toml`:
 
 ```toml
-[runner]
+[scheduler]
 port = "8200"
-token = "dev-runner"
+token = "dev-scheduler"
 
 [database]
 url = "postgres://user:pass@localhost/specaxis"
@@ -92,7 +93,7 @@ encryption_key = "<same key as Studio>"
 
 [studio]
 url = "http://localhost:8109"
-token = "dev-runner"
+token = "dev-scheduler"
 ```
 
 ### 5. Start
@@ -102,7 +103,7 @@ token = "dev-runner"
 pnpm dev
 
 # Terminal 2
-cd apps/runner && go run .
+cd apps/scheduler && go run .
 
 # Terminal 3 (optional, for distributed pipeline execution)
 cd apps/worker && go run .
@@ -116,23 +117,23 @@ Open [http://localhost:8109](http://localhost:8109).
 pnpm dev                                  # Studio dev server
 pnpm build                                # Production build + TypeScript check
 pnpm lint                                 # ESLint
-cd apps/runner && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...  # Build runner
+cd apps/scheduler && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...  # Build scheduler
 cd apps/worker && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...  # Build worker
-cd apps/runner && go run .                # Start runner
+cd apps/scheduler && go run .                # Start scheduler
 cd apps/worker && go run .                # Start worker
 psql "$DATABASE_URL" -f docs/db/init.sql  # Reset schema
 ```
 
 Local caches are standardized under repository root `/.cache/` (for example `/.cache/go/mod/`, `/.cache/go/build/`, `/.cache/pnpm/store/`, `/.cache/codebase/`) and are ignored by Git.
 
-## Pipeline Step Types
+## Pipeline Execution Types
 
 | Type | Config | Behavior |
 |------|--------|----------|
 | `shell` (default) | — | Runs script via `/bin/sh -c` |
 | `docker` | `dockerImage: "node:22-alpine"` | `docker run --rm -w /workspace -v {workingDir}:/workspace {image} /bin/sh -c "{script}"` |
 
-Set step type in the pipeline editor (Build / Deploy tab > step > Step Type).
+Set step type in pipeline job steps (Shell/Docker).
 
 ## Pipeline Concurrency Modes
 
@@ -171,18 +172,18 @@ VCS and AI integrations are configured in the web UI (Settings > Integrations), 
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | Studio Postgres connection string |
-| `ENCRYPTION_KEY` | AES-256-GCM key (32 bytes hex) — same value for Studio and Runner |
-| `RUNNER_BASE_URL` | Runner HTTP base URL |
-| `RUNNER_TOKEN` | Shared auth token (Studio → Runner) |
+| `ENCRYPTION_KEY` | AES-256-GCM key (32 bytes hex) — same value for Studio and Scheduler |
+| `SCHEDULER_BASE_URL` | Scheduler HTTP base URL |
+| `SCHEDULER_TOKEN` | Shared auth token (Studio → Scheduler) |
 | `EMAIL_PROVIDER` | `console` or `resend` |
 | `EMAIL_VERIFICATION_REQUIRED` | `true` or `false` |
 
-Runner also needs `REDIS_URL`, `STUDIO_URL`, `STUDIO_TOKEN`. See [CLAUDE.md](./CLAUDE.md) for the full list.
+Scheduler also needs `REDIS_URL`, `STUDIO_URL`, `STUDIO_TOKEN`. See [CLAUDE.md](./CLAUDE.md) for the full list.
 
 ## Deployment
 
 - Studio deploys to Vercel. The `/api/analyze` route is configured for a 300s timeout in `vercel.json`.
-- Runner runs as a standalone Go binary on any server with access to Postgres and Redis.
+- Scheduler runs as a standalone Go binary on any server with access to Postgres and Redis.
 - Apply `docs/db/init.sql` and all migration files in `docs/db/migrations/` before deploying.
 
 ## Documentation

@@ -74,18 +74,18 @@ async function insertDownloadEvent(input: DownloadEventInput): Promise<void> {
   ).catch(() => undefined);
 }
 
-function runnerBaseUrl(): string {
-  const baseUrl = process.env.RUNNER_BASE_URL?.replace(/\/+$/, '');
+function schedulerBaseUrl(): string {
+  const baseUrl = process.env.SCHEDULER_BASE_URL?.replace(/\/+$/, '');
   if (!baseUrl) {
-    throw new Error('RUNNER_BASE_URL is not configured');
+    throw new Error('SCHEDULER_BASE_URL is not configured');
   }
   return baseUrl;
 }
 
-function runnerToken(): string {
-  const token = process.env.RUNNER_TOKEN?.trim();
+function schedulerToken(): string {
+  const token = process.env.SCHEDULER_TOKEN?.trim();
   if (!token) {
-    throw new Error('RUNNER_TOKEN is not configured');
+    throw new Error('SCHEDULER_TOKEN is not configured');
   }
   return token;
 }
@@ -139,11 +139,11 @@ export async function GET(
     };
 
     const upstream = await fetch(
-      `${runnerBaseUrl()}/v1/pipeline-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/content`,
+      `${schedulerBaseUrl()}/v1/pipeline-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/content`,
       {
         method: 'GET',
         headers: {
-          'X-Runner-Token': runnerToken(),
+          'X-Scheduler-Token': schedulerToken(),
         },
       }
     );
@@ -157,14 +157,14 @@ export async function GET(
         artifactPath: eventContext.artifactPath,
         status: 'failed',
         errorCategory: classifyDownloadError(upstream.status),
-        errorMessage: text || `Runner download failed: ${upstream.status}`,
+        errorMessage: text || `Scheduler download failed: ${upstream.status}`,
         durationMs: Date.now() - startedAt,
         requesterUserId: eventContext.userId,
         requesterIp: extractRequesterIp(request),
         requesterUserAgent: request.headers.get('user-agent'),
       });
       return NextResponse.json(
-        { error: text || `Runner download failed: ${upstream.status}` },
+        { error: text || `Scheduler download failed: ${upstream.status}` },
         { status: upstream.status >= 400 ? upstream.status : 502 }
       );
     }

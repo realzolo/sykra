@@ -27,12 +27,12 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gorilla/websocket"
 
-	"spec-axis/runner/pkg/workerprotocol"
+	"spec-axis/scheduler/pkg/workerprotocol"
 )
 
 type workerConfig struct {
-	RunnerBaseURL    string
-	RunnerToken      string
+	SchedulerBaseURL string
+	SchedulerToken   string
 	WorkerID         string
 	Hostname         string
 	Version          string
@@ -59,7 +59,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("worker config error: %v", err)
 	}
-	log.Printf("worker starting: id=%s runner=%s", cfg.WorkerID, cfg.RunnerBaseURL)
+	log.Printf("worker starting: id=%s scheduler=%s", cfg.WorkerID, cfg.SchedulerBaseURL)
 
 	agent := &workerAgent{
 		cfg:     cfg,
@@ -76,13 +76,13 @@ func main() {
 }
 
 func (a *workerAgent) runSession() error {
-	wsURL, err := toWorkerWSURL(a.cfg.RunnerBaseURL)
+	wsURL, err := toWorkerWSURL(a.cfg.SchedulerBaseURL)
 	if err != nil {
 		return err
 	}
 	headers := http.Header{}
-	if token := strings.TrimSpace(a.cfg.RunnerToken); token != "" {
-		headers.Set("X-Runner-Token", token)
+	if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
+		headers.Set("X-Scheduler-Token", token)
 	}
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
@@ -301,7 +301,7 @@ func (a *workerAgent) uploadSingleArtifact(
 	}
 	relativePath = filepath.ToSlash(relativePath)
 
-	httpBase, err := toRunnerHTTPBase(a.cfg.RunnerBaseURL)
+	httpBase, err := toSchedulerHTTPBase(a.cfg.SchedulerBaseURL)
 	if err != nil {
 		return err
 	}
@@ -330,8 +330,8 @@ func (a *workerAgent) uploadSingleArtifact(
 		request.Header.Set("Content-Type", "application/octet-stream")
 		request.Header.Set("X-Artifact-Upload-Attempt", strconv.Itoa(attempt))
 		request.Header.Set("X-Artifact-Upload-Max-Attempts", strconv.Itoa(maxAttempts))
-		if token := strings.TrimSpace(a.cfg.RunnerToken); token != "" {
-			request.Header.Set("X-Runner-Token", token)
+		if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
+			request.Header.Set("X-Scheduler-Token", token)
 		}
 
 		response, err := client.Do(request)
@@ -412,7 +412,7 @@ func (a *workerAgent) downloadStepArtifacts(
 }
 
 func (a *workerAgent) listRunArtifacts(ctx context.Context, runID string) ([]runArtifact, error) {
-	httpBase, err := toRunnerHTTPBase(a.cfg.RunnerBaseURL)
+	httpBase, err := toSchedulerHTTPBase(a.cfg.SchedulerBaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -421,8 +421,8 @@ func (a *workerAgent) listRunArtifacts(ctx context.Context, runID string) ([]run
 	if err != nil {
 		return nil, err
 	}
-	if token := strings.TrimSpace(a.cfg.RunnerToken); token != "" {
-		request.Header.Set("X-Runner-Token", token)
+	if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
+		request.Header.Set("X-Scheduler-Token", token)
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -577,7 +577,7 @@ func (a *workerAgent) downloadSingleArtifact(
 		return 0, err
 	}
 
-	httpBase, err := toRunnerHTTPBase(a.cfg.RunnerBaseURL)
+	httpBase, err := toSchedulerHTTPBase(a.cfg.SchedulerBaseURL)
 	if err != nil {
 		return 0, err
 	}
@@ -586,8 +586,8 @@ func (a *workerAgent) downloadSingleArtifact(
 	if err != nil {
 		return 0, err
 	}
-	if token := strings.TrimSpace(a.cfg.RunnerToken); token != "" {
-		request.Header.Set("X-Runner-Token", token)
+	if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
+		request.Header.Set("X-Scheduler-Token", token)
 	}
 
 	client := &http.Client{Timeout: 15 * time.Minute}
@@ -992,7 +992,7 @@ func fetchProjectRepo(ctx context.Context, studioURL string, studioToken string,
 		return "", err
 	}
 	if token := strings.TrimSpace(studioToken); token != "" {
-		request.Header.Set("X-Runner-Token", token)
+		request.Header.Set("X-Scheduler-Token", token)
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -1025,7 +1025,7 @@ func fetchLatestScore(ctx context.Context, studioURL string, studioToken string,
 		return 0, err
 	}
 	if token := strings.TrimSpace(studioToken); token != "" {
-		request.Header.Set("X-Runner-Token", token)
+		request.Header.Set("X-Scheduler-Token", token)
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -1130,9 +1130,9 @@ func (a *workerAgent) send(payload any) error {
 }
 
 func loadConfig() (workerConfig, error) {
-	baseURL := strings.TrimSpace(os.Getenv("RUNNER_BASE_URL"))
+	baseURL := strings.TrimSpace(os.Getenv("SCHEDULER_BASE_URL"))
 	if baseURL == "" {
-		return workerConfig{}, errors.New("RUNNER_BASE_URL is required")
+		return workerConfig{}, errors.New("SCHEDULER_BASE_URL is required")
 	}
 	workerID := strings.TrimSpace(os.Getenv("WORKER_ID"))
 	if workerID == "" {
@@ -1169,8 +1169,8 @@ func loadConfig() (workerConfig, error) {
 	}
 
 	return workerConfig{
-		RunnerBaseURL:    baseURL,
-		RunnerToken:      strings.TrimSpace(os.Getenv("RUNNER_TOKEN")),
+		SchedulerBaseURL: baseURL,
+		SchedulerToken:   strings.TrimSpace(os.Getenv("SCHEDULER_TOKEN")),
 		WorkerID:         workerID,
 		Hostname:         hostname,
 		Version:          strings.TrimSpace(os.Getenv("WORKER_VERSION")),
@@ -1251,7 +1251,7 @@ func toWorkerWSURL(baseURL string) (string, error) {
 		parsed.Scheme = "wss"
 	case "ws", "wss":
 	default:
-		return "", errors.New("RUNNER_BASE_URL must use http/https/ws/wss scheme")
+		return "", errors.New("SCHEDULER_BASE_URL must use http/https/ws/wss scheme")
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/v1/workers/connect"
 	parsed.RawQuery = ""
@@ -1259,7 +1259,7 @@ func toWorkerWSURL(baseURL string) (string, error) {
 	return parsed.String(), nil
 }
 
-func toRunnerHTTPBase(baseURL string) (string, error) {
+func toSchedulerHTTPBase(baseURL string) (string, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
 		return "", err
@@ -1271,7 +1271,7 @@ func toRunnerHTTPBase(baseURL string) (string, error) {
 	case "wss":
 		parsed.Scheme = "https"
 	default:
-		return "", errors.New("RUNNER_BASE_URL must use http/https/ws/wss scheme")
+		return "", errors.New("SCHEDULER_BASE_URL must use http/https/ws/wss scheme")
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	parsed.RawQuery = ""

@@ -1,8 +1,3 @@
-// ─────────────────────────────────────────────
-// Pipeline — Fixed four-stage config schema
-// Source → Review → Build → Deploy
-// ─────────────────────────────────────────────
-
 export type PipelineEnvironment = 'development' | 'staging' | 'production';
 
 export type PipelineStep = {
@@ -19,27 +14,26 @@ export type PipelineStep = {
   workingDir?: string;
 };
 
-export type PipelineSourceStage = {
-  // project is stored on the pipeline record itself, not in config
+export type PipelineJobType = 'shell' | 'source_checkout' | 'review_gate';
+
+export type PipelineJob = {
+  id: string;
+  name: string;
+  needs?: string[];
+  steps: PipelineStep[];
+  timeoutSeconds?: number;
+  env?: Record<string, string>;
+  workingDir?: string;
+  type?: PipelineJobType;
+  // Built-in source_checkout fields
+  branch?: string;
+  // Built-in review_gate field
+  minScore?: number;
+};
+
+export type PipelineTrigger = {
   branch: string;
   autoTrigger: boolean;
-};
-
-export type PipelineReviewStage = {
-  enabled: boolean;
-  qualityGateEnabled: boolean;
-  qualityGateMinScore: number; // 0-100
-};
-
-export type PipelineBuildStage = {
-  enabled: boolean;
-  steps: PipelineStep[];
-};
-
-export type PipelineDeployStage = {
-  enabled: boolean;
-  steps: PipelineStep[];
-  rollbackEnabled: boolean;
 };
 
 export type PipelineNotifications = {
@@ -52,11 +46,10 @@ export type PipelineConfig = {
   name: string;
   description?: string;
   variables?: Record<string, string>;
-  source: PipelineSourceStage;
-  review: PipelineReviewStage;
-  build: PipelineBuildStage;
-  deploy: PipelineDeployStage;
+  environment?: PipelineEnvironment;
+  trigger: PipelineTrigger;
   notifications: PipelineNotifications;
+  jobs: PipelineJob[];
 };
 
 // ─────────────────────────────────────────────
@@ -69,18 +62,12 @@ export type PipelineSummary = {
   project_id?: string | null;
   name: string;
   description: string;
-  environment: PipelineEnvironment;
-  auto_trigger: boolean;
-  trigger_branch: string;
-  quality_gate_enabled: boolean;
-  quality_gate_min_score: number;
-  notify_on_success: boolean;
-  notify_on_failure: boolean;
+  environment?: PipelineEnvironment;
   is_active: boolean;
   current_version_id?: string | null;
   latest_version: number;
   last_run?: PipelineRunSummary | null;
-  concurrency_mode?: 'allow' | 'queue' | 'cancel_previous';
+  concurrency_mode: 'allow' | 'queue' | 'cancel_previous';
   created_at: string;
   updated_at: string;
 };
@@ -161,6 +148,11 @@ export type PipelineRunDetail = {
   }>;
 };
 
+export type PipelineJobDiagnostic = {
+  level: 'error' | 'warning' | 'suggestion';
+  message: string;
+};
+
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
@@ -180,37 +172,98 @@ export function createDefaultStep(name = 'New Step'): PipelineStep {
   };
 }
 
+export function toJobIdCandidate(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized;
+}
+
+export function createUniqueJobId(name: string, existingIds: string[]): string {
+  const base = toJobIdCandidate(name) || 'job';
+  const used = new Set(existingIds);
+  if (!used.has(base)) return base;
+  let i = 2;
+  while (used.has(`${base}-${i}`)) i += 1;
+  return `${base}-${i}`;
+}
+
+export function renameJobId(jobs: PipelineJob[], oldId: string, newIdRaw: string): PipelineJob[] {
+  const existing = jobs.filter((job) => job.id !== oldId).map((job) => job.id);
+  const newId = createUniqueJobId(newIdRaw, existing);
+  if (!newId || oldId === newId) return jobs;
+  return jobs.map((job) => {
+    const nextNeeds = (job.needs ?? []).map((need) => (need === oldId ? newId : need));
+    if (job.id === oldId) {
+      return { ...job, id: newId, needs: nextNeeds };
+    }
+    return { ...job, needs: nextNeeds };
+  });
+}
+
+export function createDefaultJob(name = 'New Job', existingIds: string[] = []): PipelineJob {
+  const id = createUniqueJobId(name, existingIds);
+  return {
+    id,
+    name,
+    type: 'shell',
+    needs: [],
+    steps: [createDefaultStep('Run command')],
+  };
+}
+
 export function createDefaultPipelineConfig(name: string): PipelineConfig {
+  const sourceJobId = 'source';
+  const reviewJobId = 'review';
+  const buildJobId = 'build';
+
   return {
     name,
-    source: {
-      branch: 'main',
-      autoTrigger: false,
-    },
-    review: {
-      enabled: true,
-      qualityGateEnabled: false,
-      qualityGateMinScore: 60,
-    },
-    build: {
-      enabled: true,
-      steps: [
-        { id: newId('step'), name: 'Install dependencies', script: 'npm install' },
-        { id: newId('step'), name: 'Build', script: 'npm run build' },
-      ],
-    },
-    deploy: {
-      enabled: true,
-      steps: [
-        { id: newId('step'), name: 'Deploy', script: '# add deploy commands here' },
-      ],
-      rollbackEnabled: true,
-    },
+    environment: 'production',
+    trigger: { branch: 'main', autoTrigger: false },
     notifications: {
       onSuccess: true,
       onFailure: true,
       channels: ['inapp', 'email'],
     },
+    jobs: [
+      {
+        id: sourceJobId,
+        name: 'Source',
+        type: 'source_checkout',
+        branch: 'main',
+        needs: [],
+        steps: [{ id: 'checkout', name: 'Checkout', script: '' }],
+      },
+      {
+        id: reviewJobId,
+        name: 'Code Review',
+        type: 'review_gate',
+        minScore: 60,
+        needs: [sourceJobId],
+        steps: [{ id: 'gate', name: 'Quality Gate', script: '' }],
+      },
+      {
+        id: buildJobId,
+        name: 'Build',
+        type: 'shell',
+        needs: [reviewJobId],
+        steps: [
+          { id: newId('step'), name: 'Install dependencies', script: 'npm install' },
+          { id: newId('step'), name: 'Build', script: 'npm run build' },
+        ],
+      },
+      {
+        id: 'deploy',
+        name: 'Deploy',
+        type: 'shell',
+        needs: [buildJobId],
+        steps: [{ id: newId('step'), name: 'Deploy', script: '# add deploy commands here' }],
+      },
+    ],
   };
 }
 
@@ -223,6 +276,118 @@ export function durationLabel(startedAt?: string | null, finishedAt?: string | n
   const m = Math.floor(ms / 60000);
   const s = Math.round((ms % 60000) / 1000);
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+function hasCycle(jobs: PipelineJob[]): boolean {
+  const map = new Map<string, PipelineJob>();
+  jobs.forEach((job) => {
+    if (!map.has(job.id)) map.set(job.id, job);
+  });
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+
+  function dfs(id: string): boolean {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    const node = map.get(id);
+    if (node) {
+      for (const dep of node.needs ?? []) {
+        if (!map.has(dep)) continue;
+        if (dfs(dep)) return true;
+      }
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  }
+
+  for (const id of map.keys()) {
+    if (dfs(id)) return true;
+  }
+  return false;
+}
+
+export function analyzePipelineJobs(jobs: PipelineJob[]): PipelineJobDiagnostic[] {
+  const diagnostics: PipelineJobDiagnostic[] = [];
+  if (jobs.length === 0) {
+    diagnostics.push({ level: 'error', message: 'No jobs configured.' });
+    return diagnostics;
+  }
+
+  const ids = jobs.map((job) => job.id.trim()).filter((id) => id.length > 0);
+  if (ids.length !== jobs.length) {
+    diagnostics.push({ level: 'error', message: 'Every job must have a non-empty ID.' });
+  }
+
+  const counts = new Map<string, number>();
+  ids.forEach((id) => counts.set(id, (counts.get(id) ?? 0) + 1));
+  const duplicated = Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([id]) => id);
+  if (duplicated.length > 0) {
+    diagnostics.push({
+      level: 'error',
+      message: `Duplicate job IDs: ${duplicated.join(', ')}.`,
+    });
+  }
+
+  const idSet = new Set(ids);
+  let sourceCheckoutCount = 0;
+  for (const job of jobs) {
+    if ((job.type ?? 'shell') === 'source_checkout') sourceCheckoutCount += 1;
+    if ((job.needs ?? []).includes(job.id)) {
+      diagnostics.push({
+        level: 'error',
+        message: `Job "${job.id}" cannot depend on itself.`,
+      });
+    }
+    for (const dep of job.needs ?? []) {
+      if (!idSet.has(dep)) {
+        diagnostics.push({
+          level: 'error',
+          message: `Job "${job.id}" depends on unknown job "${dep}".`,
+        });
+      }
+    }
+  }
+
+  if (hasCycle(jobs)) {
+    diagnostics.push({
+      level: 'error',
+      message: 'A cycle exists in job dependencies.',
+    });
+  }
+
+  const roots = jobs.filter((job) => (job.needs ?? []).length === 0);
+  if (roots.length === 0) {
+    diagnostics.push({
+      level: 'warning',
+      message: 'No root job found (every job depends on another job).',
+    });
+  }
+
+  if (sourceCheckoutCount === 0) {
+    diagnostics.push({
+      level: 'suggestion',
+      message: 'Consider adding a source checkout job as the DAG entry point.',
+    });
+  } else if (sourceCheckoutCount > 1) {
+    diagnostics.push({
+      level: 'warning',
+      message: 'Multiple source checkout jobs detected. Confirm this is intentional.',
+    });
+  }
+
+  const reviewGateCount = jobs.filter((job) => (job.type ?? 'shell') === 'review_gate').length;
+  if (reviewGateCount === 0) {
+    diagnostics.push({
+      level: 'suggestion',
+      message: 'Consider adding a review gate job for automated quality gating.',
+    });
+  }
+
+  return diagnostics;
 }
 
 export const ENV_LABELS: Record<PipelineEnvironment, string> = {

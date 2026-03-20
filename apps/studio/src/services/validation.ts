@@ -69,26 +69,22 @@ const pipelineStepSchema = z.object({
   workingDir: z.string().optional(),
 });
 
-const pipelineSourceSchema = z.object({
+const pipelineJobSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  needs: z.array(z.string().min(1)).optional(),
+  steps: z.array(pipelineStepSchema).min(1),
+  timeoutSeconds: z.number().int().positive().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  workingDir: z.string().optional(),
+  type: z.enum(['shell', 'source_checkout', 'review_gate']).optional(),
+  branch: z.string().optional(),
+  minScore: z.number().int().min(0).max(100).optional(),
+});
+
+const pipelineTriggerSchema = z.object({
   branch: z.string().min(1).default('main'),
   autoTrigger: z.boolean().default(false),
-});
-
-const pipelineReviewSchema = z.object({
-  enabled: z.boolean().default(true),
-  qualityGateEnabled: z.boolean().default(false),
-  qualityGateMinScore: z.number().int().min(0).max(100).default(60),
-});
-
-const pipelineBuildSchema = z.object({
-  enabled: z.boolean().default(true),
-  steps: z.array(pipelineStepSchema),
-});
-
-const pipelineDeploySchema = z.object({
-  enabled: z.boolean().default(true),
-  steps: z.array(pipelineStepSchema),
-  rollbackEnabled: z.boolean().default(true),
 });
 
 const pipelineNotificationsSchema = z.object({
@@ -101,25 +97,22 @@ export const pipelineConfigSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().optional(),
   variables: z.record(z.string(), z.string()).optional(),
-  source: pipelineSourceSchema,
-  review: pipelineReviewSchema,
-  build: pipelineBuildSchema,
-  deploy: pipelineDeploySchema,
+  environment: z.enum(['development', 'staging', 'production']).default('production'),
+  trigger: pipelineTriggerSchema,
   notifications: pipelineNotificationsSchema,
+  jobs: z.array(pipelineJobSchema).min(1),
 });
 
 export const createPipelineSchema = z.object({
   projectId: projectIdSchema,
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
-  environment: z.enum(['development', 'staging', 'production']).default('production'),
   config: pipelineConfigSchema,
 });
 
 export const updatePipelineSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
-  environment: z.enum(['development', 'staging', 'production']).optional(),
   config: pipelineConfigSchema.optional(),
 });
 

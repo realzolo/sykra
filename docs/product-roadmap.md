@@ -57,10 +57,10 @@
 │        Next.js 16 · React 19 · TypeScript           │
 │   UI · API Routes · Auth · DB Services · Webhooks   │
 └────────────────────┬────────────────────────────────┘
-                     │ HTTP (RUNNER_BASE_URL)
-                     │ X-Runner-Token
+                     │ HTTP (SCHEDULER_BASE_URL)
+                     │ X-Scheduler-Token
 ┌────────────────────▼────────────────────────────────┐
-│                    apps/runner                       │
+│                    apps/scheduler                       │
 │                  Go 1.24 Service                     │
 │   Pipeline Engine · Step Executors · Log Storage     │
 └──────────┬──────────────────────────┬───────────────┘
@@ -72,8 +72,8 @@
 ```
 
 **Key design decisions:**
-- Studio and Runner are separate services communicating over HTTP — Runner can be scaled independently
-- All pipeline execution happens in Runner; Studio is the management UI + API proxy
+- Studio and Scheduler are separate services communicating over HTTP — Scheduler can be scaled independently
+- All pipeline execution happens in Scheduler; Studio is the management UI + API proxy
 - Integrations (VCS, AI) configured via web UI, stored encrypted in DB — no env var sprawl
 - Four-stage pipeline model (Source → Review → Build → Deploy) maps directly to internal job DAG at runtime
 
@@ -205,7 +205,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Run history list | ✅ Done | Status icon, trigger type, branch, timestamp, duration |
 | Stage progress visualization | ✅ Done | 4-dot pipeline bar with labels |
 | Real-time log viewer | ✅ Done | Dark terminal UI, polling at 2.5 s while running |
-| Per-step log files | ✅ Done | Stored at `RUNNER_DATA_DIR/logs/{run_id}/{job}/{step}.log` |
+| Per-step log files | ✅ Done | Stored at `SCHEDULER_DATA_DIR/logs/{run_id}/{job}/{step}.log` |
 | Concurrent job execution | ✅ Done | `PIPELINE_CONCURRENCY` config |
 | Job DAG dependency resolution | ✅ Done | `needs` field, topological scheduling |
 | Cancel pending jobs on failure | ✅ Done | Upstream failure cancels downstream queued jobs |
@@ -214,7 +214,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Docker / container executor | ⬜ Planned | Currently shell-only |
 | In-place config editor | ✅ Done | "Configure" tab in detail page |
 | Notification on success / failure | ⬜ Planned | Fields exist (`notify_on_success/failure`), email not wired |
-| TOML config file for Runner | ✅ Done | `[runner]`, `[pipeline]`, `[studio]`, `[database]`, etc. |
+| TOML config file for Scheduler | ✅ Done | `[scheduler]`, `[pipeline]`, `[studio]`, `[database]`, etc. |
 
 ### 3.9 Settings & Localization
 
@@ -246,7 +246,7 @@ These are the most critical gaps that affect the daily usability of the product.
 
 **Implementation notes:**
 - Add an email service abstraction (SMTP / SendGrid / Resend)
-- Trigger from Runner on `run.completed` / `run.failed` events
+- Trigger from Scheduler on `run.completed` / `run.failed` events
 - Respect `notify_on_success` / `notify_on_failure` flags already on the `pipelines` table
 
 ---
@@ -319,7 +319,7 @@ These are the most critical gaps that affect the daily usability of the product.
 - Cron expression input in pipeline configuration (e.g., `0 2 * * *` = 2 AM daily)
 - Next scheduled run time displayed in list and detail pages
 - Stored as `trigger_schedule` on the `pipelines` table
-- Runner or Studio cron scheduler evaluates and enqueues runs
+- Scheduler or Studio cron scheduler evaluates and enqueues runs
 
 ---
 
@@ -418,10 +418,10 @@ These are the most critical gaps that affect the daily usability of the product.
 
 #### 4.14 Artifact Management
 
-**Why:** The `pipeline_artifacts` table and `LocalStorage` abstraction already exist in the Runner, but no executor produces or serves artifacts. Build outputs (binaries, Docker images, test results) need to be stored and downloadable.
+**Why:** The `pipeline_artifacts` table and `LocalStorage` abstraction already exist in the Scheduler, but no executor produces or serves artifacts. Build outputs (binaries, Docker images, test results) need to be stored and downloadable.
 
 **Scope:**
-- Artifact upload from shell steps via a sidecar or runner API endpoint
+- Artifact upload from shell steps via a sidecar or scheduler API endpoint
 - Artifact list in the run detail page (file name, size, download link)
 - Configurable retention (`PIPELINE_ARTIFACT_RETENTION_DAYS`)
 - Optional S3 API remote storage backend
@@ -440,22 +440,22 @@ These are the most critical gaps that affect the daily usability of the product.
     image: node:22-alpine
     script: npm ci && npm run build
   ```
-- Runner spawns Docker container, mounts workspace, streams logs
+- Scheduler spawns Docker container, mounts workspace, streams logs
 - Image pull policy (always / if-not-present)
 - Resource limits (CPU, memory)
 
 ---
 
-#### 4.16 Multi-Runner Node Support
+#### 4.16 Multi-Scheduler Node Support
 
-**Why:** A single Runner process becomes a bottleneck as pipeline volume grows. The architecture should support horizontal scaling.
+**Why:** A single Scheduler process becomes a bottleneck as pipeline volume grows. The architecture should support horizontal scaling.
 
 **Scope:**
-- Runner registration/heartbeat (`runner_nodes` table)
-- Studio-side load balancing: assign runs to available runners
-- Runner health endpoint (`GET /v1/health`)
+- Scheduler registration/heartbeat (`worker_nodes` table)
+- Studio-side load balancing: assign runs to available schedulers
+- Scheduler health endpoint (`GET /v1/health`)
 - Graceful drain on shutdown (finish in-flight, reject new)
-- Run-to-runner assignment visible in run detail
+- Run-to-scheduler assignment visible in run detail
 
 ---
 
@@ -547,7 +547,7 @@ Focus: enterprise features, scale, and compliance.
 🚧 To complete in Phase 4:
    ├── 4.14  Artifact Management
    ├── 4.15  Docker / Container Step Executor
-   ├── 4.16  Multi-Runner Node Support
+   ├── 4.16  Multi-Scheduler Node Support
    ├── 4.17  SSO / SAML Integration
    └── 4.18  Fine-Grained RBAC
 ```
@@ -564,10 +564,10 @@ The following items are not user-facing features but should be addressed alongsi
 |------|----------|-------|
 | Remove duplicate report-detail clients | Medium | Keep single `ReportDetailClient.tsx` implementation |
 | Remove `proxy.ts` (unused auth middleware) | Low | Already marked unused in CLAUDE.md |
-| Runner `collectArtifacts` stub | Low | Kept as placeholder; remove or implement in Phase 4 |
+| Scheduler `collectArtifacts` stub | Low | Kept as placeholder; remove or implement in Phase 4 |
 | Pipeline `auto_trigger` webhook — multiple orgs same repo | Medium | Currently iterates all orgs, could be expensive at scale |
 | Store `GetPipeline` / `ListPipelines` — add cursor pagination | Medium | Currently unbounded queries; will degrade with 1000+ pipelines |
 | SSE report streaming — add heartbeat | Low | Clients can time out on slow analyses |
-| Test coverage — Runner pipeline package | High | No unit tests for `engine.go`, `executor.go`, `types.go` |
+| Test coverage — Scheduler pipeline package | High | No unit tests for `engine.go`, `executor.go`, `types.go` |
 | Test coverage — Studio API routes | High | No integration tests for critical routes |
 | Dependency audit | Low | Review and approve any new `pnpm` build scripts in `.npmrc` |

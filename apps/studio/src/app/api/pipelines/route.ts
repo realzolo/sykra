@@ -5,7 +5,7 @@ import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requi
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { createPipelineSchema, projectIdSchema, validateRequest } from '@/services/validation';
-import { createPipeline, listPipelines } from '@/services/runnerClient';
+import { createPipeline, listPipelines } from '@/services/schedulerClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,14 +60,7 @@ export async function POST(request: NextRequest) {
       orgId,
       name: validated.name,
       description: validated.description ?? '',
-      environment: validated.environment ?? 'production',
       config: validated.config,
-      autoTrigger: validated.config.source.autoTrigger,
-      triggerBranch: validated.config.source.branch,
-      qualityGateEnabled: validated.config.review.qualityGateEnabled,
-      qualityGateMinScore: validated.config.review.qualityGateMinScore,
-      notifyOnSuccess: validated.config.notifications.onSuccess,
-      notifyOnFailure: validated.config.notifications.onFailure,
       createdBy: user.id,
     };
     if (validated.projectId) {

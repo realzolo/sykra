@@ -1,6 +1,6 @@
 packages:
   - "apps/studio"
-  - "apps/runner"
+  - "apps/scheduler"
   - "packages/*"
 
 ignoredBuiltDependencies:

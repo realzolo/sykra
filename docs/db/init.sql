@@ -1,5 +1,5 @@
 -- spec-axis unified init schema (PostgreSQL)
--- This script initializes all core tables for Studio + Runner.
+-- This script initializes all core tables for Studio + Scheduler.
 
 create extension if not exists "pgcrypto";
 create extension if not exists "citext";
@@ -782,7 +782,7 @@ create index idx_quality_learned_patterns_project on quality_learned_patterns(pr
 create index idx_quality_learned_patterns_enabled on quality_learned_patterns(is_enabled);
 
 -- ============================================================
--- Pipeline engine (Runner)
+-- Pipeline engine (Scheduler)
 -- ============================================================
 create table pipelines (
   id uuid primary key default gen_random_uuid(),
@@ -794,16 +794,6 @@ create table pipelines (
   current_version_id uuid,
   concurrency_mode text not null default 'allow'
     check (concurrency_mode in ('allow', 'queue', 'cancel_previous')),
-  -- Pipeline execution fields
-  environment text not null default 'production'
-    check (environment in ('development', 'staging', 'production')),
-  auto_trigger boolean not null default false,
-  trigger_branch text not null default 'main',
-  quality_gate_enabled boolean not null default false,
-  quality_gate_min_score int not null default 60
-    check (quality_gate_min_score between 0 and 100),
-  notify_on_success boolean not null default true,
-  notify_on_failure boolean not null default true,
   created_by uuid references auth_users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -874,7 +864,7 @@ create table pipeline_jobs (
   name text not null,
   status text not null,
   attempt int not null default 1,
-  runner_id text,
+  worker_id text,
   error_message text,
   duration_ms int,
   created_at timestamptz not null default now(),
@@ -958,7 +948,7 @@ create index pipeline_artifact_download_events_run_idx on pipeline_artifact_down
 create index pipeline_artifact_download_events_artifact_idx on pipeline_artifact_download_events (artifact_id, created_at desc);
 create index pipeline_artifact_download_events_status_idx on pipeline_artifact_download_events (status, created_at desc);
 
-create table runner_nodes (
+create table worker_nodes (
   id text primary key,
   hostname text,
   version text,
@@ -975,8 +965,8 @@ create table runner_nodes (
   updated_at timestamptz not null default now()
 );
 
-create index runner_nodes_status_idx on runner_nodes (status);
-create index runner_nodes_last_heartbeat_idx on runner_nodes (last_heartbeat_at desc);
+create index worker_nodes_status_idx on worker_nodes (status);
+create index worker_nodes_last_heartbeat_idx on worker_nodes (last_heartbeat_at desc);
 
 create table org_storage_settings (
   org_id uuid primary key references organizations(id) on delete cascade,

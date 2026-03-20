@@ -235,7 +235,7 @@ export default function ProjectPipelinesView({
       <div className="flex items-center px-6 py-2 border-b border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[11px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wider gap-4 shrink-0">
         <div className="flex-1">{dict.common.name}</div>
         <div className="w-24 text-center">{p.environment}</div>
-        <div className="w-20 text-center">{p.stages.source}</div>
+        <div className="w-20 text-center">{p.list.status}</div>
         <div className="w-28 text-center">{p.lastRun}</div>
         <div className="w-24 text-right">{dict.common.actions}</div>
       </div>
@@ -265,11 +265,12 @@ export default function ProjectPipelinesView({
               {p.new}
             </Button>
           </div>
-        ) : (
-          pipelines.map(pipeline => {
-            const run = pipeline.last_run;
-            const status = run?.status;
-            return (
+	        ) : (
+	          pipelines.map(pipeline => {
+	            const run = pipeline.last_run;
+	            const status = run?.status;
+	            const env = pipeline.environment ?? 'production';
+	            return (
               <div
                 key={pipeline.id}
                 className="flex items-center px-6 py-4 gap-4 border-b border-[hsl(var(--ds-border-1))] hover:bg-[hsl(var(--ds-surface-1))] cursor-pointer group transition-colors duration-100"
@@ -293,11 +294,11 @@ export default function ProjectPipelinesView({
                     <div className="text-[12px] text-[hsl(var(--ds-text-2))] truncate">{pipeline.description}</div>
                   )}
                 </div>
-                <div className="w-24 flex justify-center">
-                  <Badge variant={ENV_BADGE_VARIANT[pipeline.environment] ?? 'muted'} size="sm">
-                    {ENV_LABELS[pipeline.environment]}
-                  </Badge>
-                </div>
+	                <div className="w-24 flex justify-center">
+	                  <Badge variant={ENV_BADGE_VARIANT[env] ?? 'muted'} size="sm">
+	                    {ENV_LABELS[env]}
+	                  </Badge>
+	                </div>
                 <div className="w-20 flex justify-center">
                   {status ? (
                     <span className="flex items-center gap-1">

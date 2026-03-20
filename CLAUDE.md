@@ -31,8 +31,8 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 
 AI code review + CI/CD platform: Next.js 16 + React 19 + TypeScript + Tailwind CSS v4.
 Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring, and pipeline DAG builder.
-Backend: PostgreSQL for core data, Go runner executes analysis jobs and orchestrates pipeline runs via Redis queue; distributed pipeline execution is handled by long-lived Worker agents connected over WebSocket control channels (Runner=control plane, Worker=execution plane); status updates stream via SSE with polling fallback.
-Monorepo layout: `apps/studio` (Next.js), `apps/runner` (Go runner control plane), `apps/worker` (Go execution agent), `packages/*` (shared contracts).
+Backend: PostgreSQL for core data, Go scheduler executes analysis jobs and orchestrates pipeline runs via Redis queue; pipeline step execution is worker-only and handled by long-lived Worker agents connected over WebSocket control channels (Scheduler=control plane, Worker=execution plane); status updates stream via SSE with polling fallback.
+Monorepo layout: `apps/studio` (Next.js), `apps/scheduler` (Go scheduler control plane), `apps/worker` (Go execution agent), `packages/*` (shared contracts).
 Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 
 **Key platform features:**
@@ -40,8 +40,10 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Rule set template marketplace: 5 built-in templates (React, Go, Security/OWASP, Python, Performance) importable via `GET /api/rules/templates` + `POST /api/rules/templates/[id]/import`
 - Report comparison view: diff two reports side-by-side (new / resolved / persisting issues) at `/o/:orgId/projects/:id/reports/compare?a=...&b=...`
 - Pipeline concurrency control: `allow | queue | cancel_previous` modes stored in `pipelines.concurrency_mode` column (included in `docs/db/init.sql`; use migration for existing DBs)
+- Pipeline config is canonical DAG (`trigger + jobs + notifications`); Studio writes and edits the canonical DAG contract directly (no intermediate stage-template compiler)
+- Pipeline Jobs editor UX is constraint-driven: dependency selection is multi-select (not free-text), job ID renames propagate to `needs`, adding jobs uses a guided modal (type + dependencies first), DAG drag-linking validates self/duplicate/cycle edges before apply, execution preview (topological order + parallel layers) is visible during editing, and real-time diagnostics block invalid saves
 - Pipeline artifact observability: project pipelines page includes artifact download health cards (total, success rate, p95 latency, failures) powered by `GET /api/projects/:id/artifact-download-stats`
-- Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; runner uses project override first, then global runner default
+- Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; scheduler uses project override first, then global scheduler default
 - Worker artifact handoff: deploy steps can declare `artifactInputs` patterns; Worker downloads matched artifacts from earlier steps in the same run before step execution, with checksum validation + retry and run events (`step.artifact.pull_*`)
 - Notification settings UI at `/o/:orgId/settings/notifications` backed by `/api/notification-settings`
 - Dashboard org home page (`/o/:orgId`) shows 4 stat cards (projects, avg score, open issues, pipeline success rate), quick actions, per-project score list, and recent activity
@@ -90,12 +92,12 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 | PostgreSQL | 14+ | Primary database (self-managed) |
 | Octokit | `^5.0.5` | GitHub API |
 | Native Fetch (LLM adapters) | Built-in | Unified provider transport for AI integrations (`/chat/completions`, `/responses`, Anthropic Messages API) |
-| Go | 1.24.0 | Runner service |
-| Gorilla WebSocket | ^1.5.3 | Runner↔Worker long-lived control channel |
-| AWS SDK for Go v2 | ^1.39 | Runner artifact backend for S3-compatible object storage |
+| Go | 1.24.0 | Scheduler service |
+| Gorilla WebSocket | ^1.5.3 | Scheduler↔Worker long-lived control channel |
+| AWS SDK for Go v2 | ^1.39 | Scheduler artifact backend for S3-compatible object storage |
 | doublestar | ^4.10 | Worker-side `artifactPaths` glob matching (includes `**`) |
-| TOML | 1.6.0 | `github.com/BurntSushi/toml` for runner config |
-| Asynq | 0.26.0 | Redis-backed job queue (runner) |
+| TOML | 1.6.0 | `github.com/BurntSushi/toml` for scheduler config |
+| Asynq | 0.26.0 | Redis-backed job queue (scheduler) |
 | sonner | ^2 | Toast notifications |
 | zod | `^4.3.6` | Runtime validation |
 | lucide-react | ^0.577 | Icons |
@@ -104,8 +106,8 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 
 - **No compatibility design/code paths**: Do not add dual-field parsing (`foo ?? Foo`), legacy aliases, or fallback branches for stale response shapes.
 - **No compatibility naming**: Do not introduce `legacy*`, `compat*`, `polyfill*`, or similar identifiers.
-- **Single contract source**: Runner HTTP contracts are defined in `packages/contracts/src/runner.ts` and consumed by Studio.
-- **Runner timestamp contract**: Runner API datetime fields must be validated as ISO8601/RFC3339 with timezone offsets allowed (`datetime({ offset: true })`), not `Z`-only.
+- **Single contract source**: Scheduler HTTP contracts are defined in `packages/contracts/src/scheduler.ts` and consumed by Studio.
+- **Scheduler timestamp contract**: Scheduler API datetime fields must be validated as ISO8601/RFC3339 with timezone offsets allowed (`datetime({ offset: true })`), not `Z`-only.
 - **Server-enforced project scope**: Project-scoped list APIs (for example `/api/reports` and `/api/pipelines`) must validate `projectId` access and enforce filtering on the server side; never rely on client-side filtering for tenant boundaries.
 - **Type safety baseline**: `apps/studio/tsconfig.json` enforces strict type checks (`allowJs: false`, `skipLibCheck: false`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true`).
 - **Schema requirement**: latest schema (`docs/db/init.sql`) and any required upgrade migrations must be applied before runtime. Missing required columns/tables (for example `pipelines.concurrency_mode`, `code_projects.artifact_retention_days`, `pipeline_artifact_download_events`) are treated as errors, not tolerated with fallback logic.
@@ -113,7 +115,7 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 - **Fail-fast on unsupported providers**: Provider switch statements must throw on unknown values; no silent fallback client selection.
 - **Unified AI transport**: Studio AI integrations must use the shared fetch-based adapter path; do not add provider-specific SDK dependencies in feature/business routes.
 - **Capability-driven AI params**: AI integration forms must render advanced parameters (for example `temperature`, `reasoningEffort`) from model/baseUrl/apiStyle capability rules, and unsupported parameters must not be sent in runtime requests.
-- **Git hygiene**: Runtime and build outputs must stay untracked (`apps/runner/data/`, `apps/runner/runner`, `apps/worker/worker`), and local environment files should use `*.env` patterns while keeping `*.env.example` tracked.
+- **Git hygiene**: Runtime and build outputs must stay untracked (`apps/scheduler/data/`, `apps/scheduler/scheduler`, `apps/worker/worker`), and local environment files should use `*.env` patterns while keeping `*.env.example` tracked.
 
 ## Naming & Design Rules
 
@@ -128,8 +130,8 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 - Studio CI baseline must be green on every change set:
   - `pnpm -C apps/studio lint` returns 0 errors and 0 warnings.
   - `pnpm -C apps/studio build` succeeds.
-- Runner backend baseline must compile:
-  - `cd apps/runner && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...`
+- Scheduler backend baseline must compile:
+  - `cd apps/scheduler && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...`
 
 ## UI Components
 
@@ -221,17 +223,17 @@ apps/
           rules/                # Org-level rule sets
           settings/notifications/
         api/
-          analyze/              # POST → enqueue runner task
+          analyze/              # POST → enqueue scheduler task
           pipelines/[id]/       # GET/PUT/PATCH (PATCH updates concurrency_mode)
           pipelines/[id]/runs/  # GET list + POST (enforces concurrency gate)
-          pipeline-runs/        # Run detail + logs (proxy to runner)
+          pipeline-runs/        # Run detail + logs (proxy to scheduler)
           projects/[id]/artifact-download-stats/ # Artifact download observability metrics
           reports/[id]/         # Report CRUD + issues + stream + chat + export
           rules/
             templates/          # GET list of built-in templates
             templates/[id]/import/ # POST import template → new ruleset
           notification-settings/ # GET/PUT notification preferences
-          runner/events/        # POST (Runner → Studio callbacks)
+          scheduler/events/        # POST (Scheduler → Studio callbacks)
           commits/ projects/ stats/ github/ stream/ webhooks/
         layout.tsx providers.tsx globals.css
       components/
@@ -254,18 +256,18 @@ apps/
         ruleTemplates.ts        # Static built-in rule template data
       services/
         db.ts github.ts claude.ts taskQueue.ts analyzeTask.ts
-        pipelineTypes.ts        # PipelineStep (type/dockerImage/artifactPaths), PipelineSummary (concurrency_mode)
-        runnerClient.ts         # cancelPipelineRun() + other runner proxy functions
+        pipelineTypes.ts        # Pipeline editor/view types + pipeline summaries
+        schedulerClient.ts         # cancelPipelineRun() + other scheduler proxy functions
       proxy.ts                  # Unused auth middleware
     middleware.ts               # Org cookie sync + dashboard redirect (Next.js middleware)
-  apps/runner/
-    main.go                     # Go runner entrypoint (control plane)
-    internal/workerhub/         # Runner-side worker connection/session hub + dispatch
-    pkg/workerprotocol/         # Runner↔Worker control-plane message contract (shared)
+  apps/scheduler/
+    main.go                     # Go scheduler entrypoint (control plane)
+    internal/workerhub/         # Scheduler-side worker connection/session hub + dispatch
+    pkg/workerprotocol/         # Scheduler↔Worker control-plane message contract (shared)
     internal/pipeline/
       executor.go               # ShellExecutor, DockerExecutor, SourceCheckoutExecutor, ReviewGateExecutor
-      engine.go                 # runStep() routes to DockerExecutor when step.Type == "docker"
-      types.go                  # PipelineStep: Type, DockerImage, ArtifactInputs fields
+      engine.go                 # Worker-dispatched job execution engine (no local fallback)
+      types.go                  # DAG pipeline config + step/job contracts
       storage.go, api.go, graph.go, service.go
   apps/worker/
     main.go                     # Go worker agent entrypoint (execution plane)
@@ -276,9 +278,10 @@ docs/
       004_api_tokens.sql        # Adds api_tokens table for existing DB upgrades
       add_concurrency_mode.sql  # Adds pipelines.concurrency_mode for existing DB upgrades
       005_analysis_progress_and_token_usage.sql # Adds analysis progress/token usage fields
-      010_runner_nodes.sql      # Adds worker node registry table for distributed pipelines
+      010_worker_nodes.sql      # Legacy migration creating worker_nodes (renamed later)
       011_org_storage_settings.sql # Adds per-org artifact storage backend settings
       012_artifact_download_events_and_project_retention.sql # Adds artifact download audit table + project retention override
+      013_orchestrator_dag_schema.sql # Drops fixed-stage pipeline metadata columns; renames worker_nodes/worker_id to worker_nodes/worker_id
 packages/
   contracts/                    # Shared API/contracts (active)
 ```
@@ -289,9 +292,9 @@ packages/
 DATABASE_URL=               # Studio Postgres connection string
 ENCRYPTION_KEY=             # AES-256-GCM key for secrets
 EMAIL_VERIFICATION_REQUIRED= # Require email verification before login (true|false)
-RUNNER_BASE_URL=            # Runner base URL (e.g. http://localhost:8200)
-RUNNER_TOKEN=               # Shared token for runner auth
-TASK_RUNNER_TOKEN=          # Optional, protects internal task endpoints (e.g. /api/codebase/sync)
+SCHEDULER_BASE_URL=            # Scheduler base URL (e.g. http://localhost:8200)
+SCHEDULER_TOKEN=               # Shared token for scheduler auth
+TASK_SCHEDULER_TOKEN=          # Optional, protects internal task endpoints (e.g. /api/codebase/sync)
 EMAIL_PROVIDER=             # Email provider for notifications: console|resend
 EMAIL_FROM=                 # From address (required for resend)
 RESEND_API_KEY=             # Resend API key (required when EMAIL_PROVIDER=resend)
@@ -314,21 +317,20 @@ AI_COST_INPUT_PER_MILLION_USD=          # Optional cost model for phase-level co
 AI_COST_OUTPUT_PER_MILLION_USD=         # Optional cost model for phase-level cost estimation
 ```
 
-**Runner env (apps/runner):**
+**Scheduler env (apps/scheduler):**
 ```
-RUNNER_PORT=8200
-RUNNER_TOKEN=
+SCHEDULER_PORT=8200
+SCHEDULER_TOKEN=
 DATABASE_URL=               # Postgres connection string
 REDIS_URL=                  # Redis queue
 ENCRYPTION_KEY=             # Same key used by studio for decrypting secrets
-STUDIO_URL=                 # Studio base URL (Runner -> Studio), used by pipeline executors
-STUDIO_TOKEN=               # Token presented to Studio as X-Runner-Token (defaults to RUNNER_TOKEN; dev falls back to "dev-runner")
+STUDIO_URL=                 # Studio base URL (Scheduler -> Studio), used by pipeline executors
+STUDIO_TOKEN=               # Token presented to Studio as X-Scheduler-Token (defaults to SCHEDULER_TOKEN; dev falls back to "dev-scheduler")
 PIPELINE_QUEUE=             # Pipeline queue name
 PIPELINE_CONCURRENCY=       # Max concurrent pipeline jobs
 PIPELINE_RUN_TIMEOUT=       # Overall run timeout (e.g. 2h)
-PIPELINE_REQUIRE_WORKER=    # Enforce worker-based pipeline execution (default true)
 WORKER_LEASE_TTL=           # Worker heartbeat lease window (default 45s)
-RUNNER_DATA_DIR=            # Local logs/artifacts root
+SCHEDULER_DATA_DIR=            # Local logs/artifacts root
 PIPELINE_LOG_RETENTION_DAYS=
 PIPELINE_ARTIFACT_RETENTION_DAYS=
 ANALYZE_PHASE_CORE_TIMEOUT=                 # Optional phase timeout override (e.g. 20m)
@@ -336,14 +338,14 @@ ANALYZE_PHASE_QUALITY_TIMEOUT=              # Optional phase timeout override (e
 ANALYZE_PHASE_SECURITY_PERFORMANCE_TIMEOUT= # Optional phase timeout override (e.g. 15m)
 ANALYZE_PHASE_SUGGESTIONS_TIMEOUT=          # Optional phase timeout override (e.g. 10m)
 ```
-**Runner config file (TOML, optional):**
-- Auto-detected: `apps/runner/config.toml` (repo root) or `config.toml` in current working directory
-- Override path via `RUNNER_CONFIG` or `-config`
+**Scheduler config file (TOML, optional):**
+- Auto-detected: `apps/scheduler/config.toml` (repo root) or `config.toml` in current working directory
+- Override path via `SCHEDULER_CONFIG` or `-config`
 - Precedence: env vars > TOML > defaults
 
 Example config (tables, no redundant prefixes):
 ```
-[runner]
+[scheduler]
 port = "8200"
 token = ""
 concurrency = 4
@@ -363,7 +365,6 @@ concurrency = 4
 run_timeout = "2h"
 log_retention_days = 30
 artifact_retention_days = 30
-require_worker = true
 
 [worker]
 lease_ttl = "45s"
@@ -378,8 +379,8 @@ token = ""
 
 **Worker env (apps/worker):**
 ```
-RUNNER_BASE_URL=            # Runner control-plane URL (e.g. http://runner:8200)
-RUNNER_TOKEN=               # Same shared token used by Runner auth
+SCHEDULER_BASE_URL=            # Scheduler control-plane URL (e.g. http://scheduler:8200)
+SCHEDULER_TOKEN=               # Same shared token used by Scheduler auth
 WORKER_ID=                  # Stable worker identifier (required in production)
 WORKER_HOSTNAME=            # Optional display hostname
 WORKER_VERSION=             # Optional worker version metadata
@@ -408,7 +409,7 @@ Environment files for Studio live under `apps/studio` (e.g. `apps/studio/.env`).
 - Project-level AI integration binding can be changed in **Project Settings > Project Configuration**; selecting "Use organization default" clears project override and falls back to org default.
 - Non-sensitive config → `org_integrations` table; secrets → encrypted in `vault_secret_name`
 - Secret encryption format is strict AES-256-GCM with 12-byte nonce and 16-byte tag: `iv:authTag:salt:ciphertext`
-- Studio and Runner both enforce this format for integration secrets; if old secrets were produced with non-standard nonce/tag size, re-save/recreate those integrations to rotate ciphertext
+- Studio and Scheduler both enforce this format for integration secrets; if old secrets were produced with non-standard nonce/tag size, re-save/recreate those integrations to rotate ciphertext
 - Priority: project-specific > org default (no env var fallback)
 
 ## Common Commands
@@ -418,13 +419,13 @@ pnpm dev     # Console dev server (port 8109)
 pnpm build   # Console production build (TypeScript check)
 pnpm start   # Console production server
 pnpm lint    # Console ESLint
-pnpm codebase:cleanup   # Cleanup stale workspaces (uses TASK_RUNNER_TOKEN; optional STUDIO_BASE_URL)
+pnpm codebase:cleanup   # Cleanup stale workspaces (uses TASK_SCHEDULER_TOKEN; optional STUDIO_BASE_URL)
 psql "$DATABASE_URL" -f docs/db/init.sql   # Initialize schema (fresh DB)
-cd apps/runner && go run .   # Runner service (reads config.toml if present)
+cd apps/scheduler && go run .   # Scheduler service (reads config.toml if present)
 cd apps/worker && go run .   # Worker service
 ```
 
-`pnpm codebase:cleanup` uses `TASK_RUNNER_TOKEN` and optional `STUDIO_BASE_URL` (default `http://localhost:8109`).
+`pnpm codebase:cleanup` uses `TASK_SCHEDULER_TOKEN` and optional `STUDIO_BASE_URL` (default `http://localhost:8109`).
 
 ## Dependency Build Scripts
 
@@ -439,50 +440,50 @@ If new install warnings appear, approve the dependency and update the allowlist.
    - distributed rate limits (`org+user+project`, `org`, auxiliary IP hash)
    - queue backpressure guard based on active `analysis_reports` (`pending`/`running`) counts
 2. Studio performs integration preflight (AI integration must decrypt/resolve successfully) before creating report/task.
-3. On accepted request, Studio creates `analysis_reports` row with immutable `analysis_snapshot` and enqueues runner task
+3. On accepted request, Studio creates `analysis_reports` row with immutable `analysis_snapshot` and enqueues scheduler task
 4. API returns `{ reportId, status: "queued", taskId }` (or deduped existing report/task when applicable)
-5. Reports support manual termination via `POST /api/reports/[id]/terminate` (Studio marks report `canceled` and requests Runner task cancellation).
+5. Reports support manual termination via `POST /api/reports/[id]/terminate` (Studio marks report `canceled` and requests Scheduler task cancellation).
 6. Studio also auto-fails timed-out reports (`pending`/`running`) based on `ANALYZE_REPORT_TIMEOUT_MS`.
-7. Runner canonical report status model is `pending -> running -> done | partial_failed | failed | canceled`.
-8. Runner executes phased analysis:
+7. Scheduler canonical report status model is `pending -> running -> done | partial_failed | failed | canceled`.
+8. Scheduler executes phased analysis:
    - `core` (score/category/issues/summary/context)
    - `quality` (complexity/duplication/dependency metrics)
    - `security_performance` (security + performance findings)
    - `suggestions` (refactor suggestions + code explanations)
    Non-core phases run in parallel after core completes.
 9. Each phase is persisted in `analysis_report_sections` (`report_id + phase + attempt`), including payload, duration, token usage, and failure reason.
-10. Runner increments `analysis_reports.sse_seq` on progress/section/status updates; SSE uses sequence + snapshot diff to stream ordered updates.
+10. Scheduler increments `analysis_reports.sse_seq` on progress/section/status updates; SSE uses sequence + snapshot diff to stream ordered updates.
 11. Frontend subscribes to `/api/reports/[id]/stream` and receives `status_update` with `status`, `score`, `analysisProgress`, `analysisSections`, `tokenUsage`, `tokensUsed`, `errorMessage`, `sequence`.
 12. Studio SSE backend is event-driven via Postgres `LISTEN/NOTIFY` channel `analysis_report_updates` (with periodic timeout sweep checks), not fixed-interval polling.
 
 ## Pipeline Engine (CI/CD)
 
-- **Studio** ships a drag-and-drop DAG builder under `/pipelines` with stage/job/step configuration.
+- **Studio** ships a native DAG job editor under `/pipelines` with direct job/needs/step configuration and an interactive DAG overview (click node to focus, drag link anchors to add dependencies, click edges to remove dependencies).
 - **Pipelines** always belong to a project (`project_id` is required, never null).
 - **Pipeline config** is versioned in `pipeline_versions` and linked from `pipelines.current_version_id`.
 - **Pipeline secrets** are stored in `pipeline_secrets` encrypted at rest (AES-256-GCM, `ENCRYPTION_KEY`) and injected into every step as environment variables (write-only in UI).
 - **Execution model**: jobs form a DAG via `needs`; steps run sequentially inside a job.
 - **Step types**: `shell` (default) runs via `/bin/sh -c`; `docker` runs `docker run --rm -w /workspace -v {workingDir}:/workspace {envFlags} {image} /bin/sh -c "{script}"`. Set `type: "docker"` and `dockerImage` on a step to use Docker.
 - **Step artifacts**: each user-defined step can declare `artifactPaths` (glob/file list, one per line in UI). Worker resolves patterns within the workspace (supports `**`) and uploads matched files after successful step execution.
-- **Artifact upload reliability**: worker uploads each artifact with bounded retry (`maxAttempts=3`) and emits attempt metadata; runner records observability events (`step.artifact.uploaded`, `step.artifact.upload_failed`, `step.artifact.upload_observed`) for timing/error-category analysis.
+- **Artifact upload reliability**: worker uploads each artifact with bounded retry (`maxAttempts=3`) and emits attempt metadata; scheduler records observability events (`step.artifact.uploaded`, `step.artifact.upload_failed`, `step.artifact.upload_observed`) for timing/error-category analysis.
 - **Concurrency modes**: each pipeline has a `concurrency_mode` column (`allow` / `queue` / `cancel_previous`). Studio API enforces this before creating a new run. Included in `docs/db/init.sql`; existing DBs should apply `docs/db/migrations/add_concurrency_mode.sql`.
 - **Events** are appended to `pipeline_run_events` for UI polling and audit.
-- **Logs** are stored locally under `RUNNER_DATA_DIR`:
+- **Logs** are stored locally under `SCHEDULER_DATA_DIR`:
   - `logs/{run_id}/{job_key}/{step_key}.log`
 - **Artifacts** use org-level storage backend settings (`org_storage_settings`):
-  - `local` provider: `{RUNNER_DATA_DIR}/{localBasePath}/{org_id}/{run_id}/{job_id}/{step_id}/...`
+  - `local` provider: `{SCHEDULER_DATA_DIR}/{localBasePath}/{org_id}/{run_id}/{job_id}/{step_id}/...`
   - `s3` provider: `s3://{bucket}/{prefix}/{org_id}/{run_id}/{job_id}/{step_id}/...`
-  - Worker uploads artifacts through Runner internal API `PUT /v1/workers/artifacts/upload`
-  - Artifact rows include optional `expires_at`; runner performs periodic expiry cleanup (storage delete + DB row delete) based on retention policy.
+  - Worker uploads artifacts through Scheduler internal API `PUT /v1/workers/artifacts/upload`
+  - Artifact rows include optional `expires_at`; scheduler performs periodic expiry cleanup (storage delete + DB row delete) based on retention policy.
 - **Artifact download path**:
   - Studio issues short-lived signed download tokens at `POST /api/pipeline-runs/:runId/artifacts/:artifactId/download-token`
   - Studio streams artifact content via `GET /api/pipeline-runs/:runId/artifacts/:artifactId/download?token=...`
-  - Studio fetches raw bytes from runner private endpoint `GET /v1/pipeline-runs/:runId/artifacts/:artifactId/content` using `X-Runner-Token`
-- **Runner → Studio callbacks (pipelines)**:
+  - Studio fetches raw bytes from scheduler private endpoint `GET /v1/pipeline-runs/:runId/artifacts/:artifactId/content` using `X-Scheduler-Token`
+- **Scheduler → Studio callbacks (pipelines)**:
   - `source_checkout` fetches repo info from `GET /api/projects/:id`
   - `review_gate` fetches latest completed report score from `GET /api/reports?projectId=...&limit=1`
-  - Runner emits completion events to Studio at `POST /api/runner/events` (authorized via `X-Runner-Token`) so Studio can send notifications
-  - Runner must be configured with `STUDIO_URL` and a token (`STUDIO_TOKEN`, defaults to `RUNNER_TOKEN`) and Studio must accept `X-Runner-Token` (shared secret)
+  - Scheduler emits completion events to Studio at `POST /api/scheduler/events` (authorized via `X-Scheduler-Token`) so Studio can send notifications
+  - Scheduler must be configured with `STUDIO_URL` and a token (`STUDIO_TOKEN`, defaults to `SCHEDULER_TOKEN`) and Studio must accept `X-Scheduler-Token` (shared secret)
 
 **GitHub webhook:** `/api/webhooks/github` supports `?project_id=...`. If a repo matches multiple projects, the endpoint returns 409 and requires `project_id`.
 
@@ -510,9 +511,9 @@ Codebase comments API contract:
 Codebase tree/file endpoints accept `sync=0` to skip mirror fetch for faster browsing (manual sync still available).
 Automatic mirror sync can be triggered by:
 - GitHub `push` webhooks (forces mirror fetch for matching projects).
-- Scheduled POST to `/api/codebase/sync` (uses `x-task-token` if `TASK_RUNNER_TOKEN` is set). Supports `limit`, `force`, `project_id`, and `org_id`.
+- Scheduled POST to `/api/codebase/sync` (uses `x-task-token` if `TASK_SCHEDULER_TOKEN` is set). Supports `limit`, `force`, `project_id`, and `org_id`.
 - Project creation triggers an initial mirror sync in the background.
-Stale workspaces can be cleared via `POST /api/codebase/cleanup` (uses `x-task-token` if `TASK_RUNNER_TOKEN` is set).
+Stale workspaces can be cleared via `POST /api/codebase/cleanup` (uses `x-task-token` if `TASK_SCHEDULER_TOKEN` is set).
 
 Tool caches are centralized under repo root `/.cache/` (for example `/.cache/go/mod`, `/.cache/go/build`, `/.cache/pnpm/store`, `/.cache/codebase`) and are not committed to Git.
 `CodebaseService` default root is `/.cache/codebase` (override via `CODEBASE_ROOT` when needed).
@@ -541,7 +542,7 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 
 ## Runtime Contracts
 
-- All API routes require login; a small set of Studio endpoints accept `X-Runner-Token` for Runner-to-Studio calls (pipeline executors)
+- All API routes require login; a small set of Studio endpoints accept `X-Scheduler-Token` for Scheduler-to-Studio calls (pipeline executors)
 - Auth uses the `session` HTTP-only cookie; email verification is controlled by `EMAIL_VERIFICATION_REQUIRED` (default true)
 - `analysis_issues.status`: `open | fixed | ignored | false_positive | planned`
 - `/api/projects/[id]/trends` returns array directly (no `data` wrapper)
@@ -550,8 +551,8 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - Dashboard routes must be accessed via `/o/:orgId/...` (middleware rewrites internally)
 - Project detail tabs support deep links via query params: `?tab=commits|codebase|stats|config`. Codebase supports `ref`, `path`, `line`, `commentId` for jump-to-location/thread.
 - `PATCH /api/pipelines/[id]` updates `concurrency_mode` in Studio DB (schema must include `pipelines.concurrency_mode`; present in `init.sql`)
-- `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling runner (409 if `queue` mode and run active)
-- Studio server calls Runner `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` (used by `cancel_previous` concurrency mode)
+- `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling scheduler (409 if `queue` mode and run active)
+- Studio server calls Scheduler `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` (used by `cancel_previous` concurrency mode)
 - AI integration runtime routing: official OpenAI + reasoning-capable model (or explicit `reasoningEffort`) calls `/responses`; otherwise calls `/chat/completions` (Anthropic base URL uses Messages API)
 - AI integration protocol selection requires explicit `apiStyle`: `anthropic` forces Messages API; `openai` forces OpenAI-compatible APIs.
 - `POST /api/reports/[id]/chat` resolves AI config from project/org integrations (same precedence as analyze), streams assistant output via SSE (`meta` / `delta` / `done` / `error` events), and returns integration binding errors (`AI_INTEGRATION_MISSING` / `AI_INTEGRATION_REBIND_REQUIRED`) instead of relying on `ANTHROPIC_API_KEY`.
@@ -561,8 +562,8 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - `GET /api/reports/[id]/chat?latest=1` returns only the latest conversation for the report (used by AI chat initialization to avoid loading full history).
 - Chat history query responses include `updated_at` for ordering conversation history in the AI reviewer dialog.
 - Studio AI runtime implementation is SDK-free and uses a single HTTP adapter strategy across providers (including Anthropic Messages API).
-- Runner analysis error normalization: token-limit truncation and empty upstream body are surfaced as actionable messages instead of raw JSON parse errors.
-- Runner AI client performs one automatic token-budget retry on output truncation (`max_tokens` / `max_output_tokens`) before failing.
+- Scheduler analysis error normalization: token-limit truncation and empty upstream body are surfaced as actionable messages instead of raw JSON parse errors.
+- Scheduler AI client performs one automatic token-budget retry on output truncation (`max_tokens` / `max_output_tokens`) before failing.
 - Report stream payload (`type: "status_update"`) includes `status`, `score`, `analysisProgress`, `analysisSections`, `tokenUsage`, `tokensUsed`, `errorMessage`, and `sequence`
 - `GET /api/rules/templates` returns static template list; `POST /api/rules/templates/[id]/import` is admin-only
 - Report compare page: `/o/:orgId/projects/:id/reports/compare?a=reportIdA&b=reportIdB`
@@ -596,6 +597,6 @@ psql "$DATABASE_URL" -f docs/db/migrations/009_phased_analysis_sections.sql
 
 ## FAQ
 
-**TypeScript build errors?** Run `pnpm build`. Common causes: contract mismatch between Runner and Studio, dictionary key mismatch between `en.json` and `zh.json`, or stale type cache (`rm -rf .next`).
+**TypeScript build errors?** Run `pnpm build`. Common causes: contract mismatch between Scheduler and Studio, dictionary key mismatch between `en.json` and `zh.json`, or stale type cache (`rm -rf .next`).
 
 **Dark mode?** Theme is controlled via `data-theme` on `:root` (see `apps/studio/src/app/globals.css`). Prefer token-driven styling instead of per-component theme conditionals.

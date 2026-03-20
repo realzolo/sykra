@@ -4,7 +4,7 @@ import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId } from '@/services/orgs';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
-import { getPipelineRun, getPipelineStepLog } from '@/services/runnerClient';
+import { getPipelineRun, getPipelineStepLog } from '@/services/schedulerClient';
 
 export const dynamic = 'force-dynamic';
 

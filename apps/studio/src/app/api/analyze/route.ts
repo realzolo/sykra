@@ -5,7 +5,7 @@ import { getRulesBySetId, createReport, updateReport } from '@/services/db';
 import { shouldUseIncrementalAnalysis } from '@/services/incremental';
 import { buildReportCommits } from '@/services/analyzeTask';
 import { query, queryOne } from '@/lib/db';
-import { enqueueAnalyze } from '@/services/runnerClient';
+import { enqueueAnalyze } from '@/services/schedulerClient';
 import { logger } from '@/services/logger';
 import { analyzeRequestSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
@@ -258,7 +258,7 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       await updateReport(report.id, {
         status: 'failed',
-        error_message: err instanceof Error ? err.message : 'Runner enqueue failed',
+        error_message: err instanceof Error ? err.message : 'Scheduler enqueue failed',
       });
       throw err;
     }

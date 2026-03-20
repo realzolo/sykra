@@ -6,7 +6,7 @@ import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { query, exec } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
-import { getPipeline } from '@/services/runnerClient';
+import { getPipeline } from '@/services/schedulerClient';
 
 export const dynamic = 'force-dynamic';
 

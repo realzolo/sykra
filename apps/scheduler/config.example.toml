@@ -1,0 +1,35 @@
+# Scheduler config (TOML). Environment variables override these values.
+
+[scheduler]
+port = "8200"
+token = ""
+concurrency = 4
+queue = "analysis"
+analyze_timeout = "900s"
+data_dir = "data"
+
+[database]
+url = "postgres://user:pass@localhost:5432/spec_axis"
+
+[redis]
+url = "redis://localhost:6379/0"
+
+[pipeline]
+queue = "pipelines"
+concurrency = 4
+run_timeout = "2h"
+log_retention_days = 30
+artifact_retention_days = 30
+
+[worker]
+lease_ttl = "45s"
+
+[security]
+encryption_key = ""
+
+[studio]
+# Base URL for Studio (used by pipeline source_checkout and review_gate job types)
+url = "http://localhost:8109"
+# Optional: token presented to Studio as `X-Scheduler-Token`. If empty, Scheduler will
+# fall back to the main `SCHEDULER_TOKEN` env var / `[scheduler].token` value.
+token = ""

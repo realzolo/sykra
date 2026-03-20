@@ -9,7 +9,7 @@ import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requireProjectAccess } from '@/services/orgs';
 import { queryOne } from '@/lib/db';
-import { isRunnerAuthorized } from '@/services/runnerAuth';
+import { isSchedulerAuthorized } from '@/services/schedulerAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,9 +24,9 @@ export async function GET(
     return rateLimitResponse;
   }
 
-  const runnerAuthorized = isRunnerAuthorized(request);
-  const user = runnerAuthorized ? null : await requireUser();
-  if (!runnerAuthorized && !user) return unauthorized();
+  const schedulerAuthorized = isSchedulerAuthorized(request);
+  const user = schedulerAuthorized ? null : await requireUser();
+  if (!schedulerAuthorized && !user) return unauthorized();
 
   try {
     const { id } = await params;
@@ -34,7 +34,7 @@ export async function GET(
 
     logger.setContext({ projectId });
 
-    if (runnerAuthorized) {
+    if (schedulerAuthorized) {
       const project = await withRetry(() =>
         queryOne<{
           id: string;
