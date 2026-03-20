@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ArrowDown, ArrowRight, Bot, GitBranch, Hand, ListOrdered, Plus, Trash2 } from "lucide-react";
 import type { Dictionary } from "@/i18n";
+import { useProject } from "@/lib/projectContext";
 import type {
   PipelineJob,
   PipelineStageConfig,
@@ -28,7 +29,6 @@ import PipelineStepEditor, {
 
 type Props = {
   jobs: PipelineJob[];
-  triggerBranch: string;
   stageSettings: PipelineStageSettings | undefined;
   dict: Dictionary["pipelines"];
   isAdmin: boolean;
@@ -180,7 +180,6 @@ function StageFlowConnector({
 
 export default function StageBuilder({
   jobs,
-  triggerBranch,
   stageSettings,
   dict,
   isAdmin,
@@ -189,6 +188,7 @@ export default function StageBuilder({
   onJobsChange,
   onStageSettingsChange,
 }: Props) {
+  const { project } = useProject();
   const grouped = useMemo(() => buildStageJobs(jobs), [jobs]);
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) ?? null,
@@ -213,8 +213,8 @@ export default function StageBuilder({
     const nextJob = createStageJob(
       stage,
       jobs.map((job) => job.id),
-      triggerBranch,
-      getDefaultJobName(stage, dict)
+      getDefaultJobName(stage, dict),
+      project.default_branch
     );
     onJobsChange([...jobs, nextJob]);
     onSelectJob(nextJob.id);
@@ -568,6 +568,7 @@ function StageJobInspector({
   onUpdateStep: (jobId: string, stepId: string, patch: Partial<PipelineStep>) => void;
   onApplyTemplate: (jobId: string, template: "node" | "python" | "go") => void;
 }) {
+  const { project } = useProject();
   const jobType = job.type ?? "shell";
 
   return (
@@ -588,17 +589,6 @@ function StageJobInspector({
         </div>
       </div>
 
-      {jobType === "source_checkout" && (
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-foreground">{dict.jobs.sourceBranch}</label>
-          <Input
-            value={job.branch ?? "main"}
-            onChange={(event) => onUpdateJob(job.id, { branch: event.target.value })}
-            disabled={!isAdmin}
-          />
-        </div>
-      )}
-
       {jobType === "review_gate" && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-foreground">{dict.jobs.reviewMinScore}</label>
@@ -617,6 +607,36 @@ function StageJobInspector({
               disabled={!isAdmin}
             />
             <span className="text-[12px] text-[hsl(var(--ds-text-2))]">/ 100</span>
+          </div>
+        </div>
+      )}
+
+      {jobType === "source_checkout" && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-3">
+            <label className="text-xs font-medium text-foreground">{dict.basic.branch}</label>
+            <button
+              type="button"
+              onClick={() => onUpdateJob(job.id, { branch: project.default_branch })}
+              className={`text-[11px] font-medium text-[hsl(var(--ds-text-2))] transition-colors ${
+                isAdmin ? "hover:text-foreground" : "cursor-default opacity-60"
+              }`}
+              disabled={!isAdmin}
+            >
+              {dict.basic.resetToProjectDefaultBranch}
+            </button>
+          </div>
+          <Input
+            value={job.branch ?? "main"}
+            onChange={(event) => onUpdateJob(job.id, { branch: event.target.value })}
+            placeholder={dict.basic.branchPlaceholder}
+            disabled={!isAdmin}
+          />
+          <div className="flex items-center justify-between gap-3 text-[12px] text-[hsl(var(--ds-text-2))]">
+            <span>{dict.basic.branchHelp}</span>
+            <span className="shrink-0">
+              {dict.basic.projectDefaultBranch.replace("{{branch}}", project.default_branch)}
+            </span>
           </div>
         </div>
       )}

@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Dictionary } from "@/i18n";
+import { useProject } from "@/lib/projectContext";
 import type {
   PipelineConfig,
   PipelineEnvironment,
@@ -46,10 +47,6 @@ type WizardStep = "basic" | "jobs" | "notifications";
 const WIZARD_STEPS: WizardStep[] = ["basic", "jobs", "notifications"];
 const ENV_OPTIONS: PipelineEnvironment[] = ["development", "staging", "production"];
 
-function createInitialConfig(): PipelineConfig {
-  return createDefaultPipelineConfig("");
-}
-
 export default function CreatePipelineWizard({
   open,
   onClose,
@@ -57,6 +54,7 @@ export default function CreatePipelineWizard({
   projectId,
   dict,
 }: Props) {
+  const { project } = useProject();
   const p = dict.pipelines;
 
   const [wizardStep, setWizardStep] = useState<WizardStep>("basic");
@@ -64,12 +62,11 @@ export default function CreatePipelineWizard({
   const [submitting, setSubmitting] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [config, setConfig] = useState<PipelineConfig>(() => createInitialConfig());
+  const [config, setConfig] = useState<PipelineConfig>(() => createDefaultPipelineConfig("", project.default_branch));
 
-  const triggerBranch = config.trigger.branch.trim() || "main";
   const normalizedJobs = useMemo(
-    () => normalizePipelineJobs(config.jobs, triggerBranch, config.stages),
-    [config.jobs, config.stages, triggerBranch]
+    () => normalizePipelineJobs(config.jobs, config.stages, project.default_branch),
+    [config.jobs, config.stages, project.default_branch]
   );
   const diagnostics = useMemo(
     () => analyzePipelineJobs(normalizedJobs),
@@ -88,7 +85,7 @@ export default function CreatePipelineWizard({
   }, [config.jobs, selectedJobId]);
 
   function resetForm() {
-    const initialConfig = createInitialConfig();
+    const initialConfig = createDefaultPipelineConfig("", project.default_branch);
     setWizardStep("basic");
     setSelectedJobId(initialConfig.jobs[0]?.id ?? null);
     setSubmitting(false);
@@ -123,7 +120,7 @@ export default function CreatePipelineWizard({
     try {
       const trimmedName = name.trim();
       const trimmedDescription = description.trim();
-      const finalJobs = normalizePipelineJobs(config.jobs, triggerBranch, config.stages);
+      const finalJobs = normalizePipelineJobs(config.jobs, config.stages, project.default_branch);
       const jobDiagnostics = analyzePipelineJobs(finalJobs);
       const firstError = jobDiagnostics.find((item) => item.level === "error");
 
@@ -141,8 +138,7 @@ export default function CreatePipelineWizard({
         ...config,
         name: trimmedName,
         trigger: {
-          ...config.trigger,
-          branch: triggerBranch,
+          autoTrigger: config.trigger.autoTrigger,
         },
         stages: normalizeStageSettings(config.stages),
         jobs: finalJobs,
@@ -249,46 +245,30 @@ export default function CreatePipelineWizard({
                 />
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">{p.basic.environment}</label>
-                  <Select
-                    value={config.environment ?? "production"}
-                    onValueChange={(value) =>
-                      setConfig((current) => ({
-                        ...current,
-                        environment: value as PipelineEnvironment,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ENV_OPTIONS.map((environment) => (
-                        <SelectItem key={environment} value={environment}>
-                          {p.env[environment]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">{p.basic.branch}</label>
-                  <Input
-                    value={config.trigger.branch}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        trigger: {
-                          ...current.trigger,
-                          branch: event.target.value,
-                        },
-                      }))
-                    }
-                    placeholder={p.basic.branchPlaceholder}
-                  />
+              <div className="max-w-sm space-y-1.5">
+                <label className="text-xs font-medium text-foreground">{p.basic.environment}</label>
+                <Select
+                  value={config.environment ?? "production"}
+                  onValueChange={(value) =>
+                    setConfig((current) => ({
+                      ...current,
+                      environment: value as PipelineEnvironment,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ENV_OPTIONS.map((environment) => (
+                      <SelectItem key={environment} value={environment}>
+                        {p.env[environment]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                  {p.basic.environmentHelp}
                 </div>
               </div>
 
@@ -321,7 +301,6 @@ export default function CreatePipelineWizard({
 
               <StageBuilder
                 jobs={config.jobs}
-                triggerBranch={triggerBranch}
                 stageSettings={config.stages}
                 dict={p}
                 isAdmin

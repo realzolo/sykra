@@ -36,6 +36,32 @@ type GitHubWebhookPayload = {
   pull_request?: PullRequestPayload;
 };
 
+function getPipelineSourceBranch(config: unknown): string {
+  if (!config || typeof config !== 'object') {
+    return 'main';
+  }
+
+  const jobs = 'jobs' in config ? (config as { jobs?: unknown }).jobs : undefined;
+  if (!Array.isArray(jobs)) {
+    return 'main';
+  }
+
+  const sourceJob = jobs.find((job) => {
+    if (!job || typeof job !== 'object') {
+      return false;
+    }
+    const type = 'type' in job ? (job as { type?: unknown }).type : undefined;
+    return type === 'source_checkout';
+  });
+
+  if (!sourceJob || typeof sourceJob !== 'object') {
+    return 'main';
+  }
+
+  const branch = 'branch' in sourceJob ? (sourceJob as { branch?: unknown }).branch : undefined;
+  return typeof branch === 'string' && branch.trim() !== '' ? branch.trim() : 'main';
+}
+
 function verifySignature(payload: string, signature: string, secret: string) {
   const hmac = crypto.createHmac('sha256', secret);
   const digest = `sha256=${hmac.update(payload, 'utf8').digest('hex')}`;
@@ -126,11 +152,12 @@ export async function POST(request: NextRequest) {
           if (!Array.isArray(allPipelines)) continue;
           for (const p of allPipelines) {
             const detail = await getPipeline(p.id).catch(() => null);
-            const trigger = detail?.version?.config && typeof detail.version.config === 'object'
-              ? ((detail.version.config as { trigger?: { autoTrigger?: boolean; branch?: string } }).trigger ?? null)
-              : null;
+            const trigger =
+              detail?.version?.config && typeof detail.version.config === 'object'
+                ? ((detail.version.config as { trigger?: { autoTrigger?: boolean } }).trigger ?? null)
+                : null;
             if (!trigger?.autoTrigger) continue;
-            const branch = typeof trigger.branch === 'string' && trigger.branch.trim() !== '' ? trigger.branch : 'main';
+            const branch = getPipelineSourceBranch(detail?.version?.config);
             if (branch !== pushedBranch) continue;
             try {
               await createPipelineRun(p.id, {

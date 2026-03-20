@@ -54,14 +54,12 @@ export type PipelineJob = {
   env?: Record<string, string>;
   workingDir?: string;
   type?: PipelineJobType;
-  // Built-in source_checkout fields
   branch?: string;
   // Built-in review_gate field
   minScore?: number;
 };
 
 export type PipelineTrigger = {
-  branch: string;
   autoTrigger: boolean;
 };
 
@@ -262,15 +260,21 @@ export function createDefaultJob(name = 'New Job', existingIds: string[] = []): 
   };
 }
 
-export function createDefaultPipelineConfig(name: string): PipelineConfig {
+function normalizeSourceBranchValue(branch?: string): string {
+  const normalized = branch?.trim();
+  return normalized && normalized.length > 0 ? normalized : 'main';
+}
+
+export function createDefaultPipelineConfig(name: string, defaultBranch = 'main'): PipelineConfig {
   const sourceJobId = 'source';
   const reviewJobId = 'review';
   const buildJobId = 'build';
+  const sourceBranch = normalizeSourceBranchValue(defaultBranch);
 
   return {
     name,
     environment: 'production',
-    trigger: { branch: 'main', autoTrigger: false },
+    trigger: { autoTrigger: false },
     stages: { ...DEFAULT_STAGE_SETTINGS },
     notifications: {
       onSuccess: true,
@@ -283,7 +287,7 @@ export function createDefaultPipelineConfig(name: string): PipelineConfig {
         name: 'Source',
         stage: 'source',
         type: 'source_checkout',
-        branch: 'main',
+        branch: sourceBranch,
         needs: [],
         steps: [{ id: 'checkout', name: 'Checkout', script: '' }],
       },
@@ -433,11 +437,20 @@ export function buildStageJobs(jobs: PipelineJob[]): Record<PipelineStageKey, Pi
   return grouped;
 }
 
+export function getSourceJob(jobs: PipelineJob[]): PipelineJob | null {
+  return jobs.find((job) => (job.type ?? 'shell') === 'source_checkout') ?? null;
+}
+
+export function getSourceBranch(jobs: PipelineJob[]): string {
+  const sourceJob = getSourceJob(jobs);
+  return normalizeSourceBranchValue(sourceJob?.branch);
+}
+
 export function createStageJob(
   stage: PipelineStageKey,
   existingIds: string[],
-  triggerBranch: string,
-  name?: string
+  name?: string,
+  sourceBranch = 'main'
 ): PipelineJob {
   if (stage === 'source') {
     const sourceName = name?.trim() || 'Source';
@@ -446,7 +459,7 @@ export function createStageJob(
       name: sourceName,
       stage,
       type: 'source_checkout',
-      branch: triggerBranch || 'main',
+      branch: normalizeSourceBranchValue(sourceBranch),
       needs: [],
       steps: [{ id: 'checkout', name: 'Checkout', script: '' }],
     };
@@ -490,14 +503,15 @@ export function createStageJob(
 
 export function normalizePipelineJobs(
   jobs: PipelineJob[],
-  triggerBranch: string,
-  stageSettings?: PipelineStageSettings
+  stageSettings?: PipelineStageSettings,
+  sourceDefaultBranch = 'main'
 ): PipelineJob[] {
   const validIds = new Set(jobs.map((job) => job.id));
   const grouped = buildStageJobs(jobs);
   let previousStageIds: string[] = [];
   const normalized: PipelineJob[] = [];
   const normalizedStageSettings = normalizeStageSettings(stageSettings);
+  const fallbackSourceBranch = normalizeSourceBranchValue(sourceDefaultBranch);
 
   for (const stage of PIPELINE_STAGE_SEQUENCE) {
     const stageJobs =
@@ -522,7 +536,7 @@ export function normalizePipelineJobs(
           ...rawJob,
           stage,
           type: 'source_checkout',
-          branch: rawJob.branch?.trim() || triggerBranch || 'main',
+          branch: normalizeSourceBranchValue(rawJob.branch ?? fallbackSourceBranch),
           needs,
           steps: rawJob.steps.length > 0 ? rawJob.steps : [{ id: 'checkout', name: 'Checkout', script: '' }],
         });

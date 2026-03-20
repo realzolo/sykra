@@ -90,12 +90,11 @@ const pipelineJobSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   workingDir: z.string().optional(),
   type: z.enum(['shell', 'source_checkout', 'review_gate']).optional(),
-  branch: z.string().optional(),
+  branch: z.string().min(1).optional(),
   minScore: z.number().int().min(0).max(100).optional(),
 });
 
 const pipelineTriggerSchema = z.object({
-  branch: z.string().min(1).default('main'),
   autoTrigger: z.boolean().default(false),
 });
 

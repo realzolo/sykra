@@ -345,11 +345,15 @@
       "project": "关联项目",
       "projectPlaceholder": "选择项目",
       "projectRequired": "请选择关联项目",
-      "environment": "目标环境",
-      "branch": "触发分支",
+      "environment": "环境",
+      "environmentHelp": "这条流水线的执行与部署环境上下文。用于 Worker 路由选择和运行环境标识。",
+      "branch": "代码分支",
+      "branchHelp": "这条流水线唯一的代码分支配置。Source 检出和 Push 自动触发都使用这个分支。",
       "branchPlaceholder": "例如：main",
+      "projectDefaultBranch": "项目默认分支：{{branch}}",
+      "resetToProjectDefaultBranch": "使用项目默认分支",
       "autoTrigger": "代码推送时自动触发",
-      "autoTriggerHelp": "向触发分支推送代码时，自动运行该流水线"
+      "autoTriggerHelp": "向该代码分支推送代码时，自动运行这条流水线"
     },
     "stageTab": {
       "source": "数据源",
@@ -426,7 +430,6 @@
       "addDialogNeedsHelp": "依赖选择会直接决定该节点在 DAG 中的层级位置。",
       "addDialogTargetLayer": "该 Job 将放置在第 {{layer}} 层。",
       "addDialogCreate": "创建 Job",
-      "sourceBranch": "检出分支",
       "reviewMinScore": "最低评审分",
       "steps": "步骤",
       "addStep": "添加步骤",

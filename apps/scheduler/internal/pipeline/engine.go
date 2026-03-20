@@ -703,7 +703,7 @@ func (e *Engine) runJobOnWorker(
 		JobID:              jobRecord.ID,
 		JobKey:             job.ID,
 		JobType:            job.Type,
-		Environment:        "",
+		Environment:        cfg.Environment,
 		ProjectID:          job.ProjectID,
 		Branch:             job.Branch,
 		MinScore:           job.MinScore,
@@ -936,6 +936,9 @@ func buildEnv(runID string, cfg PipelineConfig, secrets map[string]string, job P
 	env["PIPELINE_RUN_ID"] = runID
 	env["PIPELINE_JOB_ID"] = job.ID
 	env["PIPELINE_STEP_ID"] = step.ID
+	if strings.TrimSpace(cfg.Environment) != "" {
+		env["PIPELINE_ENVIRONMENT"] = strings.TrimSpace(cfg.Environment)
+	}
 	return env
 }
 

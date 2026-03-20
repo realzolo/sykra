@@ -343,11 +343,15 @@
       "project": "Project",
       "projectPlaceholder": "Select a project",
       "projectRequired": "Project is required",
-      "environment": "Target Environment",
-      "branch": "Trigger Branch",
+      "environment": "Environment",
+      "environmentHelp": "Execution and deployment context for this pipeline. Used for worker targeting and runtime environment labeling.",
+      "branch": "Source Branch",
+      "branchHelp": "The single source-of-truth branch for this pipeline. Source checkout and push-trigger matching both use this branch.",
       "branchPlaceholder": "e.g. main",
+      "projectDefaultBranch": "Project default: {{branch}}",
+      "resetToProjectDefaultBranch": "Use project default",
       "autoTrigger": "Auto-trigger on push",
-      "autoTriggerHelp": "Automatically run this pipeline when code is pushed to the trigger branch"
+      "autoTriggerHelp": "Automatically run this pipeline when code is pushed to the source branch"
     },
     "stageTab": {
       "source": "Source",
@@ -424,7 +428,6 @@
       "addDialogNeedsHelp": "Dependency choices determine where this node is placed in the DAG.",
       "addDialogTargetLayer": "This job will be placed in Layer {{layer}}.",
       "addDialogCreate": "Create Job",
-      "sourceBranch": "Checkout Branch",
       "reviewMinScore": "Minimum Review Score",
       "steps": "Steps",
       "addStep": "Add Step",

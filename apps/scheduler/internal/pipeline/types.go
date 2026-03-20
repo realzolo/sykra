@@ -75,8 +75,7 @@ type PipelineConfig struct {
 }
 
 type TriggerConfig struct {
-	Branch      string `json:"branch"`
-	AutoTrigger bool   `json:"autoTrigger"`
+	AutoTrigger bool `json:"autoTrigger"`
 }
 
 type NotifyConfig struct {
@@ -156,9 +155,7 @@ func BuildInternalPlan(cfg PipelineConfig, projectID, studioURL, studioToken str
 		switch job.Type {
 		case "source_checkout":
 			job.ProjectID = projectID
-			if strings.TrimSpace(job.Branch) == "" {
-				job.Branch = strings.TrimSpace(cfg.Trigger.Branch)
-			}
+			job.Branch = strings.TrimSpace(job.Branch)
 			if strings.TrimSpace(job.Branch) == "" {
 				job.Branch = "main"
 			}

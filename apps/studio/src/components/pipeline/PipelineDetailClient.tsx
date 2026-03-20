@@ -52,6 +52,7 @@ import {
   createDefaultPipelineConfig,
   durationLabel,
   ENV_LABELS,
+  getSourceBranch,
   getStageConfig,
   normalizePipelineJobs,
   normalizeStageSettings,
@@ -59,6 +60,7 @@ import {
   STATUS_VARIANTS,
 } from "@/services/pipelineTypes";
 import { useOrgRole } from "@/lib/useOrgRole";
+import { useProject } from "@/lib/projectContext";
 import { formatLocalDateTime } from "@/lib/dateFormat";
 import { pipelineConfigSchema } from "@/services/validation";
 import StageBuilder from "@/components/pipeline/StageBuilder";
@@ -102,6 +104,7 @@ export default function PipelineDetailClient({
   pipelineId: string;
 }) {
   const searchParams = useSearchParams();
+  const { project } = useProject();
   const p = dict.pipelines;
   const { isAdmin } = useOrgRole();
 
@@ -165,13 +168,13 @@ export default function PipelineDetailClient({
       const data = await res.json();
       const loadedPipeline = (data?.pipeline ?? null) as PipelineSummary | null;
       setPipeline(loadedPipeline);
-      setConfig(normalizeLoadedPipelineConfig(data?.version?.config, loadedPipeline));
+      setConfig(normalizeLoadedPipelineConfig(data?.version?.config, loadedPipeline, project.default_branch));
     } catch {
       toast.error(p.loadFailed);
     } finally {
       setLoading(false);
     }
-  }, [pipelineId, p.loadFailed]);
+  }, [pipelineId, p.loadFailed, project.default_branch]);
 
   const loadRuns = useCallback(async () => {
     try {
@@ -320,7 +323,7 @@ export default function PipelineDetailClient({
     if (!config) return;
     setSaving(true);
     try {
-      const normalizedConfig = normalizePipelineConfigForSave(config);
+      const normalizedConfig = normalizePipelineConfigForSave(config, project.default_branch);
       const diagnostics = analyzePipelineJobs(normalizedConfig.jobs);
       const firstError = diagnostics.find((item) => item.level === "error");
       if (firstError) {
@@ -460,8 +463,8 @@ export default function PipelineDetailClient({
 
   // ── Job progress bar ───────────────────────────────────────────────────────
   const runtimeJobs = useMemo(
-    () => normalizePipelineJobs(config?.jobs ?? [], config?.trigger.branch ?? "main", config?.stages),
-    [config?.jobs, config?.trigger.branch, config?.stages]
+    () => normalizePipelineJobs(config?.jobs ?? [], config?.stages, project.default_branch),
+    [config?.jobs, config?.stages, project.default_branch]
   );
   const runtimeStageSettings = useMemo(
     () => normalizeStageSettings(config?.stages),
@@ -510,6 +513,7 @@ export default function PipelineDetailClient({
   }, [runDetail?.jobs]);
   const runtimeStageCardWidth = runtimeStages.length >= 5 ? 252 : 288;
   const runtimeConnectorWidth = runtimeStages.length >= 5 ? 48 : 72;
+  const sourceBranch = useMemo(() => getSourceBranch(config?.jobs ?? []), [config?.jobs]);
 
   useEffect(() => {
     const jobs = runDetail?.jobs ?? [];
@@ -704,7 +708,7 @@ export default function PipelineDetailClient({
             <div className="flex items-center gap-3 mt-1.5 text-[12px] text-[hsl(var(--ds-text-2))]">
               <div className="flex items-center gap-1">
                 <GitBranch className="size-3" />
-                {config?.trigger?.branch ?? "main"}
+                {sourceBranch}
               </div>
               {config?.trigger?.autoTrigger && (
                 <span className="text-accent text-[11px]">
@@ -1241,38 +1245,27 @@ export default function PipelineDetailClient({
                 {configSection === "jobs" && (
                   <div className="space-y-6 pb-8">
                     <DiagnosticsPanel diagnostics={configDiagnostics} dict={p} />
-                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-4 max-w-3xl">
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-foreground">{p.basic.environment}</label>
-                        <Select
-                          value={config.environment ?? "production"}
-                          onValueChange={(value) =>
-                            setConfig({ ...config, environment: value as PipelineEnvironment })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(["development", "staging", "production"] as const).map((env) => (
-                              <SelectItem key={env} value={env}>
-                                {p.env[env]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-foreground">{p.basic.branch}</label>
-                        <Input
-                          value={config.trigger.branch}
-                          onChange={(event) =>
-                            setConfig({
-                              ...config,
-                              trigger: { ...config.trigger, branch: event.target.value },
-                            })
-                          }
-                        />
+                    <div className="max-w-sm space-y-1.5">
+                      <label className="text-xs font-medium text-foreground">{p.basic.environment}</label>
+                      <Select
+                        value={config.environment ?? "production"}
+                        onValueChange={(value) =>
+                          setConfig({ ...config, environment: value as PipelineEnvironment })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(["development", "staging", "production"] as const).map((env) => (
+                            <SelectItem key={env} value={env}>
+                              {p.env[env]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                        {p.basic.environmentHelp}
                       </div>
                     </div>
 
@@ -1295,7 +1288,6 @@ export default function PipelineDetailClient({
                     </div>
                     <StageBuilder
                       jobs={config.jobs}
-                      triggerBranch={config.trigger.branch}
                       stageSettings={config.stages}
                       dict={p}
                       isAdmin={isAdmin}
@@ -1647,30 +1639,28 @@ function DiagnosticsPanel({
 
 function normalizeLoadedPipelineConfig(
   rawConfig: unknown,
-  pipeline: PipelineSummary | null
+  pipeline: PipelineSummary | null,
+  defaultBranch: string
 ): PipelineConfig {
   const parsed = pipelineConfigSchema.safeParse(rawConfig);
   if (parsed.success) {
-    return normalizePipelineConfigForSave(parsed.data as PipelineConfig);
+    return normalizePipelineConfigForSave(parsed.data as PipelineConfig, defaultBranch);
   }
 
-  const fallback = createDefaultPipelineConfig(pipeline?.name ?? "");
+  const fallback = createDefaultPipelineConfig(pipeline?.name ?? "", defaultBranch);
   if (pipeline?.description) {
     fallback.description = pipeline.description;
   }
   return fallback;
 }
 
-function normalizePipelineConfigForSave(config: PipelineConfig): PipelineConfig {
-  const triggerBranch = config.trigger.branch.trim() || "main";
-
+function normalizePipelineConfigForSave(config: PipelineConfig, defaultBranch: string): PipelineConfig {
   return {
     ...config,
     trigger: {
-      ...config.trigger,
-      branch: triggerBranch,
+      autoTrigger: config.trigger.autoTrigger,
     },
     stages: normalizeStageSettings(config.stages),
-    jobs: normalizePipelineJobs(config.jobs, triggerBranch, config.stages),
+    jobs: normalizePipelineJobs(config.jobs, config.stages, defaultBranch),
   };
 }
