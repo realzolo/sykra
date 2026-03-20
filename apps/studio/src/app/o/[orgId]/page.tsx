@@ -95,7 +95,7 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
     ),
     query<{
       id: string;
-      status: 'queued' | 'running' | 'success' | 'failed' | 'canceled' | 'timed_out' | 'skipped';
+      status: 'queued' | 'running' | 'waiting_manual' | 'success' | 'failed' | 'canceled' | 'timed_out' | 'skipped';
       created_at: string;
       pipeline_id: string;
       pipeline_name: string;
@@ -181,7 +181,7 @@ export default async function OrgRootPage({ params }: { params: Promise<{ orgId:
   function runStatusVariant(status: string): 'success' | 'danger' | 'warning' | 'muted' {
     if (status === 'success') return 'success';
     if (status === 'failed' || status === 'timed_out') return 'danger';
-    if (status === 'running') return 'warning';
+    if (status === 'running' || status === 'waiting_manual') return 'warning';
     return 'muted';
   }
 

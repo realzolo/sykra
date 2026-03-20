@@ -4,7 +4,7 @@ import { type ReactNode, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Bot, GitBranch, Hand, ListOrdered, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowRight, Bot, GitBranch, Hand, ListOrdered, Plus, Trash2 } from "lucide-react";
 import type { Dictionary } from "@/i18n";
 import type {
   PipelineJob,
@@ -135,6 +135,49 @@ function StageModeToggle({
   );
 }
 
+function StageFlowConnector({
+  showAdd,
+  addLabel,
+  disabled,
+  terminal,
+  onAdd,
+}: {
+  showAdd: boolean;
+  addLabel?: string;
+  disabled: boolean;
+  terminal: boolean;
+  onAdd?: (() => void) | undefined;
+}) {
+  return (
+    <div className="flex w-[72px] shrink-0 items-center justify-center">
+      <div className="relative flex h-10 w-full items-center justify-center text-[hsl(var(--ds-border-2)/0.82)]">
+        <span
+          className={`absolute left-0 top-1/2 h-px -translate-y-1/2 bg-[hsl(var(--ds-border-2)/0.82)] mr-[-3px] ${
+            terminal ? "right-0" : "right-[15px]"
+          }`}
+        />
+        {!terminal && <ArrowRight className="absolute right-0 size-4" />}
+        {showAdd && (
+          <button
+            type="button"
+            onClick={onAdd}
+            disabled={disabled}
+            title={addLabel}
+            aria-label={addLabel}
+            className={`relative z-10 flex size-9 items-center justify-center rounded-full border border-[hsl(var(--ds-border-1))] bg-background transition-colors ${
+              disabled
+                ? "cursor-default text-[hsl(var(--ds-text-2))] opacity-60"
+                : "text-[hsl(var(--ds-text-2))] hover:border-foreground/40 hover:text-foreground"
+            }`}
+          >
+            <Plus className="size-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function StageBuilder({
   jobs,
   triggerBranch,
@@ -228,7 +271,6 @@ export default function StageBuilder({
     const active = selectedJobId === job.id;
     return (
       <div
-        key={job.id}
         role="button"
         tabIndex={0}
         onClick={() => onSelectJob(job.id)}
@@ -274,12 +316,13 @@ export default function StageBuilder({
 
       <div className="overflow-x-auto rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-background p-4">
         <div className="flex min-w-[1180px] items-stretch gap-3">
-          {CORE_STAGE_SEQUENCE.map((stage) => {
+          {CORE_STAGE_SEQUENCE.map((stage, stageIndex) => {
             const stageJobs = grouped[stage];
             const config = getStageConfig(stageSettings, stage);
             const automationStage = getAutomationStageAfter(stage);
             const automationJobs = automationStage ? grouped[automationStage] : [];
             const canAddStageNode = !isSourceStage(stage);
+            const hasNextCoreStage = stageIndex < CORE_STAGE_SEQUENCE.length - 1;
 
             return (
               <div key={stage} className="contents">
@@ -374,7 +417,16 @@ export default function StageBuilder({
                       </div>
                     )}
 
-                    {stageJobs.map((job) => renderJobCard(job, !isSourceStage(stage)))}
+                    {stageJobs.map((job, index) => (
+                      <div key={job.id} className="space-y-2">
+                        {renderJobCard(job, !isSourceStage(stage))}
+                        {index < stageJobs.length - 1 && (
+                          <div className="flex items-center justify-center py-0.5 text-[hsl(var(--ds-border-2)/0.82)]">
+                            <ArrowDown className="size-3.5" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
 
                     {canAddStageNode && (
                       <div className="pt-1">
@@ -387,67 +439,77 @@ export default function StageBuilder({
                   </div>
                 </section>
 
-                {automationStage && automationJobs.length === 0 && (
-                  <div className="flex w-[56px] shrink-0 items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={() => addJob(automationStage)}
+                {automationStage && automationJobs.length > 0 && (
+                  <>
+                    <StageFlowConnector
+                      showAdd={false}
                       disabled={!isAdmin}
-                      title={dict.jobs.addAutomation}
-                      aria-label={dict.jobs.addAutomation}
-                      className={`group relative flex h-full w-full items-center justify-center transition-colors ${
-                        isAdmin
-                          ? "hover:text-foreground"
-                          : "cursor-default opacity-60"
-                      }`}
-                    >
-                      <span className="absolute inset-y-5 left-1/2 w-px -translate-x-1/2 bg-[hsl(var(--ds-border-1))]" />
-                      <span className="relative z-10 flex size-9 items-center justify-center rounded-full border border-[hsl(var(--ds-border-1))] bg-background text-[hsl(var(--ds-text-2))] transition-colors group-hover:border-foreground/40 group-hover:text-foreground">
-                        <Plus className="size-4" />
-                      </span>
-                    </button>
-                  </div>
+                      terminal={false}
+                    />
+                    <section className="w-[220px] shrink-0 overflow-hidden rounded-[10px] border border-dashed border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))]">
+                      <div className="space-y-3 border-b border-[hsl(var(--ds-border-1))] px-3 py-3">
+                        <div className="space-y-2">
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
+                              {getStageLabel(automationStage, dict)}
+                            </div>
+                            <div className="mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                              {dict.jobs.automationFixedHint}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className="rounded-full border border-[hsl(var(--ds-border-1))] bg-background px-2 py-0.5 text-[10px] font-medium text-[hsl(var(--ds-text-2))]">
+                              <span className="flex items-center gap-1">
+                                <Bot className="size-3" />
+                                {dict.jobs.entryModeAuto}
+                              </span>
+                            </span>
+                            <span className="rounded-full border border-[hsl(var(--ds-border-1))] bg-background px-2 py-0.5 text-[10px] font-medium text-[hsl(var(--ds-text-2))]">
+                              <span className="flex items-center gap-1">
+                                <GitBranch className="size-3" />
+                                {dict.jobs.dispatchModeParallel}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-2 p-2">
+                        {automationJobs.map((job, index) => (
+                          <div key={job.id} className="space-y-2">
+                          {renderJobCard(job, true)}
+                          {index < automationJobs.length - 1 && (
+                              <div className="flex items-center justify-center py-0.5 text-[hsl(var(--ds-border-2)/0.82)]">
+                                <ArrowDown className="size-3.5" />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        <div className="pt-1">
+                          <Button variant="outline" size="sm" onClick={() => addJob(automationStage)} disabled={!isAdmin} className="w-full">
+                            <Plus className="mr-1 size-3.5" />
+                            {dict.jobs.addAutomation}
+                          </Button>
+                        </div>
+                      </div>
+                    </section>
+                    {hasNextCoreStage && (
+                      <StageFlowConnector
+                        showAdd={false}
+                        disabled={!isAdmin}
+                        terminal={false}
+                      />
+                    )}
+                  </>
                 )}
 
-                {automationStage && automationJobs.length > 0 && (
-                  <section className="w-[220px] shrink-0 overflow-hidden rounded-[10px] border border-dashed border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))]">
-                    <div className="space-y-3 border-b border-[hsl(var(--ds-border-1))] px-3 py-3">
-                      <div className="space-y-2">
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
-                            {getStageLabel(automationStage, dict)}
-                          </div>
-                          <div className="mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
-                            {dict.jobs.automationFixedHint}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          <span className="rounded-full border border-[hsl(var(--ds-border-1))] bg-background px-2 py-0.5 text-[10px] font-medium text-[hsl(var(--ds-text-2))]">
-                            <span className="flex items-center gap-1">
-                              <Bot className="size-3" />
-                              {dict.jobs.entryModeAuto}
-                            </span>
-                          </span>
-                          <span className="rounded-full border border-[hsl(var(--ds-border-1))] bg-background px-2 py-0.5 text-[10px] font-medium text-[hsl(var(--ds-text-2))]">
-                            <span className="flex items-center gap-1">
-                              <GitBranch className="size-3" />
-                              {dict.jobs.dispatchModeParallel}
-                            </span>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 p-2">
-                      {automationJobs.map((job) => renderJobCard(job, true))}
-                      <div className="pt-1">
-                        <Button variant="outline" size="sm" onClick={() => addJob(automationStage)} disabled={!isAdmin} className="w-full">
-                          <Plus className="mr-1 size-3.5" />
-                          {dict.jobs.addAutomation}
-                        </Button>
-                      </div>
-                    </div>
-                  </section>
+                {automationStage && automationJobs.length === 0 && (
+                  <StageFlowConnector
+                    showAdd={true}
+                    addLabel={dict.jobs.addAutomation}
+                    disabled={!isAdmin}
+                    terminal={!hasNextCoreStage}
+                    onAdd={() => addJob(automationStage)}
+                  />
                 )}
               </div>
             );

@@ -219,12 +219,19 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(parts) == 2 && parts[1] == "resume" {
+	if len(parts) == 4 && parts[1] == "jobs" && parts[3] == "trigger" {
 		if r.Method != http.MethodPost {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		if err := a.service.ResumeRun(r.Context(), ResumeRunInput{RunID: runID}); err != nil {
+		if strings.TrimSpace(parts[2]) == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "job key is required")
+			return
+		}
+		if err := a.service.TriggerRunJob(r.Context(), TriggerRunJobInput{
+			RunID:  runID,
+			JobKey: parts[2],
+		}); err != nil {
 			httpx.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}

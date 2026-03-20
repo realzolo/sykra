@@ -500,6 +500,14 @@
       "runHistory": "运行历史",
       "noRuns": "暂无运行记录，触发第一次运行吧。",
       "runId": "运行 #{{num}}",
+      "manualTrigger": "手动触发",
+      "manualTriggerSuccess": "节点已进入队列",
+      "manualTriggerFailed": "节点触发失败",
+      "nodesCount": "{{count}} 个节点",
+      "stepsCount": "{{count}} 个步骤",
+      "notStarted": "未开始",
+      "stepsTitle": "步骤",
+      "exitCode": "退出码 {{code}}",
       "triggeredBy": "触发者",
       "trigger": {
         "manual": "手动",
@@ -515,6 +523,7 @@
     "status": {
       "queued": "排队中",
       "running": "运行中",
+      "waiting_manual": "等待手动触发",
       "success": "成功",
       "failed": "失败",
       "canceled": "已取消",

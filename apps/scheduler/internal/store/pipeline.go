@@ -1170,6 +1170,7 @@ func (s *Store) MarkPipelineRunRunning(ctx context.Context, runID string) error 
 		ctx,
 		`update pipeline_runs
 		 set status='running',
+		     error_message=null,
 		     started_at=coalesce(started_at, now()),
 		     updated_at=now()
 		 where id=$1`,
@@ -1198,7 +1199,12 @@ func (s *Store) MarkPipelineRunWaitingManual(ctx context.Context, runID string, 
 func (s *Store) MarkPipelineRunSuccess(ctx context.Context, runID string) error {
 	_, err := s.pool.Exec(
 		ctx,
-		`update pipeline_runs set status='success', finished_at=now(), updated_at=now() where id=$1`,
+		`update pipeline_runs
+		 set status='success',
+		     error_message=null,
+		     finished_at=now(),
+		     updated_at=now()
+		 where id=$1`,
 		runID,
 	)
 	return err
@@ -1259,7 +1265,7 @@ func (s *Store) CancelPipelineRun(ctx context.Context, runID string, reason stri
 		 set status='canceled', error_message=$2, finished_at=now(),
 		     duration_ms=case when started_at is null then null else (extract(epoch from (now()-started_at))*1000)::int end,
 		     updated_at=now()
-		 where run_id=$1 and status in ('queued','running')`,
+		 where run_id=$1 and status in ('queued','running','waiting_manual')`,
 		runID,
 		reason,
 	)
@@ -1269,7 +1275,7 @@ func (s *Store) CancelPipelineRun(ctx context.Context, runID string, reason stri
 		 set status='canceled', error_message=$2, finished_at=now(),
 		     duration_ms=case when started_at is null then null else (extract(epoch from (now()-started_at))*1000)::int end,
 		     updated_at=now()
-		 where job_id in (select id from pipeline_jobs where run_id=$1) and status in ('queued','running')`,
+		 where job_id in (select id from pipeline_jobs where run_id=$1) and status in ('queued','running','waiting_manual')`,
 		runID,
 		reason,
 	)
@@ -1277,28 +1283,28 @@ func (s *Store) CancelPipelineRun(ctx context.Context, runID string, reason stri
 	return true, nil
 }
 
-func (s *Store) ResumePipelineRun(ctx context.Context, runID string, metadata json.RawMessage) (bool, error) {
-	cmdTag, err := s.pool.Exec(
-		ctx,
-		`update pipeline_runs
-		 set status='queued',
-		     error_message=null,
-		     metadata=$2,
-		     updated_at=now()
-		 where id=$1 and status='waiting_manual'`,
-		runID,
-		metadata,
-	)
-	if err != nil {
-		return false, err
-	}
-	return cmdTag.RowsAffected() > 0, nil
-}
-
 func (s *Store) MarkPipelineJobRunning(ctx context.Context, jobID string) error {
 	_, err := s.pool.Exec(
 		ctx,
-		`update pipeline_jobs set status='running', started_at=now(), updated_at=now() where id=$1`,
+		`update pipeline_jobs
+		 set status='running',
+		     error_message=null,
+		     started_at=now(),
+		     updated_at=now()
+		 where id=$1`,
+		jobID,
+	)
+	return err
+}
+
+func (s *Store) MarkPipelineJobWaitingManual(ctx context.Context, jobID string) error {
+	_, err := s.pool.Exec(
+		ctx,
+		`update pipeline_jobs
+		 set status='waiting_manual',
+		     error_message=null,
+		     updated_at=now()
+		 where id=$1 and status='queued'`,
 		jobID,
 	)
 	return err
@@ -1319,9 +1325,13 @@ func (s *Store) AssignPipelineJobWorker(ctx context.Context, jobID string, worke
 func (s *Store) MarkPipelineJobSuccess(ctx context.Context, jobID string) error {
 	_, err := s.pool.Exec(
 		ctx,
-		`update pipeline_jobs set status='success', finished_at=now(),
-		 duration_ms=case when started_at is null then null else (extract(epoch from (now()-started_at))*1000)::int end,
-		 updated_at=now() where id=$1`,
+		`update pipeline_jobs
+		 set status='success',
+		     error_message=null,
+		     finished_at=now(),
+		     duration_ms=case when started_at is null then null else (extract(epoch from (now()-started_at))*1000)::int end,
+		     updated_at=now()
+		 where id=$1`,
 		jobID,
 	)
 	return err
@@ -1361,6 +1371,104 @@ func (s *Store) MarkPipelineJobTimedOut(ctx context.Context, jobID string, messa
 		message,
 	)
 	return err
+}
+
+func (s *Store) TriggerPipelineJob(ctx context.Context, runID string, jobKey string, metadata json.RawMessage) (*PipelineJob, bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var runStatus string
+	if err := tx.QueryRow(
+		ctx,
+		`select status from pipeline_runs where id=$1 for update`,
+		runID,
+	).Scan(&runStatus); err != nil {
+		return nil, false, err
+	}
+	if runStatus != "waiting_manual" && runStatus != "queued" && runStatus != "running" {
+		return nil, false, nil
+	}
+
+	row := tx.QueryRow(
+		ctx,
+		`update pipeline_jobs
+		 set status='queued',
+		     error_message=null,
+		     updated_at=now()
+		 where job_key=$1 and run_id=$2 and status='waiting_manual'
+		 returning id, run_id, job_key, name, status, attempt, worker_id, error_message, duration_ms, created_at, started_at, finished_at, updated_at`,
+		jobKey,
+		runID,
+	)
+
+	var workerID pgtype.Text
+	var errorMessage pgtype.Text
+	var duration pgtype.Int4
+	var startedAt pgtype.Timestamptz
+	var finishedAt pgtype.Timestamptz
+	var job PipelineJob
+	if err := row.Scan(
+		&job.ID,
+		&job.RunID,
+		&job.JobKey,
+		&job.Name,
+		&job.Status,
+		&job.Attempt,
+		&workerID,
+		&errorMessage,
+		&duration,
+		&job.CreatedAt,
+		&startedAt,
+		&finishedAt,
+		&job.UpdatedAt,
+	); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if workerID.Valid {
+		value := workerID.String
+		job.WorkerID = &value
+	}
+	if errorMessage.Valid {
+		value := errorMessage.String
+		job.ErrorMessage = &value
+	}
+	if duration.Valid {
+		value := int(duration.Int32)
+		job.DurationMs = &value
+	}
+	if startedAt.Valid {
+		job.StartedAt = &startedAt.Time
+	}
+	if finishedAt.Valid {
+		job.FinishedAt = &finishedAt.Time
+	}
+
+	if _, err := tx.Exec(
+		ctx,
+		`update pipeline_runs
+		 set status='queued',
+		     error_message=null,
+		     metadata=$2,
+		     updated_at=now()
+		 where id=$1`,
+		runID,
+		metadata,
+	); err != nil {
+		return nil, false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, err
+	}
+	return &job, true, nil
 }
 
 func (s *Store) MarkPipelineStepRunning(ctx context.Context, stepID string) error {

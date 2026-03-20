@@ -7,6 +7,7 @@ import {
   schedulerListRunEventsResponseSchema,
   schedulerListPipelinesResponseSchema,
   schedulerPipelineRunDetailSchema,
+  schedulerTriggerPipelineRunJobResponseSchema,
   schedulerUpdatePipelineResponseSchema,
   type SchedulerPipelineRunDetail,
   type SchedulerRunEvent,
@@ -181,5 +182,13 @@ export async function cancelPipelineRun(runId: string) {
     `/v1/pipeline-runs/${runId}/cancel`,
     { method: 'POST', headers: schedulerHeaders() },
     schedulerCancelPipelineRunResponseSchema
+  );
+}
+
+export async function triggerPipelineRunJob(runId: string, jobKey: string) {
+  return fetchScheduler(
+    `/v1/pipeline-runs/${runId}/jobs/${encodeURIComponent(jobKey)}/trigger`,
+    { method: 'POST', headers: schedulerHeaders() },
+    schedulerTriggerPipelineRunJobResponseSchema
   );
 }

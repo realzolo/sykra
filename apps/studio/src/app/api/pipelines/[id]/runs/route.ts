@@ -74,7 +74,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (concurrencyMode === 'queue' || concurrencyMode === 'cancel_previous') {
       // Find active runs for this pipeline
       const activeRuns = await query<{ id: string; status: string }>(
-        `SELECT id, status FROM pipeline_runs WHERE pipeline_id = $1 AND status IN ('queued', 'running') ORDER BY created_at ASC`,
+        `SELECT id, status FROM pipeline_runs WHERE pipeline_id = $1 AND status IN ('queued', 'running', 'waiting_manual') ORDER BY created_at ASC`,
         [id]
       );
 

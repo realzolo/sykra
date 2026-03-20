@@ -55,8 +55,9 @@ type TriggerRunInput struct {
 	RollbackOf     *string
 }
 
-type ResumeRunInput struct {
-	RunID string
+type TriggerRunJobInput struct {
+	RunID  string
+	JobKey string
 }
 
 func (s *Service) CreatePipeline(ctx context.Context, input CreatePipelineInput) (*store.Pipeline, *store.PipelineVersion, error) {
@@ -295,9 +296,12 @@ func (s *Service) CancelRun(ctx context.Context, runID string) error {
 	return nil
 }
 
-func (s *Service) ResumeRun(ctx context.Context, input ResumeRunInput) error {
+func (s *Service) TriggerRunJob(ctx context.Context, input TriggerRunJobInput) error {
 	if strings.TrimSpace(input.RunID) == "" {
 		return errors.New("runId is required")
+	}
+	if strings.TrimSpace(input.JobKey) == "" {
+		return errors.New("jobKey is required")
 	}
 
 	run, version, err := s.Store.GetPipelineRunWithVersion(ctx, input.RunID)
@@ -312,26 +316,24 @@ func (s *Service) ResumeRun(ctx context.Context, input ResumeRunInput) error {
 	if err != nil {
 		return err
 	}
-	if control.WaitingStage == "" {
-		return errors.New("run is not waiting for manual stage approval")
-	}
-	control.ApprovedStages = appendUniqueStage(control.ApprovedStages, control.WaitingStage)
-	control.WaitingStage = ""
+	control.ApprovedJobs = appendUniqueValue(control.ApprovedJobs, input.JobKey)
 
 	metadataRaw, err := encodeRunControlMetadata(run.Metadata, control)
 	if err != nil {
 		return err
 	}
-	ok, err := s.Store.ResumePipelineRun(ctx, input.RunID, metadataRaw)
+	job, ok, err := s.Store.TriggerPipelineJob(ctx, input.RunID, input.JobKey, metadataRaw)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return errors.New("run cannot be resumed")
+	if !ok || job == nil {
+		return errors.New("job cannot be triggered")
 	}
 
-	_ = s.Store.AppendRunEvent(ctx, input.RunID, "run.resumed", map[string]any{
+	_ = s.Store.AppendRunEvent(ctx, input.RunID, "job.manual_triggered", map[string]any{
 		"runId":     input.RunID,
+		"jobId":     job.ID,
+		"jobKey":    job.JobKey,
 		"status":    StatusQueued,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	})
@@ -347,7 +349,7 @@ func (s *Service) ResumeRun(ctx context.Context, input ResumeRunInput) error {
 		asynq.Queue(s.QueueName),
 		asynq.MaxRetry(1),
 		asynq.Timeout(s.RunTimeout),
-		asynq.TaskID("pipeline:"+input.RunID+":resume:"+time.Now().UTC().Format("20060102150405")),
+		asynq.TaskID("pipeline:"+input.RunID+":job:"+job.ID+":"+time.Now().UTC().Format("20060102150405")),
 	)
 	return err
 }

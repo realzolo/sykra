@@ -498,6 +498,14 @@
       "runHistory": "Run History",
       "noRuns": "No runs yet. Trigger the first run.",
       "runId": "Run #{{num}}",
+      "manualTrigger": "Run Node",
+      "manualTriggerSuccess": "Node queued",
+      "manualTriggerFailed": "Failed to queue node",
+      "nodesCount": "{{count}} nodes",
+      "stepsCount": "{{count}} steps",
+      "notStarted": "Not started",
+      "stepsTitle": "Steps",
+      "exitCode": "exit {{code}}",
       "triggeredBy": "Triggered by",
       "trigger": {
         "manual": "Manual",
@@ -513,6 +521,7 @@
     "status": {
       "queued": "Queued",
       "running": "Running",
+      "waiting_manual": "Waiting",
       "success": "Success",
       "failed": "Failed",
       "canceled": "Canceled",

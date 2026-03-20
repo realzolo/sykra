@@ -27,6 +27,7 @@ const STATUS_ICONS: Record<PipelineRunStatus, React.ReactNode> = {
   failed:    <XCircle className="size-3.5 text-danger" />,
   timed_out: <XCircle className="size-3.5 text-danger" />,
   running:   <RefreshCw className="size-3.5 text-warning animate-spin" />,
+  waiting_manual: <Clock className="size-3.5 text-warning" />,
   queued:    <Clock className="size-3.5 text-[hsl(var(--ds-text-2))]" />,
   canceled:  <Circle className="size-3.5 text-[hsl(var(--ds-text-2))]" />,
   skipped:   <Circle className="size-3.5 text-[hsl(var(--ds-text-2))]" />,

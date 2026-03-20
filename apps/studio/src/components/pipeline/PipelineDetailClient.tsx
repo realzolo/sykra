@@ -15,16 +15,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageLoading } from "@/components/ui/page-loading";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import {
+  ArrowDown,
+  ArrowRight,
   Play,
   RotateCcw,
   Settings,
   History,
-  ChevronRight,
-  ChevronDown,
+  Bot,
   GitBranch,
   GitCommit,
+  Hand,
+  ListOrdered,
   Clock,
   CheckCircle,
   XCircle,
@@ -48,8 +52,10 @@ import {
   createDefaultPipelineConfig,
   durationLabel,
   ENV_LABELS,
+  getStageConfig,
   normalizePipelineJobs,
   normalizeStageSettings,
+  PIPELINE_STAGE_SEQUENCE,
   STATUS_VARIANTS,
 } from "@/services/pipelineTypes";
 import { useOrgRole } from "@/lib/useOrgRole";
@@ -67,6 +73,7 @@ const STATUS_ICON: Record<PipelineRunStatus, React.ReactNode> = {
   failed: <XCircle className="size-4 text-danger" />,
   timed_out: <XCircle className="size-4 text-danger" />,
   running: <RefreshCw className="size-4 text-warning animate-spin" />,
+  waiting_manual: <Clock className="size-4 text-warning" />,
   queued: <Clock className="size-4 text-[hsl(var(--ds-text-2))]" />,
   canceled: <Circle className="size-4 text-[hsl(var(--ds-text-2))]" />,
   skipped: <Circle className="size-4 text-[hsl(var(--ds-text-2))]" />,
@@ -77,6 +84,7 @@ const STATUS_ICON_SM: Record<PipelineRunStatus, React.ReactNode> = {
   failed: <XCircle className="size-3 text-danger" />,
   timed_out: <XCircle className="size-3 text-danger" />,
   running: <RefreshCw className="size-3 text-warning animate-spin" />,
+  waiting_manual: <Clock className="size-3 text-warning" />,
   queued: <Clock className="size-3 text-[hsl(var(--ds-text-2))]" />,
   canceled: <Circle className="size-3 text-[hsl(var(--ds-text-2))]" />,
   skipped: <Circle className="size-3 text-[hsl(var(--ds-text-2))]" />,
@@ -107,11 +115,12 @@ export default function PipelineDetailClient({
   const [runDetail, setRunDetail] = useState<PipelineRunDetail | null>(null);
   const [logText, setLogText] = useState("");
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
-  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [selectedRunJobKey, setSelectedRunJobKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
+  const [triggeringJobKey, setTriggeringJobKey] = useState<string | null>(null);
   const [configSection, setConfigSection] = useState<ConfigureSection>("jobs");
   const [selectedConfigJobId, setSelectedConfigJobId] = useState<string | null>(null);
   const [newVarKey, setNewVarKey] = useState("");
@@ -199,6 +208,17 @@ export default function PipelineDetailClient({
     } catch {/* ignore */}
   }, []);
 
+  const loadRunDetail = useCallback(async (runId: string) => {
+    try {
+      const res = await fetch(`/api/pipeline-runs/${runId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setRunDetail(data);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     loadPipeline();
     loadRuns();
@@ -235,34 +255,20 @@ export default function PipelineDetailClient({
   // Poll run detail while running
   useEffect(() => {
     if (!selectedRunId) return;
-    let active = true;
-
-    async function fetchDetail() {
-      try {
-        const res = await fetch(`/api/pipeline-runs/${selectedRunId}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!active) return;
-        setRunDetail(data);
-        // Auto-expand first job
-        if (data?.jobs?.length > 0 && !expandedJobId) {
-          setExpandedJobId(data.jobs[0].id);
-        }
-      } catch {/* ignore */}
-    }
-
-    fetchDetail();
+    void loadRunDetail(selectedRunId);
     const isActive =
       runs.find((r) => r.id === selectedRunId)?.status === "running" ||
-      runs.find((r) => r.id === selectedRunId)?.status === "queued";
+      runs.find((r) => r.id === selectedRunId)?.status === "queued" ||
+      runs.find((r) => r.id === selectedRunId)?.status === "waiting_manual";
     if (!isActive) return;
 
-    const interval = setInterval(fetchDetail, 2500);
+    const interval = setInterval(() => {
+      void loadRunDetail(selectedRunId);
+    }, 2500);
     return () => {
-      active = false;
       clearInterval(interval);
     };
-  }, [selectedRunId, runs, expandedJobId]);
+  }, [selectedRunId, runs, loadRunDetail]);
 
   // Auto-scroll log to bottom
   useEffect(() => {
@@ -272,20 +278,6 @@ export default function PipelineDetailClient({
   }, [logText]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
-
-  async function loadLog(stepId: string) {
-    setSelectedStepId(stepId);
-    setLogText("");
-    try {
-      const res = await fetch(
-        `/api/pipeline-runs/${selectedRunId}/logs/${stepId}?offset=0&limit=500000`
-      );
-      const text = res.ok ? await res.text() : "";
-      setLogText(text);
-    } catch {
-      setLogText("");
-    }
-  }
 
   async function handleRun() {
     setRunning(true);
@@ -448,42 +440,223 @@ export default function PipelineDetailClient({
     }
   }
 
-  // ── Job progress bar ───────────────────────────────────────────────────────
-
-  function StagePipeline({ run }: { run: PipelineRun | undefined }) {
-    const jobs = config?.jobs ?? [];
-    const runJobStatus = new Map((runDetail?.jobs ?? []).map((job) => [job.job_key, job.status]));
-
-    if (jobs.length === 0) return null;
-
-    function dotClass(jobId: string): string {
-      const status = runJobStatus.get(jobId);
-      if (!run || !status) return "bg-border";
-      if (status === "success") return "bg-success";
-      if (status === "running") return "bg-warning animate-pulse";
-      if (status === "failed" || status === "timed_out") return "bg-danger";
-      return "bg-border";
+  async function handleTriggerJob(jobKey: string) {
+    if (!selectedRunId) return;
+    setTriggeringJobKey(jobKey);
+    try {
+      const res = await fetch(
+        `/api/pipeline-runs/${selectedRunId}/jobs/${encodeURIComponent(jobKey)}/trigger`,
+        { method: "POST" }
+      );
+      if (!res.ok) throw new Error("failed");
+      toast.success(p.detail.manualTriggerSuccess);
+      await Promise.all([loadRuns(), loadRunDetail(selectedRunId)]);
+    } catch {
+      toast.error(p.detail.manualTriggerFailed);
+    } finally {
+      setTriggeringJobKey(null);
     }
+  }
 
+  // ── Job progress bar ───────────────────────────────────────────────────────
+  const runtimeJobs = useMemo(
+    () => normalizePipelineJobs(config?.jobs ?? [], config?.trigger.branch ?? "main", config?.stages),
+    [config?.jobs, config?.trigger.branch, config?.stages]
+  );
+  const runtimeStageSettings = useMemo(
+    () => normalizeStageSettings(config?.stages),
+    [config?.stages]
+  );
+  const runJobsByKey = useMemo(
+    () => new Map((runDetail?.jobs ?? []).map((job) => [job.job_key, job])),
+    [runDetail?.jobs]
+  );
+  const runStepsByJobId = useMemo(() => {
+    const map = new Map<string, PipelineRunDetail["steps"]>();
+    for (const step of runDetail?.steps ?? []) {
+      const items = map.get(step.job_id) ?? [];
+      items.push(step);
+      map.set(step.job_id, items);
+    }
+    return map;
+  }, [runDetail?.steps]);
+  const runtimeStages = useMemo(
+    () =>
+      PIPELINE_STAGE_SEQUENCE.filter((stage) => stage === "source" || runtimeJobs.some((job) => job.stage === stage)).map((stage) => ({
+        key: stage,
+        jobs: runtimeJobs.filter((job) => job.stage === stage),
+        settings: runtimeStageSettings[stage],
+      })),
+    [runtimeJobs, runtimeStageSettings]
+  );
+  const selectedRuntimeJob = selectedRunJobKey ? runJobsByKey.get(selectedRunJobKey) ?? null : null;
+  const selectedRuntimeJobConfig = selectedRunJobKey
+    ? runtimeJobs.find((job) => job.id === selectedRunJobKey) ?? null
+    : null;
+  const selectedRuntimeSteps = useMemo(
+    () => (selectedRuntimeJob ? runStepsByJobId.get(selectedRuntimeJob.id) ?? [] : []),
+    [selectedRuntimeJob, runStepsByJobId]
+  );
+  const selectedRuntimeStep = useMemo(
+    () => selectedRuntimeSteps.find((step) => step.id === selectedStepId) ?? null,
+    [selectedRuntimeSteps, selectedStepId]
+  );
+  const runStatusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const job of runDetail?.jobs ?? []) {
+      counts[job.status] = (counts[job.status] ?? 0) + 1;
+    }
+    return counts;
+  }, [runDetail?.jobs]);
+  const runtimeStageCardWidth = runtimeStages.length >= 5 ? 252 : 288;
+  const runtimeConnectorWidth = runtimeStages.length >= 5 ? 48 : 72;
+
+  useEffect(() => {
+    const jobs = runDetail?.jobs ?? [];
+    if (jobs.length === 0) {
+      setSelectedRunJobKey(null);
+      return;
+    }
+    if (selectedRunJobKey && jobs.some((job) => job.job_key === selectedRunJobKey)) {
+      return;
+    }
+    const nextJob =
+      jobs.find((job) => job.status === "running") ??
+      jobs.find((job) => job.status === "waiting_manual") ??
+      jobs.find((job) => job.status === "failed") ??
+      jobs[0] ??
+      null;
+    setSelectedRunJobKey(nextJob?.job_key ?? null);
+  }, [runDetail?.jobs, selectedRunJobKey]);
+
+  useEffect(() => {
+    if (selectedRuntimeSteps.length === 0) {
+      setSelectedStepId(null);
+      return;
+    }
+    if (selectedStepId && selectedRuntimeSteps.some((step) => step.id === selectedStepId)) {
+      return;
+    }
+    setSelectedStepId(selectedRuntimeSteps[0]?.id ?? null);
+  }, [selectedRuntimeSteps, selectedStepId]);
+
+  useEffect(() => {
+    if (!selectedRunId || !selectedStepId) {
+      setLogText("");
+      return;
+    }
+    let active = true;
+    setLogText("");
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/pipeline-runs/${selectedRunId}/logs/${selectedStepId}?offset=0&limit=500000`
+        );
+        const text = res.ok ? await res.text() : "";
+        if (active) {
+          setLogText(text);
+        }
+      } catch {
+        if (active) {
+          setLogText("");
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [selectedRunId, selectedStepId]);
+
+  function stageLabel(stage: (typeof PIPELINE_STAGE_SEQUENCE)[number]) {
+    switch (stage) {
+      case "source":
+        return p.stageTab.source;
+      case "review":
+        return p.stageTab.review;
+      case "build":
+        return p.stageTab.build;
+      case "deploy":
+        return p.stageTab.deploy;
+      case "after_source":
+        return p.jobs.slotLabelAfterSource;
+      case "after_review":
+        return p.jobs.slotLabelAfterReview;
+      case "after_build":
+        return p.jobs.slotLabelAfterBuild;
+      case "after_deploy":
+        return p.jobs.slotLabelAfterDeploy;
+      default:
+        return stage;
+    }
+  }
+
+  function statusTone(status?: PipelineRunStatus | null) {
+    switch (status) {
+      case "success":
+        return "border-success/30 bg-success/5";
+      case "failed":
+      case "timed_out":
+        return "border-danger/30 bg-danger/5";
+      case "running":
+        return "border-warning/30 bg-warning/5";
+      case "waiting_manual":
+        return "border-warning/30 bg-warning/10";
+      default:
+        return "border-[hsl(var(--ds-border-1))] bg-background";
+    }
+  }
+
+  function selectedStatusTone(status?: PipelineRunStatus | null) {
+    switch (status) {
+      case "success":
+        return "border-success/50 bg-success/10 shadow-[0_0_0_1px_rgba(34,197,94,0.16)]";
+      case "failed":
+      case "timed_out":
+        return "border-danger/50 bg-danger/10 shadow-[0_0_0_1px_rgba(239,68,68,0.16)]";
+      case "running":
+      case "waiting_manual":
+        return "border-warning/50 bg-warning/12 shadow-[0_0_0_1px_rgba(245,158,11,0.18)]";
+      default:
+        return "border-[hsl(var(--ds-accent-7))] bg-[hsl(var(--ds-accent-2))] shadow-[0_0_0_1px_hsl(var(--ds-accent-7)/0.12)]";
+    }
+  }
+
+  function ModeBadgeGroup({
+    entryMode,
+    dispatchMode,
+  }: {
+    entryMode: "auto" | "manual";
+    dispatchMode: "parallel" | "serial";
+  }) {
     return (
-      <div className="flex items-center gap-0">
-        {jobs.map((job, i) => {
-          const dot = dotClass(job.id);
-          return (
-            <div key={job.id} className="flex items-center">
-              <div className="flex flex-col items-center gap-1">
-                <div className={`size-2.5 rounded-[4px] ${dot}`} />
-                <span className="text-[10px] text-[hsl(var(--ds-text-2))] whitespace-nowrap">
-                  {job.name}
-                </span>
-              </div>
-              {i < jobs.length - 1 && (
-                <div className="h-px w-12 mx-1 mb-3 bg-border" />
-              )}
-            </div>
-          );
-        })}
-      </div>
+      <TooltipProvider delayDuration={120}>
+        <div className="flex items-center gap-1.5 text-[hsl(var(--ds-text-2))]">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex size-6 items-center justify-center rounded-[6px] border border-[hsl(var(--ds-border-1))] bg-background">
+                {entryMode === "manual" ? <Hand className="size-3.5" /> : <Bot className="size-3.5" />}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {entryMode === "manual" ? p.jobs.entryModeManual : p.jobs.entryModeAuto}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex size-6 items-center justify-center rounded-[6px] border border-[hsl(var(--ds-border-1))] bg-background">
+                {dispatchMode === "serial" ? (
+                  <ListOrdered className="size-3.5" />
+                ) : (
+                  <GitBranch className="size-3.5" />
+                )}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {dispatchMode === "serial" ? p.jobs.dispatchModeSerial : p.jobs.dispatchModeParallel}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
     );
   }
 
@@ -494,6 +667,9 @@ export default function PipelineDetailClient({
   }
 
   const currentRun = runs.find((r) => r.id === selectedRunId);
+  const selectedArtifacts = selectedRuntimeJob
+    ? artifacts.filter((artifact) => artifact.job_id === selectedRuntimeJob.id)
+    : artifacts;
 
   return (
     <div className="flex flex-col h-full">
@@ -616,9 +792,9 @@ export default function PipelineDetailClient({
                     onClick={() => {
                       setSelectedRunId(run.id);
                       setRunDetail(null);
+                      setSelectedRunJobKey(null);
                       setSelectedStepId(null);
                       setLogText("");
-                      setExpandedJobId(null);
                     }}
                     className={`w-full text-left px-4 py-3 border-b border-[hsl(var(--ds-border-1))] transition-colors ${
                       selectedRunId === run.id
@@ -669,7 +845,7 @@ export default function PipelineDetailClient({
                   {/* Run header */}
                   <div className="px-6 py-4 border-b border-[hsl(var(--ds-border-1))] shrink-0">
                     <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         <div className="flex items-center gap-2">
                           {currentRun &&
                             STATUS_ICON[currentRun.status as PipelineRunStatus]}
@@ -693,11 +869,11 @@ export default function PipelineDetailClient({
                             >
                               {p.status[currentRun.status as PipelineRunStatus]}
                             </Badge>
-                          )}
+                            )}
                         </div>
 
                         {currentRun && (
-                          <div className="flex items-center gap-4 text-[12px] text-[hsl(var(--ds-text-2))]">
+                          <div className="flex flex-wrap items-center gap-4 text-[12px] text-[hsl(var(--ds-text-2))]">
                             {currentRun.branch && (
                               <div className="flex items-center gap-1">
                                 <GitBranch className="size-3" />
@@ -719,11 +895,20 @@ export default function PipelineDetailClient({
                                 )}
                               </div>
                             )}
+                            {!!runStatusCounts.success && (
+                              <div>{runStatusCounts.success} {p.status.success}</div>
+                            )}
+                            {!!runStatusCounts.waiting_manual && (
+                              <div>{runStatusCounts.waiting_manual} {p.status.waiting_manual}</div>
+                            )}
+                            {!!runStatusCounts.running && (
+                              <div>{runStatusCounts.running} {p.status.running}</div>
+                            )}
+                            {!!runStatusCounts.failed && (
+                              <div>{runStatusCounts.failed} {p.status.failed}</div>
+                            )}
                           </div>
                         )}
-
-                        {/* Stage progress */}
-                        <StagePipeline run={currentRun} />
                       </div>
 
                       {/* Rollback / retry */}
@@ -745,129 +930,268 @@ export default function PipelineDetailClient({
                     </div>
                   </div>
 
-                  {/* Jobs + logs */}
-                  <div className="flex-1 flex flex-col xl:flex-row overflow-hidden">
-                    {/* Job/step tree */}
-                    <div className="w-full xl:w-56 max-h-48 xl:max-h-none shrink-0 border-b xl:border-b-0 xl:border-r border-[hsl(var(--ds-border-1))] overflow-y-auto">
+                  {/* Runtime board */}
+                  <div
+                    className={`flex-1 min-h-0 overflow-hidden ${
+                      selectedRuntimeJobConfig && selectedRuntimeJob
+                        ? "grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px]"
+                        : "block"
+                    }`}
+                  >
+                    <div
+                      className="min-h-0 overflow-auto bg-[hsl(var(--ds-surface-1))]/30"
+                      onClick={() => {
+                        setSelectedRunJobKey(null);
+                        setSelectedStepId(null);
+                      }}
+                    >
                       {!runDetail && (
-                        <div className="px-4 py-6 text-[12px] text-[hsl(var(--ds-text-2))]">
+                        <div className="px-6 py-6 text-[12px] text-[hsl(var(--ds-text-2))]">
                           {dict.common.loading}
                         </div>
                       )}
-                      {runDetail?.jobs.map((job) => (
-                        <div key={job.id}>
-                          <button
-                            type="button"
-                            className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-[hsl(var(--ds-surface-1))] transition-colors"
-                            onClick={() =>
-                              setExpandedJobId(
-                                expandedJobId === job.id ? null : job.id
-                              )
-                            }
-                          >
-                            {STATUS_ICON_SM[job.status as PipelineRunStatus]}
-                            <span className="text-xs font-medium flex-1 text-left truncate">
-                              {job.name}
-                            </span>
-                            {expandedJobId === job.id ? (
-                              <ChevronDown className="size-3 text-[hsl(var(--ds-text-2))]" />
-                            ) : (
-                              <ChevronRight className="size-3 text-[hsl(var(--ds-text-2))]" />
-                            )}
-                          </button>
-                          {expandedJobId === job.id &&
-                            runDetail.steps
-                              .filter((s) => s.job_id === job.id)
-                              .map((step) => (
-                                <button
-                                  type="button"
-                                  key={step.id}
-                                  onClick={() => loadLog(step.id)}
-                                  className={`w-full flex items-center gap-2 pl-8 pr-4 py-1.5 transition-colors text-left ${
-                                    selectedStepId === step.id
-                                      ? "bg-[hsl(var(--ds-surface-1))]"
-                                      : "hover:bg-muted/20"
-                                  }`}
-                                >
-                                  {STATUS_ICON_SM[
-                                    step.status as PipelineRunStatus
-                                  ]}
-                                  <span className="text-[11px] truncate text-[hsl(var(--ds-text-2))]">
-                                    {step.name}
-                                  </span>
-                                </button>
-                              ))}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Log viewer */}
-                    <div className="flex-1 flex flex-col overflow-hidden bg-terminal">
-                      {!selectedStepId && (
-                        <div className="flex-1 flex items-center justify-center text-[12px] text-terminal-muted">
-                          {p.log.selectStep}
-                        </div>
-                      )}
-                      {selectedStepId && (
-                        <div
-                          ref={logRef}
-                          className="flex-1 overflow-y-auto p-4 font-mono text-[11px] text-terminal leading-relaxed whitespace-pre-wrap"
-                        >
-                          {logText || (
-                            <span className="text-terminal-muted">
-                              {p.log.noLogs}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Artifacts panel */}
-                    {artifacts.length > 0 && (
-                      <div className="border-t border-[hsl(var(--ds-border-1))] bg-terminal">
-                        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-[hsl(var(--ds-border-1))]">
-                          <Package className="size-3 text-[hsl(var(--ds-text-2))]" />
-                          <span className="text-[11px] font-medium text-[hsl(var(--ds-text-2))] uppercase tracking-wide">
-                            {p.artifactsLabel.replace("{{count}}", String(artifacts.length))}
-                          </span>
-                        </div>
-                        <div className="max-h-40 overflow-y-auto">
-                          {artifacts.map((a) => {
-                            const sizeKb = Math.round(Number(a.size_bytes) / 1024);
-                            const sizeLabel = sizeKb >= 1024
-                              ? `${(sizeKb / 1024).toFixed(1)} MB`
-                              : `${sizeKb} KB`;
-                            const filename = a.path.split('/').pop() ?? a.path;
-                            return (
+                      {runDetail && (
+                        <div className="flex min-w-max snap-x snap-mandatory gap-3 px-5 py-4">
+                          {runtimeStages.map((stage, stageIndex) => (
+                            <div key={stage.key} className="contents">
                               <div
-                                key={a.id}
-                                className="flex items-center gap-3 px-4 py-2 border-b border-[hsl(var(--ds-border-1))]/30 hover:bg-white/5 transition-colors"
+                                className="flex shrink-0 snap-start flex-col rounded-[14px] border border-[hsl(var(--ds-border-1))] bg-background"
+                                style={{ width: runtimeStageCardWidth }}
                               >
-                                <Package className="size-3 text-[hsl(var(--ds-text-2))] shrink-0" />
-                                <span className="flex-1 font-mono text-[11px] text-terminal truncate" title={a.path}>
-                                  {filename}
-                                </span>
-                                <span className="text-[10px] text-[hsl(var(--ds-text-2))] shrink-0 w-16 text-right">
-                                  {sizeLabel}
-                                </span>
-                                {a.sha256 && (
-                                  <span className="text-[10px] font-mono text-[hsl(var(--ds-text-2))] shrink-0 w-16 text-right" title={a.sha256}>
-                                    {a.sha256.slice(0, 8)}
-                                  </span>
-                                )}
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-6 px-2 text-[10px]"
-                                  onClick={() => downloadArtifact(a.id)}
-                                  disabled={downloadingArtifactId === a.id}
-                                >
-                                  {downloadingArtifactId === a.id ? dict.common.loading : dict.common.download}
-                                </Button>
+                                <div className="border-b border-[hsl(var(--ds-border-1))] px-4 py-3">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <div className="text-sm font-semibold text-foreground">
+                                        {stageLabel(stage.key)}
+                                      </div>
+                                      <div className="mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                        {p.detail.nodesCount.replace("{{count}}", String(stage.jobs.length))}
+                                      </div>
+                                    </div>
+                                    <ModeBadgeGroup
+                                      entryMode={getStageConfig(runtimeStageSettings, stage.key).entryMode ?? "auto"}
+                                      dispatchMode={getStageConfig(runtimeStageSettings, stage.key).dispatchMode ?? "parallel"}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex flex-1 flex-col gap-3 p-3">
+                                  {stage.jobs.map((job, index) => {
+                                    const runtimeJob = runJobsByKey.get(job.id);
+                                    const runtimeStatus =
+                                      (runtimeJob?.status as PipelineRunStatus | undefined) ?? "queued";
+                                    const runtimeSteps = runtimeJob ? runStepsByJobId.get(runtimeJob.id) ?? [] : [];
+                                    const selected = selectedRunJobKey === job.id;
+                                    return (
+                                      <div key={job.id} className="space-y-3">
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setSelectedRunJobKey(job.id);
+                                          }}
+                                          className={`w-full rounded-[12px] border p-3 text-left transition-all ${
+                                            selected
+                                              ? selectedStatusTone(runtimeStatus)
+                                              : statusTone(runtimeStatus)
+                                          }`}
+                                        >
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-2">
+                                                {STATUS_ICON_SM[runtimeStatus]}
+                                                <span className="truncate text-sm font-medium text-foreground">
+                                                  {job.name}
+                                                </span>
+                                              </div>
+                                              <div className="mt-1 truncate text-[11px] text-[hsl(var(--ds-text-2))]">
+                                                {job.id}
+                                              </div>
+                                            </div>
+                                            <Badge variant={STATUS_VARIANTS[runtimeStatus]} size="sm">
+                                              {p.status[runtimeStatus]}
+                                            </Badge>
+                                          </div>
+                                          <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                            <span>{p.detail.stepsCount.replace("{{count}}", String(runtimeSteps.length))}</span>
+                                            <span>
+                                              {runtimeJob?.started_at
+                                                ? durationLabel(runtimeJob.started_at, runtimeJob.finished_at ?? undefined)
+                                                : p.detail.notStarted}
+                                            </span>
+                                          </div>
+                                          {runtimeStatus === "waiting_manual" && isAdmin && (
+                                            <div className="mt-3">
+                                              <Button
+                                                type="button"
+                                                size="sm"
+                                                className="w-full"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                void handleTriggerJob(job.id);
+                                              }}
+                                                disabled={triggeringJobKey === job.id}
+                                              >
+                                                <Play className="mr-1 size-3.5" />
+                                                {triggeringJobKey === job.id
+                                                  ? dict.common.loading
+                                                  : p.detail.manualTrigger}
+                                              </Button>
+                                            </div>
+                                        )}
+                                      </button>
+                                      {index < stage.jobs.length - 1 && (
+                                          <div className="flex items-center justify-center py-0.5 text-[hsl(var(--ds-border-2)/0.82)]">
+                                            <ArrowDown className="size-3.5" />
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                            );
-                          })}
+                              {stageIndex < runtimeStages.length - 1 && (
+                                <div
+                                  className="flex shrink-0 items-center justify-center"
+                                  style={{ width: runtimeConnectorWidth }}
+                                >
+                                  <div className="relative h-10 w-full text-[hsl(var(--ds-border-2)/0.82)]">
+                                    <span className="absolute left-0 right-[15px] top-1/2 h-px -translate-y-1/2 bg-[hsl(var(--ds-border-2)/0.82)] mr-[-3px]" />
+                                    <ArrowRight className="absolute right-0 top-1/2 size-4 -translate-y-1/2" />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedRuntimeJobConfig && selectedRuntimeJob && (
+                      <div className="min-h-0 border-t xl:border-t-0 xl:border-l border-[hsl(var(--ds-border-1))] bg-background">
+                        <div className="flex h-full flex-col">
+                          <div className="border-b border-[hsl(var(--ds-border-1))] px-5 py-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  {STATUS_ICON[selectedRuntimeJob.status as PipelineRunStatus]}
+                                  <span className="truncate text-sm font-semibold text-foreground">
+                                    {selectedRuntimeJobConfig.name}
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
+                                  {stageLabel(selectedRuntimeJobConfig.stage ?? "build")} · {selectedRuntimeJob.job_key}
+                                </div>
+                              </div>
+                              <Badge variant={STATUS_VARIANTS[selectedRuntimeJob.status as PipelineRunStatus]} size="sm">
+                                {p.status[selectedRuntimeJob.status as PipelineRunStatus]}
+                              </Badge>
+                            </div>
+                          </div>
+
+                          <div className="flex-1 min-h-0 overflow-auto">
+                            <div className="space-y-4 px-5 py-4">
+                              <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))]/30 p-3">
+                                <div className="text-[11px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
+                                  {p.detail.stepsTitle}
+                                </div>
+                                <div className="mt-3 space-y-2">
+                                  {selectedRuntimeSteps.map((step) => (
+                                    <button
+                                      type="button"
+                                      key={step.id}
+                                      onClick={() => setSelectedStepId(step.id)}
+                                      className={`flex w-full items-center gap-2 rounded-[8px] border px-3 py-2 text-left transition-colors ${
+                                        selectedStepId === step.id
+                                          ? "border-foreground bg-background"
+                                          : "border-[hsl(var(--ds-border-1))] hover:bg-background"
+                                      }`}
+                                    >
+                                      {STATUS_ICON_SM[step.status as PipelineRunStatus]}
+                                      <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
+                                        {step.name}
+                                      </span>
+                                      {step.exit_code !== null && step.exit_code !== undefined && (
+                                        <span className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                                          {p.detail.exitCode.replace("{{code}}", String(step.exit_code))}
+                                        </span>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] overflow-hidden bg-terminal">
+                                <div className="border-b border-[hsl(var(--ds-border-1))] px-4 py-2.5 text-[11px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
+                                  {selectedRuntimeStep ? selectedRuntimeStep.name : p.log.title}
+                                </div>
+                                {!selectedStepId && (
+                                  <div className="px-4 py-10 text-[12px] text-terminal-muted">
+                                    {p.log.selectStep}
+                                  </div>
+                                )}
+                                {selectedStepId && (
+                                  <div
+                                    ref={logRef}
+                                    className="max-h-[320px] overflow-y-auto p-4 font-mono text-[11px] leading-relaxed text-terminal whitespace-pre-wrap"
+                                  >
+                                    {logText || (
+                                      <span className="text-terminal-muted">
+                                        {p.log.noLogs}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {selectedArtifacts.length > 0 && (
+                                <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-background">
+                                  <div className="flex items-center gap-2 border-b border-[hsl(var(--ds-border-1))] px-4 py-2.5">
+                                    <Package className="size-3.5 text-[hsl(var(--ds-text-2))]" />
+                                    <span className="text-[11px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
+                                      {p.artifactsLabel.replace("{{count}}", String(selectedArtifacts.length))}
+                                    </span>
+                                  </div>
+                                  <div className="divide-y divide-[hsl(var(--ds-border-1))]">
+                                    {selectedArtifacts.map((artifact) => {
+                                      const sizeKb = Math.round(Number(artifact.size_bytes) / 1024);
+                                      const sizeLabel =
+                                        sizeKb >= 1024
+                                          ? `${(sizeKb / 1024).toFixed(1)} MB`
+                                          : `${sizeKb} KB`;
+                                      const filename = artifact.path.split("/").pop() ?? artifact.path;
+                                      return (
+                                        <div key={artifact.id} className="flex items-center gap-3 px-4 py-3">
+                                          <Package className="size-3.5 shrink-0 text-[hsl(var(--ds-text-2))]" />
+                                          <div className="min-w-0 flex-1">
+                                            <div className="truncate text-[12px] font-medium text-foreground">
+                                              {filename}
+                                            </div>
+                                            <div className="truncate text-[11px] text-[hsl(var(--ds-text-2))]">
+                                              {artifact.path}
+                                            </div>
+                                          </div>
+                                          <span className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                                            {sizeLabel}
+                                          </span>
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => downloadArtifact(artifact.id)}
+                                            disabled={downloadingArtifactId === artifact.id}
+                                          >
+                                            {downloadingArtifactId === artifact.id
+                                              ? dict.common.loading
+                                              : dict.common.download}
+                                          </Button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}

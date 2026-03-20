@@ -129,6 +129,7 @@ export type PipelineRunSummary = {
 export type PipelineRunStatus =
   | 'queued'
   | 'running'
+  | 'waiting_manual'
   | 'success'
   | 'failed'
   | 'canceled'
@@ -673,6 +674,7 @@ export const STATUS_VARIANTS: Record<PipelineRunStatus, 'success' | 'danger' | '
   failed: 'danger',
   timed_out: 'danger',
   running: 'warning',
+  waiting_manual: 'warning',
   queued: 'default',
   canceled: 'default',
   skipped: 'default',

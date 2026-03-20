@@ -114,6 +114,7 @@ export const schedulerListPipelineRunsResponseSchema = z.array(schedulerPipeline
 export const schedulerCreatePipelineRunResponseSchema = schedulerPipelineRunSchema;
 export const schedulerListRunEventsResponseSchema = z.array(schedulerRunEventSchema);
 export const schedulerCancelPipelineRunResponseSchema = z.object({ ok: z.literal(true) });
+export const schedulerTriggerPipelineRunJobResponseSchema = z.object({ ok: z.literal(true) });
 
 export type SchedulerPipeline = z.infer<typeof schedulerPipelineSchema>;
 export type SchedulerPipelineVersion = z.infer<typeof schedulerPipelineVersionSchema>;
