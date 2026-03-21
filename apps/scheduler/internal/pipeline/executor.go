@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -111,8 +112,15 @@ func (e *DockerExecutor) Execute(ctx context.Context, step PipelineStep, env map
 		args = append(args, "-v", workingDir+":/workspace")
 	}
 
-	for k, v := range env {
-		args = append(args, "-e", k+"="+v)
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		// Pass only the variable name so Docker reads the value from the current
+		// process environment instead of exposing secrets in the process args.
+		args = append(args, "-e", key)
 	}
 
 	args = append(args, image, "/bin/sh", "-c", step.Script)
@@ -120,6 +128,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, step PipelineStep, env map
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdout = log
 	cmd.Stderr = log
+	cmd.Env = mergeEnv(env)
 
 	if err := cmd.Start(); err != nil {
 		return 0, err

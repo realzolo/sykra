@@ -62,18 +62,25 @@
 ┌────────────────────▼────────────────────────────────┐
 │                    apps/scheduler                       │
 │                  Go 1.24 Service                     │
-│   Pipeline Engine · Step Executors · Log Storage     │
+│  Control Plane · Queue · Worker Dispatch · Storage  │
 └──────────┬──────────────────────────┬───────────────┘
            │                          │
     ┌──────▼──────┐           ┌───────▼──────┐
     │  PostgreSQL  │           │    Redis      │
     │  (all data)  │           │ (Asynq queue) │
     └─────────────┘           └──────────────┘
+                     WebSocket control channel
+                               │
+                     ┌─────────▼─────────┐
+                     │    apps/worker    │
+                     │ Execution Agent   │
+                     │ Shell · Docker    │
+                     └───────────────────┘
 ```
 
 **Key design decisions:**
 - Studio and Scheduler are separate services communicating over HTTP — Scheduler can be scaled independently
-- All pipeline execution happens in Scheduler; Studio is the management UI + API proxy
+- Scheduler is the control plane; Worker agents execute pipeline jobs and stream step progress, logs, and artifacts back to Scheduler
 - Integrations (VCS, AI) configured via web UI, stored encrypted in DB — no env var sprawl
 - Stage-based pipeline builder with fixed core columns (`source`, `review`, `build`, `deploy`) and on-demand automation slots; runtime DAG is derived from stage order and dispatch mode
 
@@ -198,7 +205,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Per-step timeout | ✅ Done | `timeoutSeconds` field per step and per job |
 | Continue-on-error per step | ✅ Done | `continueOnError` flag |
 | Environment variable injection | ✅ Done | Pipeline-level → job-level → step-level cascade |
-| Encrypted env secrets | ⬜ Planned | Currently env vars are stored as plain text in config |
+| Encrypted env secrets | ✅ Done | Write-only secret manager backed by `pipeline_secrets`, AES-256-GCM encryption, multiline values, reserved system namespace protection, and runtime env injection |
 | Pipeline-level environment tag | ✅ Done | `development / staging / production` |
 | Auto-trigger on git push | ✅ Done | Branch matching; triggered from GitHub webhook |
 | Manual trigger from UI | ✅ Done | "Run" button, `triggerType: "manual"` |
@@ -239,17 +246,6 @@ The roadmap below excludes capabilities already shipped in the current build, in
 ### P0 — Core Experience
 
 These are the most important remaining gaps for daily product use.
-
-#### 4.1 Pipeline Encrypted Environment Variables (Secrets)
-
-**Why:** Build and deploy steps often require tokens, passwords, and API keys. Storing them in plain text in the pipeline config is a security risk.
-
-**Scope:**
-- Secrets UI in pipeline Configure tab with key/value pairs
-- Secret values are write-only and masked after save
-- Secrets stored encrypted with the existing AES-256-GCM infrastructure
-- Referenced in step scripts as `$SECRET_NAME`
-- Separate `pipeline_secrets` table or a canonical secret reference model
 
 ---
 
@@ -422,7 +418,6 @@ Focus: close the remaining product gaps that block daily use.
 
 ```
 🚧 To complete in Phase 1:
-   ├── 4.1  Pipeline Encrypted Environment Variables (Secrets)
    ├── 4.2  Notification Delivery System
    └── 4.3  Link Report Issues to Codebase Browser
 ```

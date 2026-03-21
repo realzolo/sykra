@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { PageLoading } from "@/components/ui/page-loading";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -37,6 +39,7 @@ import {
   Package,
   Plus,
   Trash2,
+  Copy,
 } from "lucide-react";
 import type { Dictionary } from "@/i18n";
 import type {
@@ -64,6 +67,15 @@ import { useOrgRole } from "@/lib/useOrgRole";
 import { useProject } from "@/lib/projectContext";
 import { formatLocalDateTime } from "@/lib/dateFormat";
 import { pipelineConfigSchema } from "@/services/validation";
+import {
+  getPipelineSecretValueBytes,
+  normalizePipelineSecretName,
+  PIPELINE_RESERVED_ENV_PREFIX,
+  PIPELINE_SECRET_MAX_COUNT,
+  PIPELINE_SECRET_VALUE_MAX_BYTES,
+  validatePipelineSecretName,
+  validatePipelineSecretValue,
+} from "@/services/pipelineSecrets";
 import StageBuilder from "@/components/pipeline/StageBuilder";
 import PipelineScheduleField from "@/components/pipeline/PipelineScheduleField";
 
@@ -137,7 +149,16 @@ export default function PipelineDetailClient({
   const [secretValue, setSecretValue] = useState("");
   const [secretSaving, setSecretSaving] = useState(false);
   const [secretDeleting, setSecretDeleting] = useState<string | null>(null);
+  const [secretToDelete, setSecretToDelete] = useState<string | null>(null);
   const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
+
+  const normalizedSecretName = normalizePipelineSecretName(secretName);
+  const secretNameError = validatePipelineSecretName(normalizedSecretName);
+  const secretValueError = validatePipelineSecretValue(secretValue);
+  const secretValueBytes = getPipelineSecretValueBytes(secretValue);
+  const secretLimitReached =
+    secrets.length >= PIPELINE_SECRET_MAX_COUNT &&
+    !secrets.some((item) => item.name === normalizedSecretName);
   const logRef = useRef<HTMLDivElement>(null);
   const schedulePreset = detectPipelineSchedulePreset(pipeline?.trigger_schedule);
   const scheduleLabel = schedulePreset
@@ -288,6 +309,32 @@ export default function PipelineDetailClient({
     }
   }, [logText]);
 
+  function secretErrorMessage(code: string | null) {
+    switch (code) {
+      case "required":
+      case "name_required":
+        return p.settingsTab.keyRequired;
+      case "invalid_format":
+      case "invalid_name":
+        return p.settingsTab.invalidName;
+      case "too_long":
+      case "name_too_long":
+        return p.settingsTab.nameTooLong;
+      case "reserved_name":
+        return p.settingsTab.reservedName;
+      case "value_required":
+        return p.settingsTab.valueRequired;
+      case "too_large":
+      case "value_too_large":
+        return p.settingsTab.valueTooLarge
+          .replace("{{size}}", String(Math.floor(PIPELINE_SECRET_VALUE_MAX_BYTES / 1024)));
+      case "secret_limit_exceeded":
+        return p.settingsTab.maxSecretsReached.replace("{{count}}", String(PIPELINE_SECRET_MAX_COUNT));
+      default:
+        return null;
+    }
+  }
+
   // ── Actions ────────────────────────────────────────────────────────────────
 
   async function handleRun() {
@@ -386,13 +433,21 @@ export default function PipelineDetailClient({
   }
 
   async function saveSecret() {
-    const name = secretName.trim().toUpperCase();
-    if (!name) {
-      toast.error(p.settingsTab.keyRequired);
+    const name = normalizedSecretName;
+    const currentNameError = secretErrorMessage(secretNameError);
+    if (currentNameError) {
+      toast.error(currentNameError);
       return;
     }
-    if (!secretValue) {
-      toast.error(p.settingsTab.valueRequired);
+    const currentValueError = secretErrorMessage(secretValueError);
+    if (currentValueError) {
+      toast.error(currentValueError);
+      return;
+    }
+    if (secretLimitReached) {
+      toast.error(
+        p.settingsTab.maxSecretsReached.replace("{{count}}", String(PIPELINE_SECRET_MAX_COUNT))
+      );
       return;
     }
 
@@ -403,13 +458,16 @@ export default function PipelineDetailClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, value: secretValue }),
       });
-      if (!res.ok) throw new Error("failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(secretErrorMessage(data?.error ?? null) ?? p.settingsTab.saveFailed);
+      }
       toast.success(p.settingsTab.saveSuccess);
-      setSecretName(name);
+      setSecretName("");
       setSecretValue("");
       await loadSecrets();
-    } catch {
-      toast.error(p.settingsTab.saveFailed);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : p.settingsTab.saveFailed);
     } finally {
       setSecretSaving(false);
     }
@@ -429,6 +487,15 @@ export default function PipelineDetailClient({
       toast.error(p.settingsTab.deleteFailed);
     } finally {
       setSecretDeleting(null);
+    }
+  }
+
+  async function copySecretName(name: string) {
+    try {
+      await navigator.clipboard.writeText(name);
+      toast.success(dict.common.copied);
+    } catch {
+      toast.error(p.settingsTab.copyFailed);
     }
   }
 
@@ -1501,6 +1568,33 @@ export default function PipelineDetailClient({
                         </Button>
                       </div>
 
+                      <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-3">
+                        <div className="text-[12px] font-medium text-foreground">
+                          {p.settingsTab.usageTitle}
+                        </div>
+                        <div className="mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
+                          {p.settingsTab.usageDescription}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Badge variant="muted" size="sm">{p.settingsTab.multilineSupported}</Badge>
+                          <Badge variant="muted" size="sm">
+                            {p.settingsTab.maxSecretsReached.replace("{{count}}", String(PIPELINE_SECRET_MAX_COUNT))}
+                          </Badge>
+                          <Badge variant="muted" size="sm">
+                            {p.settingsTab.valueTooLarge.replace(
+                              "{{size}}",
+                              String(Math.floor(PIPELINE_SECRET_VALUE_MAX_BYTES / 1024))
+                            )}
+                          </Badge>
+                        </div>
+                        <div className="mt-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+                          {p.settingsTab.precedenceHint}
+                        </div>
+                        <div className="mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
+                          {p.settingsTab.reservedPrefixHint.replace("{{prefix}}", PIPELINE_RESERVED_ENV_PREFIX)}
+                        </div>
+                      </div>
+
                       <div className="space-y-2">
                         {secretsLoading && (
                           <div className="text-[12px] text-[hsl(var(--ds-text-2))] py-2">
@@ -1508,29 +1602,53 @@ export default function PipelineDetailClient({
                           </div>
                         )}
                         {!secretsLoading && secrets.length === 0 && (
-                          <div className="text-[12px] text-[hsl(var(--ds-text-2))] py-2">
-                            {dict.common.none}
+                          <div className="rounded-[8px] border border-dashed border-[hsl(var(--ds-border-1))] px-3 py-4 text-[12px] text-[hsl(var(--ds-text-2))]">
+                            {p.settingsTab.empty}
                           </div>
                         )}
                         {!secretsLoading &&
                           secrets.map((s) => (
-                            <div key={s.name} className="flex items-center gap-2">
-                              <Input value={s.name} disabled className="h-8 w-48 font-mono text-[13px]" />
-                              <div className="flex-1">
-                                <Badge variant="muted" size="sm">{p.settingsTab.saved}</Badge>
+                            <div
+                              key={s.name}
+                              className="flex items-center justify-between gap-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] px-3 py-2.5"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <div className="truncate font-mono text-[13px] text-foreground">{s.name}</div>
+                                  <Badge variant="muted" size="sm">{p.settingsTab.saved}</Badge>
+                                </div>
+                                <div className="mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
+                                  {p.settingsTab.updatedAt.replace(
+                                    "{{time}}",
+                                    formatLocalDateTime(s.updated_at)
+                                  )}
+                                </div>
                               </div>
-                              {isAdmin && (
+                              <div className="flex items-center gap-1">
                                 <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => deleteSecret(s.name)}
-                                  disabled={secretDeleting === s.name}
-                                  aria-label={dict.common.delete}
+                                  variant="secondary"
+                                  size="sm"
+                                  className="gap-1.5"
+                                  onClick={() => {
+                                    void copySecretName(s.name);
+                                  }}
                                 >
-                                  <Trash2 className="size-3.5" />
+                                  <Copy className="size-3.5" />
+                                  {p.settingsTab.copyName}
                                 </Button>
-                              )}
+                                {isAdmin && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => setSecretToDelete(s.name)}
+                                    disabled={secretDeleting === s.name}
+                                    aria-label={dict.common.delete}
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                           ))}
                       </div>
@@ -1538,28 +1656,53 @@ export default function PipelineDetailClient({
                       {isAdmin && (
                         <>
                           <Separator />
-                          <div className="grid gap-2 md:grid-cols-[200px_1fr_auto] items-center">
-                            <Input
-                              value={secretName}
-                              onChange={(e) => setSecretName(e.target.value)}
-                              placeholder={p.settingsTab.secretKey}
-                              className="h-8 font-mono text-[13px]"
-                            />
-                            <Input
-                              type="password"
-                              value={secretValue}
-                              onChange={(e) => setSecretValue(e.target.value)}
-                              placeholder={p.settingsTab.secretValue}
-                              className="h-8 font-mono text-[13px]"
-                            />
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={saveSecret}
-                              disabled={secretSaving || !secretName.trim() || !secretValue}
-                            >
-                              {p.settingsTab.saveSecret}
-                            </Button>
+                          <div className="grid gap-3">
+                            <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+                              <div className="space-y-2">
+                                <Input
+                                  value={secretName}
+                                  onChange={(e) => setSecretName(normalizePipelineSecretName(e.target.value))}
+                                  placeholder={p.settingsTab.secretKey}
+                                  className="h-9 font-mono text-[13px]"
+                                />
+                                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                                  {secretErrorMessage(secretNameError) ?? p.settingsTab.secretKeyHint}
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <Textarea
+                                  value={secretValue}
+                                  onChange={(e) => setSecretValue(e.target.value)}
+                                  placeholder={p.settingsTab.secretValue}
+                                  className="min-h-[104px] font-mono text-[13px]"
+                                />
+                                <div className="flex items-center justify-between gap-3 text-[12px] text-[hsl(var(--ds-text-2))]">
+                                  <span>
+                                    {secretErrorMessage(secretValueError) ?? p.settingsTab.secretValueHint}
+                                  </span>
+                                  <span>
+                                    {p.settingsTab.byteCount
+                                      .replace("{{current}}", String(secretValueBytes))
+                                      .replace("{{max}}", String(PIPELINE_SECRET_VALUE_MAX_BYTES))}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex justify-end">
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={saveSecret}
+                                disabled={
+                                  secretSaving ||
+                                  !!secretNameError ||
+                                  !!secretValueError ||
+                                  secretLimitReached
+                                }
+                              >
+                                {p.settingsTab.saveSecret}
+                              </Button>
+                            </div>
                           </div>
                         </>
                       )}
@@ -1638,6 +1781,25 @@ export default function PipelineDetailClient({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={secretToDelete !== null}
+        title={p.settingsTab.deleteDialogTitle}
+        description={p.settingsTab.deleteDialogDescription.replace("{{name}}", secretToDelete ?? "")}
+        confirmLabel={dict.common.delete}
+        cancelLabel={dict.common.cancel}
+        onOpenChange={(open) => {
+          if (!open) setSecretToDelete(null);
+        }}
+        onConfirm={() => {
+          if (!secretToDelete) return;
+          void deleteSecret(secretToDelete).finally(() => {
+            setSecretToDelete(null);
+          });
+        }}
+        loading={secretDeleting === secretToDelete}
+        danger
+      />
 
     </div>
   );

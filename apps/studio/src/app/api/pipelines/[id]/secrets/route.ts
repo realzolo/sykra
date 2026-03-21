@@ -7,6 +7,13 @@ import { formatErrorResponse } from '@/services/retry';
 import { query, exec } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
 import { getPipeline } from '@/services/schedulerClient';
+import { auditLogger, extractClientInfo } from '@/services/audit';
+import {
+  PIPELINE_SECRET_MAX_COUNT,
+  normalizePipelineSecretName,
+  validatePipelineSecretName,
+  validatePipelineSecretValue,
+} from '@/services/pipelineSecrets';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,17 +82,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
-    const name = String(body?.name ?? '').trim();
-    const value = String(body?.value ?? '');
+    const name = normalizePipelineSecretName(String(body?.name ?? ''));
+    const value = typeof body?.value === 'string' ? body.value : String(body?.value ?? '');
 
-    if (!name) {
+    const nameError = validatePipelineSecretName(name);
+    if (nameError === 'required') {
       return NextResponse.json({ error: 'name_required' }, { status: 400 });
     }
-    if (!isValidEnvKey(name)) {
+    if (nameError === 'invalid_format' || !isValidEnvKey(name)) {
       return NextResponse.json({ error: 'invalid_name' }, { status: 400 });
     }
-    if (!value) {
+    if (nameError === 'too_long') {
+      return NextResponse.json({ error: 'name_too_long' }, { status: 400 });
+    }
+    if (nameError === 'reserved_name') {
+      return NextResponse.json({ error: 'reserved_name' }, { status: 400 });
+    }
+
+    const valueError = validatePipelineSecretValue(value);
+    if (valueError === 'required') {
       return NextResponse.json({ error: 'value_required' }, { status: 400 });
+    }
+    if (valueError === 'too_large') {
+      return NextResponse.json({ error: 'value_too_large' }, { status: 400 });
     }
 
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
@@ -97,6 +116,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const gate = await requirePipelineInOrg(id, orgId);
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
+    const existing = await query<{ name: string }>(
+      `select name
+       from pipeline_secrets
+       where pipeline_id = $1 and org_id = $2 and name = $3`,
+      [id, orgId, name]
+    );
+    const alreadyExists = existing.length > 0;
+    if (!alreadyExists) {
+      const counts = await query<{ count: string }>(
+        `select count(*)::text as count
+         from pipeline_secrets
+         where pipeline_id = $1 and org_id = $2`,
+        [id, orgId]
+      );
+      const currentCount = Number(counts[0]?.count ?? '0');
+      if (currentCount >= PIPELINE_SECRET_MAX_COUNT) {
+        return NextResponse.json({ error: 'secret_limit_exceeded' }, { status: 400 });
+      }
+    }
+
     const encrypted = encrypt(value);
 
     await exec(
@@ -106,6 +145,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
        do update set value_encrypted = excluded.value_encrypted, updated_at = now()`,
       [id, orgId, name, encrypted]
     );
+
+    const clientInfo = extractClientInfo(request);
+    await auditLogger.log({
+      action: alreadyExists ? 'update' : 'create',
+      entityType: 'pipeline',
+      entityId: id,
+      userId: user.id,
+      changes: {
+        scope: 'pipeline_secret',
+        name,
+      },
+      ...clientInfo,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err) {
@@ -132,7 +184,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const gate = await requirePipelineInOrg(id, orgId);
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
-    const name = request.nextUrl.searchParams.get('name')?.trim() ?? '';
+    const name = normalizePipelineSecretName(request.nextUrl.searchParams.get('name') ?? '');
     if (!name) {
       return NextResponse.json({ error: 'name_required' }, { status: 400 });
     }
@@ -141,6 +193,19 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       `delete from pipeline_secrets where pipeline_id = $1 and org_id = $2 and name = $3`,
       [id, orgId, name]
     );
+
+    const clientInfo = extractClientInfo(request);
+    await auditLogger.log({
+      action: 'delete',
+      entityType: 'pipeline',
+      entityId: id,
+      userId: user.id,
+      changes: {
+        scope: 'pipeline_secret',
+        name,
+      },
+      ...clientInfo,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err) {

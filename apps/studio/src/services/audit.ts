@@ -16,7 +16,7 @@ export type AuditAction =
   | 'login'
   | 'logout';
 
-export type AuditEntityType = 'project' | 'report' | 'rule' | 'ruleset' | 'user' | 'org';
+export type AuditEntityType = 'project' | 'pipeline' | 'report' | 'rule' | 'ruleset' | 'user' | 'org';
 
 export interface AuditLogEntry {
   action: AuditAction;

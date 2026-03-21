@@ -879,14 +879,22 @@ func runDockerStep(ctx context.Context, step workerprotocol.ExecuteStep, working
 	if workingDir != "" {
 		args = append(args, "-v", workingDir+":/workspace")
 	}
-	for key, value := range step.Env {
-		args = append(args, "-e", key+"="+value)
+	envKeys := make([]string, 0, len(step.Env))
+	for key := range step.Env {
+		envKeys = append(envKeys, key)
+	}
+	sort.Strings(envKeys)
+	for _, key := range envKeys {
+		// Pass only the variable name so Docker reads the value from the current
+		// process environment instead of exposing secrets in the process args.
+		args = append(args, "-e", key)
 	}
 	args = append(args, image, "/bin/sh", "-c", step.Script)
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdout = output
 	cmd.Stderr = output
+	cmd.Env = mergeEnv(step.Env)
 	if err := cmd.Start(); err != nil {
 		return 1, err
 	}
