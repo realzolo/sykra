@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { useClientDictionary } from '@/i18n/client';
 
@@ -129,7 +129,7 @@ export default function EditVCSIntegrationModal({ integration, onClose, onSucces
           <DialogTitle className="text-[16px] font-semibold">{i18n.title}</DialogTitle>
         </DialogHeader>
 
-        <div className="max-h-[calc(90vh-132px)] overflow-y-auto px-6 py-5 flex flex-col gap-4">
+        <DialogBody className="max-h-[calc(90vh-132px)] flex flex-col gap-4">
           <div>
             <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.provider}</label>
             <Input className="h-9" value={integration.provider} disabled />
@@ -181,11 +181,11 @@ export default function EditVCSIntegrationModal({ integration, onClose, onSucces
             <Switch id="isDefault-edit-vcs" checked={isDefault} onCheckedChange={setIsDefault} />
             <label htmlFor="isDefault-edit-vcs" className="text-[13px]">{i18n.setDefault}</label>
           </div>
-        </div>
+        </DialogBody>
 
-        <DialogFooter className="px-6 py-4">
-          <div className="flex gap-2 w-full">
-            <Button variant="outline" onClick={onClose} disabled={loading} className="flex-1">
+        <DialogFooter>
+          <div className="flex w-full gap-3">
+            <Button variant="secondary" onClick={onClose} disabled={loading} className="flex-1">
               {dict.common.cancel}
             </Button>
             <Button onClick={handleSubmit} disabled={loading} className="flex-1">

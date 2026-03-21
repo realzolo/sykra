@@ -2,33 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Check, Copy, Plus, UserMinus } from 'lucide-react';
+import { Building2, Check, Copy, Mail, Plus, UserMinus, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import SettingsNav from '@/components/settings/SettingsNav';
-import { replaceOrgInPath } from '@/lib/orgPath';
-import { Skeleton } from '@/components/ui/skeleton';
+
+import SettingsPageShell from '@/components/settings/SettingsPageShell';
+import SettingsEmptyState from '@/components/settings/SettingsEmptyState';
+import SettingsNotice from '@/components/settings/SettingsNotice';
+import SettingsSection from '@/components/settings/SettingsSection';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useClientDictionary } from '@/i18n/client';
+import { replaceOrgInPath } from '@/lib/orgPath';
 import { formatLocalDate } from '@/lib/dateFormat';
 
 type OrgRole = 'owner' | 'admin' | 'reviewer' | 'member';
@@ -68,11 +58,63 @@ const roleBadgeVariant: Record<OrgRole, 'accent' | 'secondary' | 'outline' | 'mu
   member: 'muted',
 };
 
+function OrganizationsSkeleton({ title, description }: { title: string; description: string }) {
+  return (
+    <SettingsPageShell title={title} description={description}>
+      <div className="space-y-6">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-36" />
+              <Skeleton className="h-4 w-64" />
+            </div>
+            <Skeleton className="h-8 w-28 rounded-[6px]" />
+          </div>
+          <div className="space-y-2 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-4">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-56" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-28" />
+              <Skeleton className="h-4 w-56" />
+            </div>
+            <Skeleton className="h-5 w-16 rounded-[4px]" />
+          </div>
+          <div className="space-y-2 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-4">
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-3 w-64" />
+            <Skeleton className="h-8 w-40" />
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-4 w-72" />
+            </div>
+            <Skeleton className="h-5 w-16 rounded-[4px]" />
+          </div>
+          <div className="space-y-2 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-4">
+            <Skeleton className="h-4 w-52" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-3/4" />
+          </div>
+        </div>
+      </div>
+    </SettingsPageShell>
+  );
+}
+
 export default function OrganizationsPage() {
   const dict = useClientDictionary();
   const i18n = dict.settings.organizationsPage;
   const router = useRouter();
   const pathname = usePathname();
+
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
   const [members, setMembers] = useState<OrgMember[]>([]);
@@ -107,12 +149,9 @@ export default function OrganizationsPage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setCurrentUserId(data?.user?.id ?? null))
       .catch(() => setCurrentUserId(null));
-  }, [i18n.loadOrganizationsFailed]);
+  }, []);
 
-  const activeOrg = useMemo(
-    () => orgs.find((org) => org.id === activeOrgId) ?? orgs[0],
-    [orgs, activeOrgId],
-  );
+  const activeOrg = useMemo(() => orgs.find((org) => org.id === activeOrgId) ?? orgs[0], [orgs, activeOrgId]);
 
   const currentUserRole = useMemo(() => {
     if (!currentUserId) return null;
@@ -121,33 +160,39 @@ export default function OrganizationsPage() {
 
   const canManageMembers = currentUserRole === 'owner' || currentUserRole === 'admin';
 
-  const loadMembers = useCallback(async (orgId: string) => {
-    setMembersLoading(true);
-    try {
-      const res = await fetch(`/api/orgs/${orgId}/members`);
-      if (!res.ok) throw new Error(i18n.loadMembersFailed);
-      const data = await res.json();
-      setMembers(Array.isArray(data) ? data : []);
-    } catch {
-      toast.error(i18n.loadMembersFailed);
-    } finally {
-      setMembersLoading(false);
-    }
-  }, [i18n.loadMembersFailed]);
+  const loadMembers = useCallback(
+    async (orgId: string) => {
+      setMembersLoading(true);
+      try {
+        const res = await fetch(`/api/orgs/${orgId}/members`);
+        if (!res.ok) throw new Error(i18n.loadMembersFailed);
+        const data = await res.json();
+        setMembers(Array.isArray(data) ? data : []);
+      } catch {
+        toast.error(i18n.loadMembersFailed);
+      } finally {
+        setMembersLoading(false);
+      }
+    },
+    [i18n.loadMembersFailed],
+  );
 
-  const loadInvites = useCallback(async (orgId: string) => {
-    setInvitesLoading(true);
-    try {
-      const res = await fetch(`/api/orgs/${orgId}/invites`);
-      if (!res.ok) throw new Error(i18n.loadInvitesFailed);
-      const data = await res.json();
-      setInvites(Array.isArray(data) ? data : []);
-    } catch {
-      toast.error(i18n.loadInvitesFailed);
-    } finally {
-      setInvitesLoading(false);
-    }
-  }, [i18n.loadInvitesFailed]);
+  const loadInvites = useCallback(
+    async (orgId: string) => {
+      setInvitesLoading(true);
+      try {
+        const res = await fetch(`/api/orgs/${orgId}/invites`);
+        if (!res.ok) throw new Error(i18n.loadInvitesFailed);
+        const data = await res.json();
+        setInvites(Array.isArray(data) ? data : []);
+      } catch {
+        toast.error(i18n.loadInvitesFailed);
+      } finally {
+        setInvitesLoading(false);
+      }
+    },
+    [i18n.loadInvitesFailed],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -155,17 +200,14 @@ export default function OrganizationsPage() {
     async function loadOrgs() {
       setLoading(true);
       try {
-        const [orgRes, activeRes] = await Promise.all([
-          fetch('/api/orgs'),
-          fetch('/api/orgs/active'),
-        ]);
+        const [orgRes, activeRes] = await Promise.all([fetch('/api/orgs'), fetch('/api/orgs/active')]);
         const orgData = orgRes.ok ? await orgRes.json() : [];
         const activeData = activeRes.ok ? await activeRes.json() : null;
 
         if (!alive) return;
         const safeOrgs = Array.isArray(orgData) ? orgData : [];
         setOrgs(safeOrgs);
-        setActiveOrgId(activeData?.orgId ?? safeOrgs?.[0]?.id ?? null);
+        setActiveOrgId(activeData?.orgId ?? safeOrgs[0]?.id ?? null);
       } catch {
         if (alive) toast.error(i18n.loadOrganizationsFailed);
       } finally {
@@ -211,10 +253,11 @@ export default function OrganizationsPage() {
     }
 
     try {
+      const body = slug ? { name, slug } : { name };
       const res = await fetch('/api/orgs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, slug: slug || undefined }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -294,9 +337,7 @@ export default function OrganizationsPage() {
         throw new Error(data.error || i18n.updateMemberRoleFailed);
       }
       const updated = await res.json();
-      setMembers((prev) =>
-        prev.map((item) => (item.user_id === member.user_id ? { ...item, role: updated.role } : item)),
-      );
+      setMembers((prev) => prev.map((item) => (item.user_id === member.user_id ? { ...item, role: updated.role } : item)));
       toast.success(i18n.updateMemberRoleSuccess);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : i18n.updateMemberRoleFailed);
@@ -306,7 +347,6 @@ export default function OrganizationsPage() {
   async function handleRemoveMember(member: OrgMember) {
     if (!activeOrgId) return;
     setRemovingMemberId(member.user_id);
-
     try {
       const res = await fetch(`/api/orgs/${activeOrgId}/members/${member.user_id}`, {
         method: 'DELETE',
@@ -326,70 +366,17 @@ export default function OrganizationsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-5xl px-6 py-6">
-          <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
-            <div className="space-y-3">
-              <Skeleton className="h-6 w-40" />
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-4 w-28" />
-            </div>
-            <div className="space-y-8">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-36" />
-                  <Skeleton className="h-3 w-64" />
-                </div>
-                <Skeleton className="h-8 w-40 rounded-[6px]" />
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-                <div className="border border-[hsl(var(--ds-border-1))] rounded-[8px] overflow-hidden bg-[hsl(var(--ds-background-2))]">
-                  <div className="hidden md:grid grid-cols-[1fr_140px_160px] px-4 py-2 gap-4">
-                    <Skeleton className="h-3 w-16" />
-                    <Skeleton className="h-3 w-12" />
-                    <Skeleton className="h-3 w-12 ml-auto" />
-                  </div>
-                  {Array.from({ length: 3 }).map((_, index) => (
-                    <div key={`org-skeleton-${index}`} className="flex flex-col gap-2 px-4 py-3 md:grid md:grid-cols-[1fr_140px_160px] md:items-center">
-                      <div className="space-y-2">
-                        <Skeleton className="h-4 w-40" />
-                        <Skeleton className="h-3 w-28" />
-                      </div>
-                      <Skeleton className="h-5 w-16 rounded-[4px]" />
-                      <div className="flex justify-end">
-                        <Skeleton className="h-6 w-20 rounded-[4px]" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <OrganizationsSkeleton title={i18n.title} description={i18n.description} />;
   }
 
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="max-w-5xl px-6 py-6">
-        <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
-          <SettingsNav />
-
-          <div className="space-y-8">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h1 className="text-[15px] font-semibold">{i18n.title}</h1>
-                <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">
-                  {i18n.description}
-                </p>
-              </div>
-
+    <>
+      <SettingsPageShell title={i18n.title} description={i18n.description}>
+        <div className="space-y-6">
+          <SettingsSection
+            title={i18n.yourOrganizationsTitle}
+            description={i18n.totalCount.replace('{{count}}', String(orgs.length))}
+            action={
               <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogTrigger asChild>
                   <Button size="sm" className="gap-1.5">
@@ -400,11 +387,9 @@ export default function OrganizationsPage() {
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>{i18n.createDialogTitle}</DialogTitle>
-                    <DialogDescription>
-                      {i18n.createDialogDescription}
-                    </DialogDescription>
+                    <DialogDescription>{i18n.createDialogDescription}</DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-4">
+                  <DialogBody className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-[12px] font-medium">{dict.common.name}</label>
                       <Input
@@ -421,325 +406,305 @@ export default function OrganizationsPage() {
                         placeholder={i18n.slugPlaceholder}
                       />
                     </div>
-                  </div>
+                  </DialogBody>
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => setCreateOpen(false)}>
+                    <Button variant="secondary" onClick={() => setCreateOpen(false)}>
                       {dict.common.cancel}
                     </Button>
                     <Button onClick={handleCreateOrg}>{i18n.createAction}</Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-            </div>
-
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[13px] font-semibold">{i18n.yourOrganizationsTitle}</h2>
-                <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                  {i18n.totalCount.replace('{{count}}', String(orgs.length))}
-                </span>
-              </div>
-
-              {orgs.length === 0 ? (
-                <Card>
-                  <CardContent className="p-6 text-center text-[13px] text-[hsl(var(--ds-text-2))]">
-                    {i18n.noOrganizations}
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-1))]">
-                  <div className="hidden md:grid grid-cols-[1fr_140px_160px] px-4 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
-                    <span>{dict.common.name}</span>
-                    <span>{i18n.typeLabel}</span>
-                    <span className="text-right">{dict.common.status}</span>
-                  </div>
-                  <div className="divide-y divide-[hsl(var(--ds-border-1))]">
-                    {orgs.map((org) => {
-                      const isActive = org.id === activeOrg?.id;
-                      return (
-                        <div
-                          key={org.id}
-                          className="flex flex-col gap-2 px-4 py-3 md:grid md:grid-cols-[1fr_140px_160px] md:items-center"
-                        >
-                          <div>
-                            <div className="text-[13px] font-medium">{org.name}</div>
-                            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{org.slug}</div>
-                          </div>
-                          <div>
-                            <Badge variant={org.is_personal ? 'secondary' : 'outline'}>
-                              {org.is_personal ? i18n.personalType : i18n.teamType}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center justify-between md:justify-end gap-2">
-                            {isActive ? (
-                              <Badge variant="accent" size="sm" className="gap-1">
-                                <Check className="size-3" />
-                                {i18n.activeBadge}
-                              </Badge>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setActiveOrg(org.id)}
-                              >
-                                {i18n.switchAction}
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-[13px] font-semibold">{i18n.membersTitle}</h2>
-                  <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                    {activeOrg
-                      ? i18n.workspaceLabel.replace('{{name}}', activeOrg.name)
-                      : i18n.selectOrganization}
-                  </p>
-                </div>
-                <Badge variant="muted">{members.length}</Badge>
-              </div>
-
+            }
+          >
+            {orgs.length === 0 ? (
+              <SettingsEmptyState
+                title={i18n.noOrganizations}
+                description={i18n.noOrganizationsDescription}
+                icon={<Building2 className="size-4" />}
+                action={
+                  <Button size="sm" onClick={() => setCreateOpen(true)} className="gap-1.5">
+                    <Plus className="size-4" />
+                    {i18n.newOrganization}
+                  </Button>
+                }
+              />
+            ) : (
               <div className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-1))]">
-                <div className="hidden md:grid grid-cols-[1fr_160px_120px_120px] px-4 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
-                  <span>{i18n.userLabel}</span>
-                  <span>{i18n.roleLabel}</span>
-                  <span>{dict.common.status}</span>
-                  <span className="text-right">{dict.common.actions}</span>
+                <div className="hidden md:grid grid-cols-[1fr_140px_160px] px-4 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+                  <span>{dict.common.name}</span>
+                  <span>{i18n.typeLabel}</span>
+                  <span className="text-right">{dict.common.status}</span>
                 </div>
                 <div className="divide-y divide-[hsl(var(--ds-border-1))]">
-                  {membersLoading ? (
-                    <div className="px-4 py-4 space-y-3">
-                      {Array.from({ length: 3 }).map((_, index) => (
-                        <div key={`member-skeleton-${index}`} className="flex flex-col gap-2 md:grid md:grid-cols-[1fr_160px_120px_120px] md:items-center">
-                          <div className="space-y-2">
-                            <Skeleton className="h-4 w-40" />
-                            <Skeleton className="h-3 w-48" />
-                          </div>
-                          <Skeleton className="h-7 w-24 rounded-[6px]" />
-                          <Skeleton className="h-5 w-16 rounded-[4px]" />
-                          <div className="flex justify-end">
-                            <Skeleton className="h-7 w-20 rounded-[6px]" />
-                          </div>
+                  {orgs.map((org) => {
+                    const isActive = org.id === activeOrg?.id;
+                    return (
+                      <div
+                        key={org.id}
+                        className="flex flex-col gap-2 px-4 py-3 md:grid md:grid-cols-[1fr_140px_160px] md:items-center"
+                      >
+                        <div>
+                          <div className="text-[13px] font-medium">{org.name}</div>
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{org.slug}</div>
                         </div>
-                      ))}
-                    </div>
-                  ) : members.length === 0 ? (
-                    <div className="px-4 py-6 text-[13px] text-[hsl(var(--ds-text-2))]">{i18n.noMembers}</div>
-                  ) : (
-                    members.map((member) => {
-                      const isSelf = member.user_id === currentUserId;
-                      const canEditRole =
-                        canManageMembers &&
-                        !(member.role === 'owner' && currentUserRole !== 'owner') &&
-                        !(isSelf && member.role === 'owner');
-                      const canRemove =
-                        canManageMembers &&
-                        !isSelf &&
-                        !(member.role === 'owner' && currentUserRole !== 'owner');
-
-                      return (
-                        <div
-                          key={member.user_id}
-                          className="flex flex-col gap-3 px-4 py-3 md:grid md:grid-cols-[1fr_160px_120px_120px] md:items-center"
-                        >
-                          <div>
-                            <div className="text-[13px] font-medium">
-                              {member.email ?? member.user_id}
-                              {isSelf && (
-                                <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                                  {' '}
-                                  ({i18n.youLabel})
-                                </span>
-                              )}
-                            </div>
-                            {member.email && (
-                              <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{member.user_id}</div>
-                            )}
-                          </div>
-                          <div>
-                            {canEditRole ? (
-                              <Select
-                                value={member.role}
-                                onValueChange={(value) => handleRoleChange(member, value as OrgRole)}
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {Object.entries(roleLabels).map(([key, label]) => (
-                                    <SelectItem key={key} value={key}>
-                                      {label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Badge variant={roleBadgeVariant[member.role]}>{roleLabels[member.role]}</Badge>
-                            )}
-                          </div>
-                          <div>
-                            <Badge variant={member.status === 'active' ? 'success' : 'muted'}>
-                              {memberStatusLabels[member.status]}
+                        <div>
+                          <Badge variant={org.is_personal ? 'secondary' : 'outline'}>
+                            {org.is_personal ? i18n.personalType : i18n.teamType}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 md:justify-end">
+                          {isActive ? (
+                            <Badge variant="accent" size="sm" className="gap-1">
+                              <Check className="size-3" />
+                              {i18n.activeBadge}
                             </Badge>
-                          </div>
-                          <div className="flex items-center gap-2 md:justify-end">
-                            {canRemove ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setMemberToRemove(member)}
-                                disabled={removingMemberId === member.user_id}
-                                className="gap-1"
-                              >
-                                <UserMinus className="size-3.5" />
-                                {removingMemberId === member.user_id ? i18n.removing : i18n.removeAction}
-                              </Button>
-                            ) : (
-                              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">—</span>
-                            )}
-                          </div>
+                          ) : (
+                            <Button size="sm" variant="ghost" onClick={() => setActiveOrg(org.id)}>
+                              {i18n.switchAction}
+                            </Button>
+                          )}
                         </div>
-                      );
-                    })
-                  )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            </section>
+            )}
+          </SettingsSection>
 
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-[13px] font-semibold">{i18n.invitesTitle}</h2>
-                  <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                    {i18n.invitesDescription.replace(
-                      '{{orgName}}',
-                      activeOrg?.name ?? i18n.yourOrganization,
-                    )}
-                  </p>
-                </div>
-                <Badge variant="muted">{invites.length}</Badge>
+          <SettingsSection
+            title={i18n.membersTitle}
+            description={activeOrg ? i18n.workspaceLabel.replace('{{name}}', activeOrg.name) : i18n.selectOrganization}
+            action={<Badge variant="muted">{members.length}</Badge>}
+          >
+            <div className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-1))]">
+              <div className="hidden md:grid grid-cols-[1fr_160px_120px_120px] px-4 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+                <span>{i18n.userLabel}</span>
+                <span>{i18n.roleLabel}</span>
+                <span>{dict.common.status}</span>
+                <span className="text-right">{dict.common.actions}</span>
               </div>
-
-              <Card>
-                <CardContent className="p-4 space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-[1fr_140px_auto]">
-                    <Input
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      placeholder={i18n.inviteEmailPlaceholder}
+              <div className="divide-y divide-[hsl(var(--ds-border-1))]">
+                {membersLoading ? (
+                  <div className="px-4 py-4 space-y-3">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div
+                        key={`member-skeleton-${index}`}
+                        className="flex flex-col gap-2 md:grid md:grid-cols-[1fr_160px_120px_120px] md:items-center"
+                      >
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-40" />
+                          <Skeleton className="h-3 w-48" />
+                        </div>
+                        <Skeleton className="h-7 w-24 rounded-[6px]" />
+                        <Skeleton className="h-5 w-16 rounded-[4px]" />
+                        <div className="flex justify-end">
+                          <Skeleton className="h-7 w-20 rounded-[6px]" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : members.length === 0 ? (
+                  <div className="p-4">
+                    <SettingsEmptyState
+                      title={i18n.noMembers}
+                      description={i18n.noMembersDescription}
+                      icon={<Users className="size-4" />}
                     />
-                    <Select value={inviteRole} onValueChange={(value) => setInviteRole(value as OrgRole)}>
-                      <SelectTrigger className="h-9">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(roleLabels).map(([key, label]) => (
-                          <SelectItem key={key} value={key}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button onClick={handleInvite} disabled={!canManageMembers}>
-                      {i18n.sendInviteAction}
-                    </Button>
                   </div>
-                  {!canManageMembers && (
-                    <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                      {i18n.invitePermissionHint}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
+                ) : (
+                  members.map((member) => {
+                    const isSelf = member.user_id === currentUserId;
+                    const canEditRole =
+                      canManageMembers &&
+                      !(member.role === 'owner' && currentUserRole !== 'owner') &&
+                      !(isSelf && member.role === 'owner');
+                    const canRemove =
+                      canManageMembers &&
+                      !isSelf &&
+                      !(member.role === 'owner' && currentUserRole !== 'owner');
 
-              <div className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-1))]">
-                <div className="hidden md:grid grid-cols-[1fr_120px_160px_120px] px-4 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
-                  <span>{dict.auth.email}</span>
-                  <span>{i18n.roleLabel}</span>
-                  <span>{i18n.expiresLabel}</span>
-                  <span className="text-right">{dict.common.actions}</span>
-                </div>
-                <div className="divide-y divide-[hsl(var(--ds-border-1))]">
-                  {invitesLoading ? (
-                    <div className="px-4 py-4 space-y-3">
-                      {Array.from({ length: 2 }).map((_, index) => (
-                        <div key={`invite-skeleton-${index}`} className="flex flex-col gap-2 md:grid md:grid-cols-[1fr_120px_160px_120px] md:items-center">
-                          <div className="space-y-2">
-                            <Skeleton className="h-4 w-44" />
-                            <Skeleton className="h-3 w-24" />
+                    return (
+                      <div
+                        key={member.user_id}
+                        className="flex flex-col gap-3 px-4 py-3 md:grid md:grid-cols-[1fr_160px_120px_120px] md:items-center"
+                      >
+                        <div>
+                          <div className="text-[13px] font-medium">
+                            {member.email ?? member.user_id}
+                            {isSelf && (
+                              <span className="text-[12px] text-[hsl(var(--ds-text-2))]"> ({i18n.youLabel})</span>
+                            )}
                           </div>
-                          <Skeleton className="h-5 w-16 rounded-[4px]" />
-                          <Skeleton className="h-3 w-20" />
-                          <div className="flex justify-end">
-                            <Skeleton className="h-7 w-24 rounded-[6px]" />
-                          </div>
+                          {member.email && (
+                            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{member.user_id}</div>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  ) : invites.length === 0 ? (
-                    <div className="px-4 py-6 text-[13px] text-[hsl(var(--ds-text-2))]">{i18n.noInvites}</div>
-                  ) : (
-                    invites.map((invite) => {
-                      const expired = new Date(invite.expires_at).getTime() < Date.now();
-                      return (
-                        <div
-                          key={invite.id}
-                          className="flex flex-col gap-2 px-4 py-3 md:grid md:grid-cols-[1fr_120px_160px_120px] md:items-center"
-                        >
-                          <div>
-                            <div className="text-[13px] font-medium">{invite.email}</div>
-                            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                              {invite.accepted_at
-                                ? i18n.inviteAccepted
-                                : expired
-                                  ? i18n.inviteExpired
-                                  : i18n.invitePending}
-                            </div>
-                          </div>
-                          <div>
-                            <Badge variant={roleBadgeVariant[invite.role]}>{roleLabels[invite.role]}</Badge>
-                          </div>
-                          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                            {formatLocalDate(invite.expires_at)}
-                          </div>
-                          <div className="flex items-center gap-2 md:justify-end">
+                        <div>
+                          {canEditRole ? (
+                            <Select value={member.role} onValueChange={(value) => handleRoleChange(member, value as OrgRole)}>
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Object.entries(roleLabels).map(([key, label]) => (
+                                  <SelectItem key={key} value={key}>
+                                    {label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge variant={roleBadgeVariant[member.role]}>{roleLabels[member.role]}</Badge>
+                          )}
+                        </div>
+                        <div>
+                          <Badge variant={member.status === 'active' ? 'success' : 'muted'}>
+                            {memberStatusLabels[member.status]}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2 md:justify-end">
+                          {canRemove ? (
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleCopyInvite(invite)}
+                              onClick={() => setMemberToRemove(member)}
+                              disabled={removingMemberId === member.user_id}
                               className="gap-1"
                             >
-                              <Copy className="size-3.5" />
-                              {dict.common.copy}
+                              <UserMinus className="size-3.5" />
+                              {removingMemberId === member.user_id ? i18n.removing : i18n.removeAction}
                             </Button>
-                            {canManageMembers && !invite.accepted_at && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleRevokeInvite(invite.id)}
-                              >
-                                {i18n.revokeAction}
-                              </Button>
-                            )}
+                          ) : (
+                            <span className="text-[12px] text-[hsl(var(--ds-text-2))]">—</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            title={i18n.invitesTitle}
+            description={i18n.invitesDescription.replace('{{orgName}}', activeOrg?.name ?? i18n.yourOrganization)}
+            action={<Badge variant="muted">{invites.length}</Badge>}
+          >
+            <Card>
+              <CardContent className="space-y-4 p-4">
+                <div className="grid gap-3 sm:grid-cols-[1fr_140px_auto]">
+                  <Input
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder={i18n.inviteEmailPlaceholder}
+                  />
+                  <Select value={inviteRole} onValueChange={(value) => setInviteRole(value as OrgRole)}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(roleLabels).map(([key, label]) => (
+                        <SelectItem key={key} value={key}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={handleInvite} disabled={!canManageMembers}>
+                    {i18n.sendInviteAction}
+                  </Button>
+                </div>
+                {!canManageMembers && (
+                  <SettingsNotice
+                    variant="info"
+                    description={i18n.invitePermissionHint}
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-1))]">
+              <div className="hidden md:grid grid-cols-[1fr_120px_160px_120px] px-4 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+                <span>{dict.auth.email}</span>
+                <span>{i18n.roleLabel}</span>
+                <span>{i18n.expiresLabel}</span>
+                <span className="text-right">{dict.common.actions}</span>
+              </div>
+              <div className="divide-y divide-[hsl(var(--ds-border-1))]">
+                {invitesLoading ? (
+                  <div className="px-4 py-4 space-y-3">
+                    {Array.from({ length: 2 }).map((_, index) => (
+                      <div
+                        key={`invite-skeleton-${index}`}
+                        className="flex flex-col gap-2 md:grid md:grid-cols-[1fr_120px_160px_120px] md:items-center"
+                      >
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-44" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                        <Skeleton className="h-5 w-16 rounded-[4px]" />
+                        <Skeleton className="h-3 w-20" />
+                        <div className="flex justify-end">
+                          <Skeleton className="h-7 w-24 rounded-[6px]" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : invites.length === 0 ? (
+                  <div className="p-4">
+                    <SettingsEmptyState
+                      title={i18n.noInvites}
+                      description={i18n.noInvitesDescription}
+                      icon={<Mail className="size-4" />}
+                    />
+                  </div>
+                ) : (
+                  invites.map((invite) => {
+                    const expired = new Date(invite.expires_at).getTime() < Date.now();
+                    return (
+                      <div
+                        key={invite.id}
+                        className="flex flex-col gap-2 px-4 py-3 md:grid md:grid-cols-[1fr_120px_160px_120px] md:items-center"
+                      >
+                        <div>
+                          <div className="text-[13px] font-medium">{invite.email}</div>
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                            {invite.accepted_at
+                              ? i18n.inviteAccepted
+                              : expired
+                                ? i18n.inviteExpired
+                                : i18n.invitePending}
                           </div>
                         </div>
-                      );
-                    })
-                  )}
-                </div>
+                        <div>
+                          <Badge variant={roleBadgeVariant[invite.role]}>{roleLabels[invite.role]}</Badge>
+                        </div>
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                          {formatLocalDate(invite.expires_at)}
+                        </div>
+                        <div className="flex items-center gap-2 md:justify-end">
+                          <Button size="sm" variant="ghost" onClick={() => handleCopyInvite(invite)} className="gap-1">
+                            <Copy className="size-3.5" />
+                            {dict.common.copy}
+                          </Button>
+                          {canManageMembers && !invite.accepted_at && (
+                            <Button size="sm" variant="ghost" onClick={() => handleRevokeInvite(invite.id)}>
+                              {i18n.revokeAction}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
-            </section>
-          </div>
+            </div>
+          </SettingsSection>
         </div>
-      </div>
+      </SettingsPageShell>
 
       <ConfirmDialog
         open={memberToRemove !== null}
@@ -760,6 +725,6 @@ export default function OrganizationsPage() {
         loading={removingMemberId !== null}
         danger
       />
-    </div>
+    </>
   );
 }

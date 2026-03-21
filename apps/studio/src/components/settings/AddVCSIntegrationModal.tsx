@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { useClientDictionary } from '@/i18n/client';
@@ -102,7 +102,7 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
           <DialogTitle className="text-[16px] font-semibold">{i18n.title}</DialogTitle>
         </DialogHeader>
 
-        <div className="max-h-[calc(90vh-132px)] overflow-y-auto px-6 py-5 space-y-4">
+        <DialogBody className="max-h-[calc(90vh-132px)] space-y-4">
           <div>
             <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.provider}</label>
             <Select value={selectedProvider} onValueChange={(value) => setSelectedProvider(value)}>
@@ -182,10 +182,10 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
               {i18n.setDefault}
             </label>
           </div>
-        </div>
+        </DialogBody>
 
-        <DialogFooter className="px-6 py-4">
-          <Button variant="outline" onClick={onClose} disabled={loading}>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>
             {dict.common.cancel}
           </Button>
           <Button onClick={handleSubmit} disabled={loading} className="min-w-28">

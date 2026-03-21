@@ -33,6 +33,7 @@ import {
   normalizeStageSettings,
 } from "@/services/pipelineTypes";
 import StageBuilder from "@/components/pipeline/StageBuilder";
+import PipelineScheduleField from "@/components/pipeline/PipelineScheduleField";
 
 type Props = {
   open: boolean;
@@ -139,6 +140,9 @@ export default function CreatePipelineWizard({
         name: trimmedName,
         trigger: {
           autoTrigger: config.trigger.autoTrigger,
+          ...(config.trigger.schedule?.trim()
+            ? { schedule: config.trigger.schedule.trim() }
+            : {}),
         },
         stages: normalizeStageSettings(config.stages),
         jobs: finalJobs,
@@ -291,6 +295,18 @@ export default function CreatePipelineWizard({
                     {p.basic.autoTriggerHelp}
                   </div>
                 </div>
+              </div>
+
+              <div className="max-w-2xl">
+                <PipelineScheduleField
+                  value={config.trigger.schedule ?? ""}
+                  onChange={(value) =>
+                    setConfig((current) => ({
+                      ...current,
+                      trigger: { ...current.trigger, schedule: value },
+                    }))
+                  }
+                />
               </div>
             </div>
           )}

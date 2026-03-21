@@ -44,6 +44,14 @@ Button (`src/components/ui/button.tsx`)
 - Radius: `--radius-1`
 - Sizes: `sm` h-8, `default` h-9, `lg` h-10
 - Text size comes from `text-button-*` classes.
+- Primary actions should use an explicit solid fill with high contrast against the surrounding surface.
+- Secondary dialog actions should use a filled neutral surface instead of transparent outline-only cancel buttons.
+
+Dialog (`src/components/ui/dialog.tsx`)
+- `DialogContent` is container-only: it owns shell geometry, border, shadow, and focus suppression, but does not add implicit content padding.
+- Standard dialog composition is explicit: `DialogHeader` + `DialogBody` + `DialogFooter`.
+- `DialogBody` owns content padding and scrolling. `DialogFooter` owns action spacing and should remain a direct child of `DialogContent`.
+- Do not nest footer rails inside form wrappers or generic body containers.
 
 Input (`src/components/ui/input.tsx`)
 - Radius: `--radius-1`
@@ -71,3 +79,5 @@ Badge (`src/components/ui/badge.tsx`)
 - Accent color is reserved for primary actions and active states.
 - Hover states are subtle (`bg-muted/70`, `bg-foreground/90`).
 - Use thin borders to define structure rather than heavy drop shadows.
+- Modal footers should feel compact and conclusive: tighter bottom padding, secondary cancel action on the left, solid primary action on the right, and a single grouped action rail.
+- Modal containers must not expose browser default focus outlines. Focus emphasis belongs on interactive controls inside the dialog, not on the outer shell.

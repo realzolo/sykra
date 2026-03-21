@@ -795,6 +795,9 @@ create table pipelines (
   current_version_id uuid,
   concurrency_mode text not null default 'allow'
     check (concurrency_mode in ('allow', 'queue', 'cancel_previous')),
+  trigger_schedule text,
+  last_scheduled_at timestamptz,
+  next_scheduled_at timestamptz,
   created_by uuid references auth_users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

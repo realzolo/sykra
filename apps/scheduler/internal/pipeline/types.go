@@ -75,7 +75,8 @@ type PipelineConfig struct {
 }
 
 type TriggerConfig struct {
-	AutoTrigger bool `json:"autoTrigger"`
+	AutoTrigger bool   `json:"autoTrigger"`
+	Schedule    string `json:"schedule,omitempty"`
 }
 
 type NotifyConfig struct {
@@ -264,6 +265,12 @@ func stageOrder(stage PipelineStageKey) int {
 func ValidateConfig(cfg PipelineConfig) error {
 	if strings.TrimSpace(cfg.Name) == "" {
 		return errors.New("pipeline name is required")
+	}
+
+	if schedule := strings.TrimSpace(cfg.Trigger.Schedule); schedule != "" {
+		if _, err := parseSchedule(schedule); err != nil {
+			return fmt.Errorf("invalid trigger schedule: %w", err)
+		}
 	}
 
 	plan := BuildInternalPlan(cfg, "", "", "")

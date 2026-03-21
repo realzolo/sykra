@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Save, Trash2, Star } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
 
@@ -124,7 +124,7 @@ export default function SavedFilters({ userId, currentFilter, onApplyFilter, dic
           <DialogHeader>
             <DialogTitle>{dict.reports.saveFilterTitle}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <DialogBody className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">{dict.reports.filterNameLabel}</label>
               <Input value={filterName} onChange={e => setFilterName(e.target.value)} placeholder={dict.reports.filterNamePlaceholder} autoFocus />
@@ -150,9 +150,9 @@ export default function SavedFilters({ userId, currentFilter, onApplyFilter, dic
                 {currentFilter.priority && <li>• {dict.reports.priorityLabel}: P{currentFilter.priority}</li>}
               </ul>
             </div>
-          </div>
+          </DialogBody>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>{dict.common.cancel}</Button>
+            <Button variant="secondary" onClick={() => setDialogOpen(false)}>{dict.common.cancel}</Button>
             <Button disabled={saving} onClick={handleSave}>{saving ? dict.reports.savingFilter : dict.common.save}</Button>
           </DialogFooter>
         </DialogContent>

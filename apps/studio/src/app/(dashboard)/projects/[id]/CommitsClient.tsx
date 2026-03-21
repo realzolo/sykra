@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Combobox } from '@/components/ui/combobox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -1413,7 +1413,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
           <DialogHeader>
             <DialogTitle>{dict.commits.confirmReview}</DialogTitle>
           </DialogHeader>
-          <div className="flex flex-col gap-4">
+          <DialogBody className="flex flex-col gap-4">
             <div className="flex items-center gap-4 p-4 rounded-[8px] bg-[hsl(var(--ds-surface-1))] border border-[hsl(var(--ds-border-1))]">
               <div className="flex-1">
                 <div className="text-[12px] text-[hsl(var(--ds-text-2))] mb-1">{dict.commits.pendingCommitCount}</div>
@@ -1427,9 +1427,9 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
             <p className="text-[13px] text-[hsl(var(--ds-text-2))] leading-relaxed">
               {dict.commits.analysisNote}
             </p>
-          </div>
+          </DialogBody>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)}>{dict.common.cancel}</Button>
+            <Button variant="secondary" onClick={() => setConfirmOpen(false)}>{dict.common.cancel}</Button>
             <Button onClick={startReview}>{dict.commits.startReview}</Button>
           </DialogFooter>
         </DialogContent>
@@ -1440,7 +1440,7 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
           <DialogHeader>
             <DialogTitle>{dict.commits.commitChanges}</DialogTitle>
           </DialogHeader>
-          <div className="flex flex-1 min-h-0 flex-col">
+          <DialogBody className="flex flex-1 min-h-0 flex-col">
             {detailMode === 'commit' && detailCommit && (
               <div className="text-[12px] text-[hsl(var(--ds-text-2))] flex flex-wrap items-center gap-2">
                 <code className="rounded-[4px] bg-[hsl(var(--ds-surface-2))] px-2 py-0.5">{detailCommit.sha.slice(0, 7)}</code>
@@ -1948,9 +1948,9 @@ export default function CommitsClient({ project, branches, dict }: { project: Pr
               <div className="p-6 text-[13px] text-[hsl(var(--ds-text-2))]">{dict.commits.noParsedFiles}</div>
             )}
             </div>
-          </div>
+          </DialogBody>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDetailOpen(false)}>{dict.common.close}</Button>
+            <Button variant="secondary" onClick={() => setDetailOpen(false)}>{dict.common.close}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

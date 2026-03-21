@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import ThemeToggle from '@/components/theme/ThemeToggle';
 import { LanguageSwitcher } from '@/components/common/LanguageSwitcher';
@@ -366,23 +366,25 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
             <DialogTitle>{dict.auth.passwordReset}</DialogTitle>
             <DialogDescription>{dict.auth.passwordResetPrompt}</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleResetPassword} className="mt-4 space-y-4">
-            <div className="space-y-2">
-              <label className="text-label-14">{dict.auth.email}</label>
-              <Input
-                type="email"
-                value={resetEmail}
-                onChange={(e) => setResetEmail(e.target.value)}
-                placeholder={dict.auth.emailPlaceholder}
-                required
-                disabled={resetLoading}
-                className="h-10"
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={resetLoading}>
-              {resetLoading ? dict.common.loading : dict.auth.passwordResetSend}
-            </Button>
-          </form>
+          <DialogBody>
+            <form onSubmit={handleResetPassword} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-label-14">{dict.auth.email}</label>
+                <Input
+                  type="email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder={dict.auth.emailPlaceholder}
+                  required
+                  disabled={resetLoading}
+                  className="h-10"
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={resetLoading}>
+                {resetLoading ? dict.common.loading : dict.auth.passwordResetSend}
+              </Button>
+            </form>
+          </DialogBody>
         </DialogContent>
       </Dialog>
     </div>

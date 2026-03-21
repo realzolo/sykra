@@ -61,7 +61,32 @@ export type PipelineJob = {
 
 export type PipelineTrigger = {
   autoTrigger: boolean;
+  schedule?: string;
 };
+
+export const PIPELINE_SCHEDULE_PRESET_EXPRESSIONS = {
+  hourly: '0 * * * *',
+  daily: '0 2 * * *',
+  weekdays: '0 2 * * 1-5',
+  weekly: '0 2 * * 1',
+} as const;
+
+export type PipelineSchedulePreset = keyof typeof PIPELINE_SCHEDULE_PRESET_EXPRESSIONS;
+export type PipelineScheduleSelection = PipelineSchedulePreset | 'custom' | null;
+
+export function getPipelineScheduleExpression(preset: PipelineSchedulePreset): string {
+  return PIPELINE_SCHEDULE_PRESET_EXPRESSIONS[preset];
+}
+
+export function detectPipelineSchedulePreset(schedule?: string | null): PipelineScheduleSelection {
+  const normalized = schedule?.trim();
+  if (!normalized) return null;
+  const entries = Object.entries(PIPELINE_SCHEDULE_PRESET_EXPRESSIONS) as Array<
+    [PipelineSchedulePreset, string]
+  >;
+  const match = entries.find(([, expression]) => expression === normalized);
+  return match ? match[0] : 'custom';
+}
 
 export type PipelineNotifications = {
   onSuccess: boolean;
@@ -107,6 +132,9 @@ export type PipelineSummary = {
   latest_version: number;
   last_run?: PipelineRunSummary | null;
   concurrency_mode: 'allow' | 'queue' | 'cancel_previous';
+  trigger_schedule?: string | null;
+  last_scheduled_at?: string | null;
+  next_scheduled_at?: string | null;
   source_branch?: string;
   source_branch_source?: 'project_default' | 'custom';
   created_at: string;

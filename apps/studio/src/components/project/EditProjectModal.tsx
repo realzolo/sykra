@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -73,32 +74,34 @@ export default function EditProjectModal({ project, open, onClose, onUpdated, di
         <DialogHeader>
           <DialogTitle>{dict.projects.editProject}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="space-y-2">
-            <label htmlFor="name" className="text-sm font-semibold">{dict.projects.projectName}</label>
-            <Input id="name" value={name} onChange={e => setName(e.target.value)} required />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="description" className="text-sm font-semibold">{dict.common.description} <span className="text-[hsl(var(--ds-text-2))] font-normal">({dict.projects.optional})</span></label>
-            <Input id="description" value={description} onChange={e => setDescription(e.target.value)} placeholder={dict.projects.descriptionPlaceholder} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-[hsl(var(--ds-text-2))] font-normal">({dict.projects.optional})</span></label>
-            <Select value={rulesetId} onValueChange={(value) => setRulesetId(value)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {rulesetItems.map(item => (
-                  <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </form>
+        <DialogBody>
+          <form id="project-edit-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div className="space-y-2">
+              <label htmlFor="name" className="text-sm font-semibold">{dict.projects.projectName}</label>
+              <Input id="name" value={name} onChange={e => setName(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="description" className="text-sm font-semibold">{dict.common.description} <span className="text-[hsl(var(--ds-text-2))] font-normal">({dict.projects.optional})</span></label>
+              <Input id="description" value={description} onChange={e => setDescription(e.target.value)} placeholder={dict.projects.descriptionPlaceholder} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-[hsl(var(--ds-text-2))] font-normal">({dict.projects.optional})</span></label>
+              <Select value={rulesetId} onValueChange={(value) => setRulesetId(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {rulesetItems.map(item => (
+                    <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </form>
+        </DialogBody>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>{dict.common.cancel}</Button>
-          <Button type="submit" disabled={loading} onClick={handleSubmit as unknown as () => void}>{loading ? dict.common.loading : dict.common.save}</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>{dict.common.cancel}</Button>
+          <Button form="project-edit-form" type="submit" disabled={loading}>{loading ? dict.common.loading : dict.common.save}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

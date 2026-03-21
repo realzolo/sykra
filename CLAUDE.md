@@ -31,7 +31,7 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 
 AI code review + CI/CD platform: Next.js 16 + React 19 + TypeScript + Tailwind CSS v4.
 Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring, and a stage-based pipeline builder.
-Backend: PostgreSQL for core data, Go scheduler executes analysis jobs and orchestrates pipeline runs via Redis queue; pipeline step execution is worker-only and handled by long-lived Worker agents connected over WebSocket control channels (Scheduler=control plane, Worker=execution plane); status updates stream via SSE with polling fallback.
+Backend: PostgreSQL for core data, Go scheduler executes analysis jobs, evaluates cron-based pipeline schedules, and orchestrates pipeline runs via Redis queue; pipeline step execution is worker-only and handled by long-lived Worker agents connected over WebSocket control channels (Scheduler=control plane, Worker=execution plane); status updates stream via SSE with polling fallback.
 Monorepo layout: `apps/studio` (Next.js), `apps/scheduler` (Go scheduler control plane), `apps/worker` (Go execution agent), `packages/*` (shared contracts).
 Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 
@@ -48,12 +48,17 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Project-scoped single-value filters that need searchable selection, such as report status or commit author, should also use the shared combobox rather than bespoke select widgets.
 - Project configuration selectors that are effectively searchable single-value bindings, such as AI integration selection, should also use the shared combobox.
 - Pipeline environment is execution-semantic, not decorative: `config.environment` is sent through scheduler dispatch for worker selection and exposed to steps as `PIPELINE_ENVIRONMENT`.
+- Pipeline trigger scheduling is first-class: `config.trigger.schedule` stores a UTC cron expression, scheduler persists `pipelines.trigger_schedule` / `last_scheduled_at` / `next_scheduled_at`, and the schedule loop owns due-run enqueueing.
 - Pipeline runtime UX is separate from authoring: runs render as stage columns with per-node status, logs, artifacts, and node-level manual trigger actions for jobs that enter a manual stage
 - Manual execution semantics are node-based, not stage-resume based: when a manual stage becomes ready, each ready job is marked `waiting_manual`; Studio triggers a specific `job_key`, scheduler requeues the run, and only that approved node proceeds
 - Pipeline artifact observability: project pipelines page includes artifact download health cards (total, success rate, p95 latency, failures) powered by `GET /api/projects/:id/artifact-download-stats`
 - Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; scheduler uses project override first, then global scheduler default
 - Worker artifact handoff: deploy steps can declare `artifactInputs` patterns; Worker downloads matched artifacts from earlier steps in the same run before step execution, with checksum validation + retry and run events (`step.artifact.pull_*`)
 - Notification settings UI at `/o/:orgId/settings/notifications` backed by `/api/notification-settings`
+- Global settings pages now share a common shell/section pattern via `SettingsPageShell` and `SettingsSection`; new settings surfaces should compose those primitives instead of introducing custom page chrome.
+- Settings pages should also use `SettingsEmptyState` for no-data states so empty views stay visually consistent across integrations, organizations, security, and future settings surfaces.
+- Settings pages should use `SettingsNotice` for inline helper/success/warning messaging instead of ad hoc colored text blocks so feedback stays visually and semantically consistent.
+- Settings pages should use `SettingsRow` for repetitive label/control rows so toggles, inline inputs, and list rows stay compact and visually consistent.
 - Dashboard org home page (`/o/:orgId`) shows 4 stat cards (projects, avg score, open issues, pipeline success rate), quick actions, per-project score list, and recent activity
 - Dashboard navigation shell is contextual: global routes render org-level sidebar items, and project routes (`/o/:orgId/projects/:id/*`) switch sidebar to project-scoped navigation (commits/reports/pipelines/codebase/settings) with in-sidebar project switcher.
 - Dashboard shell includes productivity navigation aids: collapsible sidebar rail (persisted in local storage), a compact topbar scope switcher (single dropdown for team/project context on project-domain pages), global quick-jump command palette (`Cmd/Ctrl + K`) with keyboard navigation and grouped results, and mobile bottom navigation for project/global context switching on small screens.
@@ -106,6 +111,7 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 | Go | 1.24.0 | Scheduler service |
 | Gorilla WebSocket | ^1.5.3 | Scheduler↔Worker long-lived control channel |
 | AWS SDK for Go v2 | ^1.39 | Scheduler artifact backend for S3-compatible object storage |
+| robfig/cron/v3 | ^3.x | Scheduler cron parsing and next-run evaluation |
 | doublestar | ^4.10 | Worker-side `artifactPaths` glob matching (includes `**`) |
 | TOML | 1.6.0 | `github.com/BurntSushi/toml` for scheduler config |
 | Asynq | 0.26.0 | Redis-backed job queue (scheduler) |
@@ -163,6 +169,8 @@ Rules:
 - Destructive actions in product UI must use in-app confirmation dialogs (`components/ui/confirm-dialog.tsx`), not native `window.confirm`.
 - In client UI, use shared date format helpers from `src/lib/dateFormat.ts` instead of direct `toLocaleString`/`toLocaleDateString` calls in feature components.
 - Dialogs follow a **single-scroll-container** rule: avoid outer `DialogContent` scrolling for complex modals; body/content panes should own scrolling to prevent nested or redundant scrollbars.
+- Dialog footers should keep a compact action rhythm: use `secondary` for cancel actions, `default` or `destructive` for the primary action, and keep action spacing at `gap-3` so modal controls read as a single grouped rail.
+- Dialog forms must keep `DialogFooter` as a direct child action rail of `DialogContent`; do not nest footers inside form/content wrappers that add extra padding, otherwise footer spacing becomes visually incorrect.
 - Dashboard information architecture is single-source navigation: in project scope, use sidebar navigation only (do not add an additional top tab bar such as `ProjectNav`).
 - Responsive navigation contract: desktop (`lg+`) uses sidebar + topbar, while mobile (`<lg`) hides sidebar and uses bottom navigation with the same route semantics.
 
@@ -180,6 +188,7 @@ Do not use `text-xs` for primary labels, tab titles, or actionable control text.
 **Control density and states:** Keep control rhythm consistent across `Button/Input/Select/Textarea/Tabs/Dropdown` wrappers.
 Default control heights should align to `h-9` as baseline (`h-8` for compact, `h-10` for prominent actions). Hover/active/focus states must use the same neutral-surface progression and subtle accent focus ring.
 Avoid `h-7` as a default interactive control height in dashboard/product UI.
+Primary dashboard actions must render as true solid buttons with explicit token-based background and foreground colors; do not rely on undeclared semantic utility class names for critical call-to-action styling.
 
 **Focus visibility:** Do not globally disable focus outlines/rings in dialogs or shells. If custom focus styles are required, replace defaults with an explicit, visible ring to preserve keyboard accessibility.
 

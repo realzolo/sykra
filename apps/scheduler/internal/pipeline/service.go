@@ -103,6 +103,16 @@ func (s *Service) CreatePipeline(ctx context.Context, input CreatePipelineInput)
 		return nil, nil, err
 	}
 
+	if err := s.syncPipelineSchedule(ctx, pipeline.ID, input.Config.Trigger.Schedule); err != nil {
+		return nil, nil, err
+	}
+	if schedule := normalizedSchedulePtr(input.Config.Trigger.Schedule); schedule != nil {
+		pipeline.TriggerSchedule = schedule
+		if next, nextErr := nextScheduleAt(*schedule, time.Now().UTC()); nextErr == nil {
+			pipeline.NextScheduledAt = &next
+		}
+	}
+
 	return pipeline, version, nil
 }
 
@@ -146,6 +156,9 @@ func (s *Service) UpdatePipeline(ctx context.Context, input UpdatePipelineInput)
 		return nil, err
 	}
 	if err := s.Store.SetPipelineCurrentVersion(ctx, input.PipelineID, version.ID); err != nil {
+		return nil, err
+	}
+	if err := s.syncPipelineSchedule(ctx, input.PipelineID, input.Config.Trigger.Schedule); err != nil {
 		return nil, err
 	}
 	return version, nil
@@ -229,10 +242,101 @@ func (s *Service) TriggerRun(ctx context.Context, input TriggerRunInput) (*store
 		asynq.TaskID("pipeline:" + run.ID),
 	}
 	if _, err := s.Queue.Enqueue(task, options...); err != nil {
+		if errors.Is(err, asynq.ErrTaskIDConflict) || errors.Is(err, asynq.ErrDuplicateTask) {
+			return run, nil
+		}
 		return nil, err
 	}
 
 	return run, nil
+}
+
+func (s *Service) syncPipelineSchedule(ctx context.Context, pipelineID string, schedule string) error {
+	trimmed := strings.TrimSpace(schedule)
+	if trimmed == "" {
+		return s.Store.UpdatePipelineSchedule(ctx, pipelineID, nil, nil, nil)
+	}
+
+	next, err := nextScheduleAt(trimmed, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+
+	scheduleValue := trimmed
+	return s.Store.UpdatePipelineSchedule(ctx, pipelineID, &scheduleValue, &next, nil)
+}
+
+func normalizedSchedulePtr(schedule string) *string {
+	trimmed := strings.TrimSpace(schedule)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func (s *Service) RunScheduleLoop(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	if err := s.scanScheduledPipelines(ctx); err != nil {
+		fmt.Printf("scheduled pipeline scan failed: %v\n", err)
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.scanScheduledPipelines(ctx); err != nil {
+				fmt.Printf("scheduled pipeline scan failed: %v\n", err)
+			}
+		}
+	}
+}
+
+func (s *Service) scanScheduledPipelines(ctx context.Context) error {
+	if s.Store == nil || s.Queue == nil {
+		return nil
+	}
+
+	due, err := s.Store.ListDueScheduledPipelines(ctx, 50)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	for _, pipeline := range due {
+		if pipeline.TriggerSchedule == nil || pipeline.NextScheduledAt == nil {
+			continue
+		}
+		dueAt := *pipeline.NextScheduledAt
+		idempotencyKey := fmt.Sprintf("schedule:%s:%s", pipeline.ID, dueAt.UTC().Format(time.RFC3339))
+		run, triggerErr := s.TriggerRun(ctx, TriggerRunInput{
+			PipelineID:     pipeline.ID,
+			TriggerType:    "schedule",
+			IdempotencyKey: idempotencyKey,
+			Metadata: map[string]any{
+				"schedule": map[string]any{
+					"expression":  pipeline.TriggerSchedule,
+					"scheduledAt": dueAt.UTC().Format(time.RFC3339),
+				},
+			},
+		})
+		if triggerErr != nil {
+			return fmt.Errorf("trigger scheduled pipeline %s failed: %w", pipeline.ID, triggerErr)
+		}
+
+		next, nextErr := nextScheduleAt(*pipeline.TriggerSchedule, now)
+		if nextErr != nil {
+			return fmt.Errorf("compute next schedule for pipeline %s failed: %w", pipeline.ID, nextErr)
+		}
+		if err := s.Store.UpdatePipelineSchedule(ctx, pipeline.ID, pipeline.TriggerSchedule, &next, &dueAt); err != nil {
+			return err
+		}
+		_ = run
+	}
+	return nil
 }
 
 func (s *Service) GetPipeline(ctx context.Context, pipelineID string) (*store.Pipeline, *store.PipelineVersion, error) {

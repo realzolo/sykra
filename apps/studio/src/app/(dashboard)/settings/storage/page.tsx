@@ -3,15 +3,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import SettingsNav from '@/components/settings/SettingsNav';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useClientDictionary } from '@/i18n/client';
 import { useOrgRole } from '@/lib/useOrgRole';
+import SettingsPageShell from '@/components/settings/SettingsPageShell';
+import SettingsNotice from '@/components/settings/SettingsNotice';
+import SettingsRow from '@/components/settings/SettingsRow';
+import SettingsSection from '@/components/settings/SettingsSection';
 
 type Provider = 'local' | 's3';
 
@@ -144,153 +144,175 @@ export default function StorageSettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-5xl px-6 py-6">
-          <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
-            <div className="space-y-2">
-              {Array.from({ length: 5 }).map((_, index) => (
-                <Skeleton key={`storage-nav-${index}`} className="h-4 w-28" />
-              ))}
+      <SettingsPageShell title={i18n.title} description={i18n.description}>
+        <div className="space-y-6">
+          <SettingsSection title={i18n.providerLabel} description={i18n.providerHelp}>
+            <div className="space-y-4">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {Array.from({ length: 2 }).map((_, index) => (
+                  <div
+                    key={`storage-provider-skeleton-${index}`}
+                    className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-4 py-3"
+                  >
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="mt-2 h-3 w-32" />
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-36" />
+                <Skeleton className="h-9 w-full" />
+              </div>
             </div>
-            <div className="space-y-3">
-              <Skeleton className="h-6 w-52" />
-              <Skeleton className="h-4 w-80" />
-              <Skeleton className="h-56 w-full" />
-            </div>
-          </div>
+          </SettingsSection>
         </div>
-      </div>
+      </SettingsPageShell>
     );
   }
 
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="max-w-5xl px-6 py-6">
-        <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
-          <SettingsNav />
-
-          <div className="space-y-6">
-            <div className="space-y-1">
-              <h1 className="text-[20px] font-semibold">{i18n.title}</h1>
-              <p className="text-[13px] text-[hsl(var(--ds-text-2))]">{i18n.description}</p>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-[14px]">{i18n.providerLabel}</CardTitle>
-                <CardDescription className="text-[12px]">{i18n.providerHelp}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[12px] font-medium">{i18n.providerLabel}</label>
-                  <Select
-                    value={state.provider}
-                    onValueChange={(value) => setState((prev) => ({ ...prev, provider: value as Provider }))}
-                    disabled={!isAdmin}
-                  >
-                    <SelectTrigger className="w-[260px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="local">{i18n.providerLocal}</SelectItem>
-                      <SelectItem value="s3">{i18n.providerS3}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {state.provider === 'local' ? (
-                  <div className="space-y-2">
-                    <label htmlFor="localBasePath" className="text-[12px] font-medium">{i18n.localBasePathLabel}</label>
-                    <Input
-                      id="localBasePath"
-                      value={state.localBasePath}
-                      onChange={(event) => setState((prev) => ({ ...prev, localBasePath: event.target.value }))}
-                      disabled={!isAdmin}
-                    />
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2 md:col-span-2">
-                      <label htmlFor="s3Endpoint" className="text-[12px] font-medium">{i18n.s3EndpointLabel}</label>
-                      <Input
-                        id="s3Endpoint"
-                        value={state.s3Endpoint}
-                        placeholder={i18n.s3EndpointPlaceholder}
-                        onChange={(event) => setState((prev) => ({ ...prev, s3Endpoint: event.target.value }))}
-                        disabled={!isAdmin}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="s3Region" className="text-[12px] font-medium">{i18n.s3RegionLabel}</label>
-                      <Input
-                        id="s3Region"
-                        value={state.s3Region}
-                        onChange={(event) => setState((prev) => ({ ...prev, s3Region: event.target.value }))}
-                        disabled={!isAdmin}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="s3Bucket" className="text-[12px] font-medium">{i18n.s3BucketLabel}</label>
-                      <Input
-                        id="s3Bucket"
-                        value={state.s3Bucket}
-                        onChange={(event) => setState((prev) => ({ ...prev, s3Bucket: event.target.value }))}
-                        disabled={!isAdmin}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="s3Prefix" className="text-[12px] font-medium">{i18n.s3PrefixLabel}</label>
-                      <Input
-                        id="s3Prefix"
-                        value={state.s3Prefix}
-                        onChange={(event) => setState((prev) => ({ ...prev, s3Prefix: event.target.value }))}
-                        disabled={!isAdmin}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="s3AccessKey" className="text-[12px] font-medium">{i18n.s3AccessKeyLabel}</label>
-                      <Input
-                        id="s3AccessKey"
-                        value={state.s3AccessKeyId}
-                        onChange={(event) => setState((prev) => ({ ...prev, s3AccessKeyId: event.target.value }))}
-                        disabled={!isAdmin}
-                      />
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                      <label htmlFor="s3SecretKey" className="text-[12px] font-medium">{i18n.s3SecretKeyLabel}</label>
-                      <Input
-                        id="s3SecretKey"
-                        type="password"
-                        value={state.s3SecretAccessKey}
-                        placeholder={state.hasSecret ? i18n.secretPlaceholder : ''}
-                        onChange={(event) => setState((prev) => ({ ...prev, s3SecretAccessKey: event.target.value }))}
-                        disabled={!isAdmin}
-                      />
-                      {state.hasSecret && !state.s3SecretAccessKey.trim() ? (
-                        <p className="text-[11px] text-[hsl(var(--ds-text-2))]">{i18n.secretKeepHint}</p>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-3 md:col-span-2">
-                      <Switch
-                        checked={state.s3ForcePathStyle}
-                        onCheckedChange={(checked) => setState((prev) => ({ ...prev, s3ForcePathStyle: checked }))}
-                        disabled={!isAdmin}
-                      />
-                      <label className="text-[12px]">{i18n.s3ForcePathStyleLabel}</label>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex justify-end">
-                  <Button onClick={save} disabled={!canSave}>
-                    {saving ? i18n.saving : i18n.save}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+    <SettingsPageShell
+      title={i18n.title}
+      description={i18n.description}
+      actions={
+        <Button onClick={save} disabled={!canSave}>
+          {saving ? i18n.saving : i18n.save}
+        </Button>
+      }
+    >
+      <SettingsSection title={i18n.providerLabel} description={i18n.providerHelp}>
+        <div className="space-y-4">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => isAdmin && setState((prev) => ({ ...prev, provider: 'local' }))}
+              disabled={!isAdmin}
+              className={`rounded-[8px] border px-4 py-3 text-left transition-colors ${
+                state.provider === 'local'
+                  ? 'border-foreground bg-[hsl(var(--ds-surface-2))] text-foreground'
+                  : 'border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[hsl(var(--ds-text-2))] hover:border-[hsl(var(--ds-border-2))] hover:text-foreground'
+              } ${!isAdmin ? 'cursor-not-allowed opacity-60' : ''}`}
+            >
+              <div className="text-[13px] font-medium">{i18n.providerLocal}</div>
+              <div className="mt-0.5 text-[12px]">{i18n.localBasePathLabel}</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => isAdmin && setState((prev) => ({ ...prev, provider: 's3' }))}
+              disabled={!isAdmin}
+              className={`rounded-[8px] border px-4 py-3 text-left transition-colors ${
+                state.provider === 's3'
+                  ? 'border-foreground bg-[hsl(var(--ds-surface-2))] text-foreground'
+                  : 'border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] text-[hsl(var(--ds-text-2))] hover:border-[hsl(var(--ds-border-2))] hover:text-foreground'
+              } ${!isAdmin ? 'cursor-not-allowed opacity-60' : ''}`}
+            >
+              <div className="text-[13px] font-medium">{i18n.providerS3}</div>
+              <div className="mt-0.5 text-[12px]">{i18n.s3EndpointLabel}</div>
+            </button>
           </div>
+
+          {state.provider === 'local' ? (
+            <div className="space-y-2">
+              <label htmlFor="localBasePath" className="text-[12px] font-medium text-foreground">{i18n.localBasePathLabel}</label>
+              <Input
+                id="localBasePath"
+                value={state.localBasePath}
+                onChange={(event) => setState((prev) => ({ ...prev, localBasePath: event.target.value }))}
+                disabled={!isAdmin}
+              />
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2 md:col-span-2">
+                  <label htmlFor="s3Endpoint" className="text-[12px] font-medium text-foreground">{i18n.s3EndpointLabel}</label>
+                  <Input
+                    id="s3Endpoint"
+                    value={state.s3Endpoint}
+                    placeholder={i18n.s3EndpointPlaceholder}
+                    onChange={(event) => setState((prev) => ({ ...prev, s3Endpoint: event.target.value }))}
+                    disabled={!isAdmin}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="s3Region" className="text-[12px] font-medium text-foreground">{i18n.s3RegionLabel}</label>
+                  <Input
+                    id="s3Region"
+                    value={state.s3Region}
+                    onChange={(event) => setState((prev) => ({ ...prev, s3Region: event.target.value }))}
+                    disabled={!isAdmin}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="s3Bucket" className="text-[12px] font-medium text-foreground">{i18n.s3BucketLabel}</label>
+                  <Input
+                    id="s3Bucket"
+                    value={state.s3Bucket}
+                    onChange={(event) => setState((prev) => ({ ...prev, s3Bucket: event.target.value }))}
+                    disabled={!isAdmin}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="s3Prefix" className="text-[12px] font-medium text-foreground">{i18n.s3PrefixLabel}</label>
+                  <Input
+                    id="s3Prefix"
+                    value={state.s3Prefix}
+                    onChange={(event) => setState((prev) => ({ ...prev, s3Prefix: event.target.value }))}
+                    disabled={!isAdmin}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="s3AccessKey" className="text-[12px] font-medium text-foreground">{i18n.s3AccessKeyLabel}</label>
+                  <Input
+                    id="s3AccessKey"
+                    value={state.s3AccessKeyId}
+                    onChange={(event) => setState((prev) => ({ ...prev, s3AccessKeyId: event.target.value }))}
+                    disabled={!isAdmin}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="s3SecretKey" className="text-[12px] font-medium text-foreground">{i18n.s3SecretKeyLabel}</label>
+                <Input
+                  id="s3SecretKey"
+                  type="password"
+                  value={state.s3SecretAccessKey}
+                  placeholder={state.hasSecret ? i18n.secretPlaceholder : ''}
+                  onChange={(event) => setState((prev) => ({ ...prev, s3SecretAccessKey: event.target.value }))}
+                  disabled={!isAdmin}
+                />
+                {state.hasSecret && !state.s3SecretAccessKey.trim() ? (
+                  <SettingsNotice
+                    variant="info"
+                    description={i18n.secretKeepHint}
+                    className="mt-2"
+                  />
+                ) : null}
+              </div>
+
+              <SettingsRow
+                left={
+                  <>
+                    <div className="text-[13px] font-medium text-foreground">{i18n.s3ForcePathStyleLabel}</div>
+                    <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{i18n.providerHelp}</div>
+                  </>
+                }
+                right={
+                  <input
+                    type="checkbox"
+                    checked={state.s3ForcePathStyle}
+                    onChange={(event) => setState((prev) => ({ ...prev, s3ForcePathStyle: event.target.checked }))}
+                    disabled={!isAdmin}
+                    className="size-4 rounded border-[hsl(var(--ds-border-2))] accent-foreground"
+                  />
+                }
+              />
+            </div>
+          )}
         </div>
-      </div>
-    </div>
+      </SettingsSection>
+    </SettingsPageShell>
   );
 }

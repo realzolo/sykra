@@ -33,7 +33,7 @@ func main() {
 		log.Fatalf("config error: %v", err)
 	}
 	log.Printf(
-		"orchestrator config loaded: queue=%s analyze_timeout=%s pipeline_queue=%s pipeline_run_timeout=%s worker_lease_ttl=%s",
+		"scheduler config loaded: queue=%s analyze_timeout=%s pipeline_queue=%s pipeline_run_timeout=%s worker_lease_ttl=%s",
 		cfg.Queue,
 		cfg.AnalyzeTimeout,
 		cfg.PipelineQueue,
@@ -41,7 +41,9 @@ func main() {
 		cfg.WorkerLeaseTTL,
 	)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	st, err := store.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("db error: %v", err)
@@ -114,6 +116,7 @@ func main() {
 		StudioURL:             cfg.StudioURL,
 		StudioToken:           cfg.StudioToken,
 	}
+	go pipelineService.RunScheduleLoop(ctx, 30*time.Second)
 
 	httpServer := &http.Server{
 		Addr:    ":" + cfg.Port,
@@ -137,7 +140,7 @@ func main() {
 	}()
 
 	go func() {
-		log.Printf("orchestrator listening on :%s", cfg.Port)
+		log.Printf("scheduler listening on :%s", cfg.Port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("http server error: %v", err)
 		}
@@ -146,6 +149,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
+	cancel()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

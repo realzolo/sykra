@@ -201,7 +201,6 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Encrypted env secrets | ⬜ Planned | Currently env vars are stored as plain text in config |
 | Pipeline-level environment tag | ✅ Done | `development / staging / production` |
 | Auto-trigger on git push | ✅ Done | Branch matching; triggered from GitHub webhook |
-| Cron / scheduled trigger | ⬜ Planned | — |
 | Manual trigger from UI | ✅ Done | "Run" button, `triggerType: "manual"` |
 | Rollback trigger | ✅ Done | `triggerType: "rollback"`, `rollback_of` FK |
 | Retry | ✅ Done | UI button re-triggers with same config |
@@ -218,6 +217,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Docker / container executor | ⬜ Planned | Currently shell-only |
 | In-place config editor | ✅ Done | "Configure" tab in detail page |
 | Notification on success / failure | ⬜ Planned | Fields exist (`notify_on_success/failure`), email not wired |
+| Cron / scheduled trigger | ✅ Done | `trigger_schedule` + `last_scheduled_at` + `next_scheduled_at` persisted on pipelines; scheduler scans and enqueues due runs |
 | TOML config file for Scheduler | ✅ Done | `[scheduler]`, `[pipeline]`, `[studio]`, `[database]`, etc. |
 
 ### 3.9 Settings & Localization
@@ -285,13 +285,15 @@ These are the most important remaining gaps for daily product use.
 
 #### 4.4 Scheduled Pipeline Triggers (Cron)
 
+**Status:** ✅ Shipped
+
 **Why:** Many teams want nightly builds or weekly security scans without relying on a git push.
 
 **Scope:**
 - Cron expression input in pipeline configuration
 - Next scheduled run time displayed in list and detail pages
 - Stored as `trigger_schedule` on the `pipelines` table
-- Scheduler or Studio cron scheduler evaluates and enqueues runs
+- Scheduler evaluates and enqueues runs
 
 ---
 
@@ -435,7 +437,6 @@ Focus: make the review and delivery workflow feel native and continuous.
 
 ```
 🚧 To complete in Phase 2:
-   ├── 4.4  Scheduled Pipeline Triggers (Cron)
    ├── 4.5  GitLab Webhook Support
    ├── 4.6  External API Tokens
    └── 4.7  Team Discussion on Issues

@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import SettingsNav from '@/components/settings/SettingsNav';
-import { Card, CardContent } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
-import { Input } from '@/components/ui/input';
+
+import SettingsPageShell from '@/components/settings/SettingsPageShell';
+import SettingsSection from '@/components/settings/SettingsSection';
+import SettingsRow from '@/components/settings/SettingsRow';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { useClientDictionary } from '@/i18n/client';
 
 type NotificationSettings = {
@@ -21,6 +23,25 @@ type NotificationSettings = {
 };
 
 export const dynamic = 'force-dynamic';
+
+function PageSkeleton({ title, description }: { title: string; description: string }) {
+  return (
+    <SettingsPageShell title={title} description={description}>
+      <div className="space-y-6">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={`notifications-skeleton-${index}`}
+            className="space-y-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-4"
+          >
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-3 w-72" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        ))}
+      </div>
+    </SettingsPageShell>
+  );
+}
 
 export default function NotificationsSettingsPage() {
   const dict = useClientDictionary();
@@ -71,155 +92,135 @@ export default function NotificationsSettingsPage() {
 
   const disabled = loading || !settings;
 
+  if (loading) {
+    return <PageSkeleton title={i18n.title} description={i18n.description} />;
+  }
+
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="max-w-5xl px-6 py-6">
-        <div className="grid gap-8 lg:grid-cols-[220px_1fr] items-start">
-          <SettingsNav />
-
-          <div className="space-y-6">
-            <div>
-              <div className="text-[15px] font-semibold">{i18n.title}</div>
-              <div className="text-[13px] text-[hsl(var(--ds-text-2))] mt-1">
-                {i18n.description}
-              </div>
-            </div>
-
-            <Card>
-              <CardContent className="p-5 space-y-4">
-                {loading && (
-                  <div className="space-y-3">
-                    <Skeleton className="h-4 w-56" />
-                    <Skeleton className="h-4 w-72" />
-                    <Skeleton className="h-9 w-full" />
+    <SettingsPageShell
+      title={i18n.title}
+      description={i18n.description}
+      actions={
+        <Button onClick={save} disabled={disabled || saving}>
+          {saving ? i18n.saving : dict.common.save}
+        </Button>
+      }
+    >
+      <SettingsSection title={i18n.emailNotificationsTitle} description={i18n.emailNotificationsDescription}>
+        {settings && (
+          <div className="space-y-5">
+            <SettingsRow
+              left={
+                <>
+                  <div className="text-[13px] font-medium">{i18n.emailNotificationsTitle}</div>
+                  <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                    {i18n.emailNotificationsDescription}
                   </div>
-                )}
+                </>
+              }
+              right={
+                <Switch
+                  checked={settings.email_enabled}
+                  onCheckedChange={(v) => setSettings({ ...settings, email_enabled: v })}
+                />
+              }
+            />
 
-                {!loading && settings && (
+            {[
+              {
+                title: i18n.notifyCompletionTitle,
+                description: i18n.notifyCompletionDescription,
+                checked: settings.notify_on_complete,
+                onChange: (v: boolean) => setSettings({ ...settings, notify_on_complete: v }),
+              },
+              {
+                title: i18n.notifyCriticalTitle,
+                description: i18n.notifyCriticalDescription,
+                checked: settings.notify_on_critical,
+                onChange: (v: boolean) => setSettings({ ...settings, notify_on_critical: v }),
+              },
+              {
+                title: i18n.dailyDigestTitle,
+                description: i18n.dailyDigestDescription,
+                checked: settings.daily_digest,
+                onChange: (v: boolean) => setSettings({ ...settings, daily_digest: v }),
+              },
+              {
+                title: i18n.weeklyDigestTitle,
+                description: i18n.weeklyDigestDescription,
+                checked: settings.weekly_digest,
+                onChange: (v: boolean) => setSettings({ ...settings, weekly_digest: v }),
+              },
+            ].map((item) => (
+              <SettingsRow
+                key={item.title}
+                left={
                   <>
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <div className="text-[13px] font-medium">{i18n.emailNotificationsTitle}</div>
-                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
-                          {i18n.emailNotificationsDescription}
-                        </div>
-                      </div>
-                      <Switch
-                        checked={settings.email_enabled}
-                        onCheckedChange={(v) => setSettings({ ...settings, email_enabled: v })}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <div className="text-[13px] font-medium">{i18n.notifyCompletionTitle}</div>
-                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
-                          {i18n.notifyCompletionDescription}
-                        </div>
-                      </div>
-                      <Switch
-                        checked={settings.notify_on_complete}
-                        onCheckedChange={(v) => setSettings({ ...settings, notify_on_complete: v })}
-                        disabled={!settings.email_enabled}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <div className="text-[13px] font-medium">{i18n.notifyCriticalTitle}</div>
-                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
-                          {i18n.notifyCriticalDescription}
-                        </div>
-                      </div>
-                      <Switch
-                        checked={settings.notify_on_critical}
-                        onCheckedChange={(v) => setSettings({ ...settings, notify_on_critical: v })}
-                        disabled={!settings.email_enabled}
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <div className="text-[13px] font-medium">{i18n.scoreThresholdTitle}</div>
-                      <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                        {i18n.scoreThresholdDescription}
-                      </div>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={settings.notify_on_threshold ?? ''}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          if (raw === '') {
-                            setSettings({ ...settings, notify_on_threshold: null });
-                            return;
-                          }
-                          const n = Number(raw);
-                          setSettings({
-                            ...settings,
-                            notify_on_threshold: Number.isFinite(n)
-                              ? Math.min(100, Math.max(0, Math.round(n)))
-                              : null,
-                          });
-                        }}
-                        disabled={!settings.email_enabled}
-                        className="w-40"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <div className="text-[13px] font-medium">{i18n.slackWebhookTitle}</div>
-                      <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                        {i18n.slackWebhookDescription}
-                      </div>
-                      <Input
-                        value={settings.slack_webhook ?? ''}
-                        onChange={(e) => setSettings({ ...settings, slack_webhook: e.target.value || null })}
-                        placeholder={i18n.slackWebhookPlaceholder}
-                        disabled={!settings.email_enabled}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <div className="text-[13px] font-medium">{i18n.dailyDigestTitle}</div>
-                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
-                          {i18n.dailyDigestDescription}
-                        </div>
-                      </div>
-                      <Switch
-                        checked={settings.daily_digest}
-                        onCheckedChange={(v) => setSettings({ ...settings, daily_digest: v })}
-                        disabled={!settings.email_enabled}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <div className="text-[13px] font-medium">{i18n.weeklyDigestTitle}</div>
-                        <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
-                          {i18n.weeklyDigestDescription}
-                        </div>
-                      </div>
-                      <Switch
-                        checked={settings.weekly_digest}
-                        onCheckedChange={(v) => setSettings({ ...settings, weekly_digest: v })}
-                        disabled={!settings.email_enabled}
-                      />
-                    </div>
+                    <div className="text-[13px] font-medium">{item.title}</div>
+                    <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{item.description}</div>
                   </>
-                )}
-              </CardContent>
-            </Card>
+                }
+                right={
+                  <Switch
+                    checked={item.checked}
+                    onCheckedChange={item.onChange}
+                    disabled={!settings.email_enabled}
+                  />
+                }
+              />
+            ))}
 
-            <div className="flex justify-end">
-              <Button onClick={save} disabled={disabled || saving}>
-                {saving ? i18n.saving : dict.common.save}
-              </Button>
+            <SettingsRow
+              align="start"
+              left={
+                <>
+                  <div className="text-[13px] font-medium">{i18n.scoreThresholdTitle}</div>
+                  <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                    {i18n.scoreThresholdDescription}
+                  </div>
+                </>
+              }
+              right={
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={settings.notify_on_threshold ?? ''}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === '') {
+                      setSettings({ ...settings, notify_on_threshold: null });
+                      return;
+                    }
+                    const n = Number(raw);
+                    setSettings({
+                      ...settings,
+                      notify_on_threshold: Number.isFinite(n)
+                        ? Math.min(100, Math.max(0, Math.round(n)))
+                        : null,
+                    });
+                  }}
+                  disabled={!settings.email_enabled}
+                  className="w-40"
+                />
+              }
+            />
+
+            <div className="space-y-2">
+              <div className="text-[13px] font-medium">{i18n.slackWebhookTitle}</div>
+              <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                {i18n.slackWebhookDescription}
+              </div>
+              <Input
+                value={settings.slack_webhook ?? ''}
+                onChange={(e) => setSettings({ ...settings, slack_webhook: e.target.value || null })}
+                placeholder={i18n.slackWebhookPlaceholder}
+                disabled={!settings.email_enabled}
+              />
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+        )}
+      </SettingsSection>
+    </SettingsPageShell>
   );
 }

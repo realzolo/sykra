@@ -48,7 +48,7 @@ export default function ConfirmDialog({
         </DialogHeader>
         <DialogFooter>
           <Button
-            variant="outline"
+            variant="secondary"
             onClick={() => onOpenChange(false)}
             disabled={loading}
           >

@@ -96,6 +96,7 @@ const pipelineJobSchema = z.object({
 
 const pipelineTriggerSchema = z.object({
   autoTrigger: z.boolean().default(false),
+  schedule: z.string().optional(),
 });
 
 const pipelineNotificationsSchema = z.object({

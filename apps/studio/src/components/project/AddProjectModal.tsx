@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -182,7 +183,7 @@ export default function AddProjectModal({ open, onClose, onCreated, dict }: {
         </DialogHeader>
 
         {step === 'pick' && (
-          <div className="flex flex-col gap-4">
+          <DialogBody className="flex flex-col gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[hsl(var(--ds-text-2))]" />
               <Input placeholder={dict.projects.searchProjects} value={search} onChange={e => setSearch(e.target.value)} className="pl-10" autoFocus />
@@ -246,47 +247,49 @@ export default function AddProjectModal({ open, onClose, onCreated, dict }: {
               )}
             </div>
             {repos.length > 0 && <p className="text-[12px] text-[hsl(var(--ds-text-2))] text-center">{t(dict.projects.repositoriesLoaded, { count: repos.length.toString() })}</p>}
-          </div>
+          </DialogBody>
         )}
 
         {step === 'confirm' && selected && (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div className="flex items-center gap-3 p-4 rounded-[6px] bg-[hsl(var(--ds-surface-1))] border border-[hsl(var(--ds-border-1))]">
-              <div className="w-10 h-10 rounded-[6px] bg-muted flex items-center justify-center shrink-0">
-                <Github className="size-5" />
+          <DialogBody>
+            <form id="project-create-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div className="flex items-center gap-3 rounded-[6px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-4">
+                <div className="h-10 w-10 rounded-[6px] bg-muted flex items-center justify-center shrink-0">
+                  <Github className="size-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{selected.fullName}</p>
+                  <p className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.projects.branch}: {selected.defaultBranch}</p>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setStep('pick')}>{dict.common.edit}</Button>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">{selected.fullName}</p>
-                <p className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.projects.branch}: {selected.defaultBranch}</p>
+
+              <div className="space-y-2">
+                <label htmlFor="project-name" className="text-sm font-semibold">{dict.projects.projectName}</label>
+                <Input id="project-name" value={projectName} onChange={e => setProjectName(e.target.value)} required />
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setStep('pick')}>{dict.common.edit}</Button>
-            </div>
 
-            <div className="space-y-2">
-              <label htmlFor="project-name" className="text-sm font-semibold">{dict.projects.projectName}</label>
-              <Input id="project-name" value={projectName} onChange={e => setProjectName(e.target.value)} required />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-[hsl(var(--ds-text-2))] font-normal">({dict.common.none})</span></label>
-              <Select value={rulesetId} onValueChange={(value) => setRulesetId(value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {rulesetItems.map(item => (
-                    <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </form>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">{dict.projects.ruleSet} <span className="text-[hsl(var(--ds-text-2))] font-normal">({dict.common.none})</span></label>
+                <Select value={rulesetId} onValueChange={(value) => setRulesetId(value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rulesetItems.map(item => (
+                      <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </form>
+          </DialogBody>
         )}
 
         {step === 'confirm' && selected && (
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>{dict.common.cancel}</Button>
-            <Button type="submit" disabled={submitting || !projectName.trim()} onClick={handleSubmit as unknown as () => void}>
+            <Button type="button" variant="secondary" onClick={onClose}>{dict.common.cancel}</Button>
+            <Button form="project-create-form" type="submit" disabled={submitting || !projectName.trim()}>
               {submitting ? dict.common.loading : dict.projects.addProject}
             </Button>
           </DialogFooter>

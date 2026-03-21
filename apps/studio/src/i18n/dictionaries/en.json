@@ -380,7 +380,26 @@
       "branchListHeading": "Branches",
       "branchListEmpty": "No branches found",
       "autoTrigger": "Auto-trigger on push",
-      "autoTriggerHelp": "Automatically run this pipeline when code is pushed to the source branch"
+      "autoTriggerHelp": "Automatically run this pipeline when code is pushed to the source branch",
+      "schedule": "Schedule",
+      "scheduleHelp": "Use a preset or enter a UTC cron expression."
+    },
+    "schedule": {
+      "description": "Run this pipeline on a recurring UTC schedule.",
+      "enabledLabel": "Enable schedule",
+      "disabled": "Scheduled runs are disabled.",
+      "quickPresets": "Quick presets",
+      "cronLabel": "Cron expression",
+      "cronPlaceholder": "0 2 * * *",
+      "cronHelp": "Uses minute hour day-of-month month day-of-week format.",
+      "utc": "UTC",
+      "customPreset": "Custom",
+      "presets": {
+        "hourly": "Hourly",
+        "daily": "Daily 02:00 UTC",
+        "weekdays": "Weekdays 02:00 UTC",
+        "weekly": "Weekly Monday 02:00 UTC"
+      }
     },
     "stageTab": {
       "source": "Source",
@@ -547,6 +566,7 @@
         "rollback": "Rollback"
       },
       "duration": "Duration",
+      "nextRun": "Next run",
       "branch": "Branch",
       "commit": "Commit"
     },
@@ -908,6 +928,9 @@
       "revokeTokenFailed": "Failed to revoke token",
       "revokeTokenSuccess": "Token revoked",
       "noSessions": "No active sessions found.",
+      "sessionsEmptyDescription": "Sessions will appear here after a successful sign-in.",
+      "sessionsTitle": "Active sessions",
+      "sessionsDescription": "Review and revoke current sign-in sessions.",
       "sessionLabel": "Session",
       "currentBadge": "Current",
       "ipLabel": "IP",
@@ -933,6 +956,7 @@
       "creating": "Creating...",
       "createTokenAction": "Create token",
       "noTokens": "No API tokens yet.",
+      "tokensEmptyDescription": "Create an API token to automate access from scripts or external tools.",
       "createdPrefix": "Created",
       "lastUsedPrefix": "Last used",
       "neverUsed": "Never used",
@@ -980,6 +1004,7 @@
       "yourOrganizationsTitle": "Your organizations",
       "totalCount": "{{count}} total",
       "noOrganizations": "No organizations yet.",
+      "noOrganizationsDescription": "Create a workspace to group projects and collaborators.",
       "typeLabel": "Type",
       "personalType": "Personal",
       "teamType": "Team",
@@ -991,6 +1016,7 @@
       "userLabel": "User",
       "roleLabel": "Role",
       "noMembers": "No members found.",
+      "noMembersDescription": "Add members to the active workspace or switch to another organization.",
       "youLabel": "You",
       "removing": "Removing...",
       "removeAction": "Remove",
@@ -1002,6 +1028,7 @@
       "invitePermissionHint": "Only owners or admins can send invites.",
       "expiresLabel": "Expires",
       "noInvites": "No active invites.",
+      "noInvitesDescription": "Invite teammates to this workspace to collaborate.",
       "inviteAccepted": "Accepted",
       "inviteExpired": "Expired",
       "invitePending": "Pending",
@@ -1123,6 +1150,7 @@
       "defaultUpdated": "Default integration updated",
       "defaultFailed": "Failed to set default integration",
       "testSuccess": "Connection test successful",
+      "testWarning": "Connection test returned warnings",
       "testFailed": "Connection test failed",
       "defaultBadge": "Default",
       "providerLabel": "Provider",
@@ -1140,10 +1168,12 @@
       "repositoriesDescription": "Connect to GitHub, GitLab, or other Git services",
       "addRepository": "Add Repository",
       "noRepositories": "No repository integrations configured. Add one to get started.",
+      "repositoriesEmptyDescription": "Connect a repository provider to start syncing codebases.",
       "aiModelsTitle": "AI Models",
       "aiModelsDescription": "Connect your preferred AI providers for code analysis.",
       "addAiModel": "Add AI Model",
-      "noAiModels": "No AI integrations configured. Add one to enable code analysis."
+      "noAiModels": "No AI integrations configured. Add one to enable code analysis.",
+      "aiModelsEmptyDescription": "Add an AI model to enable review and analysis workflows."
     }
   },
   "commits": {

@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -1151,14 +1151,14 @@ export default function ReportDetailClient({
           <DialogHeader className="px-6 pt-6 bg-[hsl(var(--ds-background-2))]">
             <DialogTitle>{dict.reportDetail.aiReviewer}</DialogTitle>
           </DialogHeader>
-          <div className="h-[min(74vh,680px)] min-h-[480px]">
+          <DialogBody className="h-[min(74vh,680px)] min-h-[480px] p-0">
             <AIChat
               reportId={report.id}
               {...(chatIssueId ? { issueId: chatIssueId } : {})}
               {...(chatIssueContext ? { issueContext: chatIssueContext } : {})}
               dict={dict}
             />
-          </div>
+          </DialogBody>
         </DialogContent>
       </Dialog>
 
@@ -1168,7 +1168,9 @@ export default function ReportDetailClient({
           <DialogHeader>
             <DialogTitle>{dict.reportDetail.qualityTrendAnalysis}</DialogTitle>
           </DialogHeader>
-          <TrendChart projectId={report.project_id} dict={dict} />
+          <DialogBody>
+            <TrendChart projectId={report.project_id} dict={dict} />
+          </DialogBody>
         </DialogContent>
       </Dialog>
 

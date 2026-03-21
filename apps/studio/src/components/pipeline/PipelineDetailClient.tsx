@@ -50,6 +50,7 @@ import type {
 import {
   analyzePipelineJobs,
   createDefaultPipelineConfig,
+  detectPipelineSchedulePreset,
   durationLabel,
   ENV_LABELS,
   getSourceBranch,
@@ -64,6 +65,7 @@ import { useProject } from "@/lib/projectContext";
 import { formatLocalDateTime } from "@/lib/dateFormat";
 import { pipelineConfigSchema } from "@/services/validation";
 import StageBuilder from "@/components/pipeline/StageBuilder";
+import PipelineScheduleField from "@/components/pipeline/PipelineScheduleField";
 
 type Tab = "runs" | "configure";
 type ConfigureSection = "jobs" | "settings";
@@ -137,6 +139,12 @@ export default function PipelineDetailClient({
   const [secretDeleting, setSecretDeleting] = useState<string | null>(null);
   const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const schedulePreset = detectPipelineSchedulePreset(pipeline?.trigger_schedule);
+  const scheduleLabel = schedulePreset
+    ? schedulePreset === "custom"
+      ? p.schedule.customPreset
+      : p.schedule.presets[schedulePreset]
+    : null;
 
   type Artifact = {
     id: string;
@@ -722,7 +730,24 @@ export default function PipelineDetailClient({
                   {p.basic.autoTrigger}
                 </span>
               )}
+              {scheduleLabel && (
+                <Badge variant="outline" size="sm">
+                  {scheduleLabel}
+                </Badge>
+              )}
             </div>
+            {pipeline?.trigger_schedule && (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+                <span className="rounded-full border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-2 py-0.5 font-mono">
+                  {pipeline.trigger_schedule}
+                </span>
+                {pipeline.next_scheduled_at && (
+                  <span>
+                    {p.detail.nextRun}: <span className="text-foreground">{formatLocalDateTime(pipeline.next_scheduled_at)}</span>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <Button
@@ -1293,6 +1318,18 @@ export default function PipelineDetailClient({
                         </div>
                       </div>
                     </div>
+                    <div className="max-w-2xl">
+                      <PipelineScheduleField
+                        value={config.trigger.schedule ?? ""}
+                        nextScheduledAt={pipeline?.next_scheduled_at ?? null}
+                        onChange={(value) =>
+                          setConfig({
+                            ...config,
+                            trigger: { ...config.trigger, schedule: value },
+                          })
+                        }
+                      />
+                    </div>
                     <StageBuilder
                       jobs={config.jobs}
                       stageSettings={config.stages}
@@ -1662,10 +1699,12 @@ function normalizeLoadedPipelineConfig(
 }
 
 function normalizePipelineConfigForSave(config: PipelineConfig, defaultBranch: string): PipelineConfig {
+  const schedule = config.trigger.schedule?.trim();
   return {
     ...config,
     trigger: {
       autoTrigger: config.trigger.autoTrigger,
+      ...(schedule ? { schedule } : {}),
     },
     stages: normalizeStageSettings(config.stages),
     jobs: normalizePipelineJobs(config.jobs, config.stages, defaultBranch),

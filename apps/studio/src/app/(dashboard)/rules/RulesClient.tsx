@@ -6,7 +6,7 @@ import { Plus, Shield, ChevronRight, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
 import { withOrgPrefix } from '@/lib/orgPath';
@@ -263,20 +263,26 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
             <DialogHeader>
               <DialogTitle>{dict.rules.newRuleSet}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleCreate} className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[12px] font-medium">{dict.common.name}</label>
-                <Input value={name} onChange={e => setName(e.target.value)} placeholder={dict.rules.ruleSetNamePlaceholder} required />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[12px] font-medium">{dict.rules.descriptionOptional}</label>
-                <Input value={description} onChange={e => setDescription(e.target.value)} placeholder={dict.rules.descriptionPlaceholder} />
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>{dict.common.cancel}</Button>
-                <Button type="submit" disabled={creating}>{creating ? dict.rules.creating : dict.rules.create}</Button>
-              </DialogFooter>
-            </form>
+            <DialogBody>
+              <form id="ruleset-create-form" onSubmit={handleCreate} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[12px] font-medium">{dict.common.name}</label>
+                  <Input value={name} onChange={e => setName(e.target.value)} placeholder={dict.rules.ruleSetNamePlaceholder} required />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[12px] font-medium">{dict.rules.descriptionOptional}</label>
+                  <Input value={description} onChange={e => setDescription(e.target.value)} placeholder={dict.rules.descriptionPlaceholder} />
+                </div>
+              </form>
+            </DialogBody>
+            <DialogFooter>
+              <Button type="button" variant="secondary" size="sm" className="min-w-24" onClick={() => setDialogOpen(false)}>
+                {dict.common.cancel}
+              </Button>
+              <Button form="ruleset-create-form" type="submit" size="sm" className="min-w-28" disabled={creating}>
+                {creating ? dict.rules.creating : dict.rules.create}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
@@ -289,7 +295,7 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
               <DialogTitle>{dict.rules.templates.title}</DialogTitle>
               <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-1">{dict.rules.templates.description}</p>
             </DialogHeader>
-            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            <DialogBody className="max-h-[400px] space-y-2">
               {templatesLoading ? (
                 Array.from({ length: 4 }).map((_, i) => (
                   <div key={i} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] p-4">
@@ -325,9 +331,9 @@ export default function RulesClient({ initialRuleSets, dict }: { initialRuleSets
                   </Button>
                 </div>
               ))}
-            </div>
+            </DialogBody>
             <DialogFooter>
-              <Button variant="ghost" onClick={() => setTemplateDialogOpen(false)}>{dict.common.close}</Button>
+              <Button variant="secondary" onClick={() => setTemplateDialogOpen(false)}>{dict.common.close}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

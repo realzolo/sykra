@@ -12,20 +12,23 @@ import (
 )
 
 type Pipeline struct {
-	ID                 string    `json:"id"`
-	OrgID              string    `json:"org_id"`
-	ProjectID          *string   `json:"project_id"`
-	Name               string    `json:"name"`
-	Description        string    `json:"description"`
-	IsActive           bool      `json:"is_active"`
-	CurrentVersionID   *string   `json:"current_version_id,omitempty"`
-	ConcurrencyMode    string    `json:"concurrency_mode"`
-	SourceBranch       string    `json:"source_branch,omitempty"`
-	SourceBranchSource string    `json:"source_branch_source,omitempty"`
-	CreatedBy          *string   `json:"created_by,omitempty"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
-	LatestVersion      int       `json:"latest_version"`
+	ID                 string     `json:"id"`
+	OrgID              string     `json:"org_id"`
+	ProjectID          *string    `json:"project_id"`
+	Name               string     `json:"name"`
+	Description        string     `json:"description"`
+	IsActive           bool       `json:"is_active"`
+	CurrentVersionID   *string    `json:"current_version_id,omitempty"`
+	ConcurrencyMode    string     `json:"concurrency_mode"`
+	TriggerSchedule    *string    `json:"trigger_schedule,omitempty"`
+	LastScheduledAt    *time.Time `json:"last_scheduled_at,omitempty"`
+	NextScheduledAt    *time.Time `json:"next_scheduled_at,omitempty"`
+	SourceBranch       string     `json:"source_branch,omitempty"`
+	SourceBranchSource string     `json:"source_branch_source,omitempty"`
+	CreatedBy          *string    `json:"created_by,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	LatestVersion      int        `json:"latest_version"`
 }
 
 type PipelineVersion struct {
@@ -138,10 +141,10 @@ func (s *Store) CreatePipeline(ctx context.Context, pipeline Pipeline) (*Pipelin
 	row := s.pool.QueryRow(
 		ctx,
 		`insert into pipelines
-		 (org_id, project_id, name, description, is_active, created_by, created_at, updated_at)
-		 values ($1,$2,$3,$4,true,$5,now(),now())
+		 (org_id, project_id, name, description, is_active, trigger_schedule, last_scheduled_at, next_scheduled_at, created_by, created_at, updated_at)
+		 values ($1,$2,$3,$4,true,null,null,null,$5,now(),now())
 		 returning id, org_id, project_id, name, description, is_active, current_version_id,
-		           concurrency_mode, created_by, created_at, updated_at,
+		           concurrency_mode, trigger_schedule, last_scheduled_at, next_scheduled_at, created_by, created_at, updated_at,
 		           coalesce((select default_branch from code_projects where id = $2), 'main') as project_default_branch`,
 		pipeline.OrgID,
 		nullIfEmptyPtr(pipeline.ProjectID),
@@ -152,6 +155,9 @@ func (s *Store) CreatePipeline(ctx context.Context, pipeline Pipeline) (*Pipelin
 
 	var projectID pgtype.UUID
 	var currentVersion pgtype.UUID
+	var triggerSchedule pgtype.Text
+	var lastScheduledAt pgtype.Timestamptz
+	var nextScheduledAt pgtype.Timestamptz
 	var createdBy pgtype.UUID
 	var desc pgtype.Text
 	var projectDefaultBranch string
@@ -165,6 +171,9 @@ func (s *Store) CreatePipeline(ctx context.Context, pipeline Pipeline) (*Pipelin
 		&out.IsActive,
 		&currentVersion,
 		&out.ConcurrencyMode,
+		&triggerSchedule,
+		&lastScheduledAt,
+		&nextScheduledAt,
 		&createdBy,
 		&out.CreatedAt,
 		&out.UpdatedAt,
@@ -187,6 +196,16 @@ func (s *Store) CreatePipeline(ctx context.Context, pipeline Pipeline) (*Pipelin
 		val := createdBy.String()
 		out.CreatedBy = &val
 	}
+	if triggerSchedule.Valid {
+		val := triggerSchedule.String
+		out.TriggerSchedule = &val
+	}
+	if lastScheduledAt.Valid {
+		out.LastScheduledAt = &lastScheduledAt.Time
+	}
+	if nextScheduledAt.Valid {
+		out.NextScheduledAt = &nextScheduledAt.Time
+	}
 	out.SourceBranch = normalizeSourceValue(projectDefaultBranch, "main")
 	out.SourceBranchSource = "project_default"
 	return &out, nil
@@ -208,6 +227,29 @@ func (s *Store) UpdatePipelineMetadata(
 		pipelineID,
 		nullIfEmpty(name),
 		nullIfEmpty(description),
+	)
+	return err
+}
+
+func (s *Store) UpdatePipelineSchedule(
+	ctx context.Context,
+	pipelineID string,
+	triggerSchedule *string,
+	nextScheduledAt *time.Time,
+	lastScheduledAt *time.Time,
+) error {
+	_, err := s.pool.Exec(
+		ctx,
+		`update pipelines
+		 set trigger_schedule=$2,
+		     next_scheduled_at=$3,
+		     last_scheduled_at=coalesce($4, last_scheduled_at),
+		     updated_at=now()
+		 where id=$1`,
+		pipelineID,
+		nullIfEmptyPtr(triggerSchedule),
+		nextScheduledAt,
+		lastScheduledAt,
 	)
 	return err
 }
@@ -257,7 +299,7 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 	row := s.pool.QueryRow(
 		ctx,
 		`select p.id, p.org_id, p.project_id, p.name, p.description, p.is_active, p.current_version_id,
-		        p.concurrency_mode, p.created_by, p.created_at, p.updated_at,
+		        p.concurrency_mode, p.trigger_schedule, p.last_scheduled_at, p.next_scheduled_at, p.created_by, p.created_at, p.updated_at,
 		        coalesce((select max(version) from pipeline_versions where pipeline_id=p.id), 0) as latest_version,
 		        coalesce(cp.default_branch, 'main') as project_default_branch,
 		        cv.config as current_config
@@ -272,6 +314,9 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 	var createdBy pgtype.UUID
 	var desc pgtype.Text
 	var projectID pgtype.UUID
+	var triggerSchedule pgtype.Text
+	var lastScheduledAt pgtype.Timestamptz
+	var nextScheduledAt pgtype.Timestamptz
 	var projectDefaultBranch string
 	var currentConfig json.RawMessage
 	var out Pipeline
@@ -284,6 +329,9 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 		&out.IsActive,
 		&currentVersion,
 		&out.ConcurrencyMode,
+		&triggerSchedule,
+		&lastScheduledAt,
+		&nextScheduledAt,
 		&createdBy,
 		&out.CreatedAt,
 		&out.UpdatedAt,
@@ -308,6 +356,16 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 		val := createdBy.String()
 		out.CreatedBy = &val
 	}
+	if triggerSchedule.Valid {
+		val := triggerSchedule.String
+		out.TriggerSchedule = &val
+	}
+	if lastScheduledAt.Valid {
+		out.LastScheduledAt = &lastScheduledAt.Time
+	}
+	if nextScheduledAt.Valid {
+		out.NextScheduledAt = &nextScheduledAt.Time
+	}
 	branch, origin := deriveSourceBranch(currentConfig, projectDefaultBranch)
 	out.SourceBranch = branch
 	out.SourceBranchSource = origin
@@ -327,6 +385,87 @@ func (s *Store) GetPipelineWithCurrentVersion(ctx context.Context, pipelineID st
 		return pipeline, nil, err
 	}
 	return pipeline, version, nil
+}
+
+func (s *Store) ListDueScheduledPipelines(ctx context.Context, limit int) ([]Pipeline, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := s.pool.Query(
+		ctx,
+		`select p.id, p.org_id, p.project_id, p.name, p.description, p.is_active, p.current_version_id,
+		        p.concurrency_mode, p.trigger_schedule, p.last_scheduled_at, p.next_scheduled_at, p.created_by, p.created_at, p.updated_at
+		 from pipelines p
+		 where p.is_active = true
+		   and p.trigger_schedule is not null
+		   and p.next_scheduled_at is not null
+		   and p.next_scheduled_at <= now()
+		 order by p.next_scheduled_at asc
+		 limit $1`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []Pipeline
+	for rows.Next() {
+		var currentVersion pgtype.UUID
+		var createdBy pgtype.UUID
+		var desc pgtype.Text
+		var projectID pgtype.UUID
+		var triggerSchedule pgtype.Text
+		var lastScheduledAt pgtype.Timestamptz
+		var nextScheduledAt pgtype.Timestamptz
+		var item Pipeline
+		if err := rows.Scan(
+			&item.ID,
+			&item.OrgID,
+			&projectID,
+			&item.Name,
+			&desc,
+			&item.IsActive,
+			&currentVersion,
+			&item.ConcurrencyMode,
+			&triggerSchedule,
+			&lastScheduledAt,
+			&nextScheduledAt,
+			&createdBy,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if projectID.Valid {
+			val := projectID.String()
+			item.ProjectID = &val
+		}
+		if desc.Valid {
+			item.Description = desc.String
+		}
+		if currentVersion.Valid {
+			val := currentVersion.String()
+			item.CurrentVersionID = &val
+		}
+		if createdBy.Valid {
+			val := createdBy.String()
+			item.CreatedBy = &val
+		}
+		if triggerSchedule.Valid {
+			val := triggerSchedule.String
+			item.TriggerSchedule = &val
+		}
+		if lastScheduledAt.Valid {
+			item.LastScheduledAt = &lastScheduledAt.Time
+		}
+		if nextScheduledAt.Valid {
+			item.NextScheduledAt = &nextScheduledAt.Time
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (s *Store) ListPipelineSecrets(ctx context.Context, pipelineID string) ([]PipelineSecret, error) {
@@ -387,7 +526,7 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		err  error
 	)
 	selectCols := `p.id, p.org_id, p.project_id, p.name, p.description, p.is_active, p.current_version_id,
-		        p.concurrency_mode, p.created_by, p.created_at, p.updated_at,
+		        p.concurrency_mode, p.trigger_schedule, p.last_scheduled_at, p.next_scheduled_at, p.created_by, p.created_at, p.updated_at,
 		        coalesce((select max(version) from pipeline_versions where pipeline_id=p.id), 0) as latest_version,
 		        coalesce(cp.default_branch, 'main') as project_default_branch,
 		        cv.config as current_config`
@@ -426,6 +565,9 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		var createdBy pgtype.UUID
 		var desc pgtype.Text
 		var pID pgtype.UUID
+		var triggerSchedule pgtype.Text
+		var lastScheduledAt pgtype.Timestamptz
+		var nextScheduledAt pgtype.Timestamptz
 		var projectDefaultBranch string
 		var currentConfig json.RawMessage
 		var item Pipeline
@@ -438,6 +580,9 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 			&item.IsActive,
 			&currentVersion,
 			&item.ConcurrencyMode,
+			&triggerSchedule,
+			&lastScheduledAt,
+			&nextScheduledAt,
 			&createdBy,
 			&item.CreatedAt,
 			&item.UpdatedAt,
@@ -461,6 +606,16 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		if createdBy.Valid {
 			val := createdBy.String()
 			item.CreatedBy = &val
+		}
+		if triggerSchedule.Valid {
+			val := triggerSchedule.String
+			item.TriggerSchedule = &val
+		}
+		if lastScheduledAt.Valid {
+			item.LastScheduledAt = &lastScheduledAt.Time
+		}
+		if nextScheduledAt.Valid {
+			item.NextScheduledAt = &nextScheduledAt.Time
 		}
 		branch, origin := deriveSourceBranch(currentConfig, projectDefaultBranch)
 		item.SourceBranch = branch
@@ -520,10 +675,23 @@ func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*Pipeli
 	meta := run.Metadata
 	row := s.pool.QueryRow(
 		ctx,
-		`insert into pipeline_runs
-		 (pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, updated_at)
-		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())
-		 returning id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at`,
+		`with inserted as (
+		  insert into pipeline_runs
+		   (pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, updated_at)
+		   values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())
+		   on conflict (pipeline_id, idempotency_key) where idempotency_key is not null do nothing
+		   returning id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
+		)
+		select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
+		  from inserted
+		union all
+		select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
+		  from pipeline_runs
+		 where $8 is not null
+		   and pipeline_id = $1
+		   and idempotency_key = $8
+		   and not exists (select 1 from inserted)
+		 limit 1`,
 		run.PipelineID,
 		run.VersionID,
 		run.OrgID,

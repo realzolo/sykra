@@ -18,7 +18,12 @@ import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
 import { useProject } from '@/lib/projectContext';
 import type { PipelineSummary, PipelineRunStatus } from '@/services/pipelineTypes';
-import { durationLabel, ENV_LABELS, STATUS_VARIANTS } from '@/services/pipelineTypes';
+import {
+  detectPipelineSchedulePreset,
+  durationLabel,
+  ENV_LABELS,
+  STATUS_VARIANTS,
+} from '@/services/pipelineTypes';
 import { withOrgPrefix } from '@/lib/orgPath';
 import CreatePipelineWizard from '@/components/pipeline/CreatePipelineWizard';
 import { formatLocalDate, formatLocalDateTime } from '@/lib/dateFormat';
@@ -268,14 +273,20 @@ export default function ProjectPipelinesView({
               {p.new}
             </Button>
           </div>
-	        ) : (
-	          pipelines.map(pipeline => {
+          ) : (
+	        pipelines.map(pipeline => {
 	            const run = pipeline.last_run;
 	            const status = run?.status;
 	            const env = pipeline.environment ?? 'production';
 	            const sourceBranch = pipeline.source_branch ?? project.default_branch;
 	            const sourceBranchSource =
 	              pipeline.source_branch_source ?? (sourceBranch === project.default_branch ? 'project_default' : 'custom');
+              const schedulePreset = detectPipelineSchedulePreset(pipeline.trigger_schedule);
+              const scheduleLabel = schedulePreset
+                ? schedulePreset === 'custom'
+                  ? p.schedule.customPreset
+                  : p.schedule.presets[schedulePreset]
+                : null;
 	            return (
               <div
                 key={pipeline.id}
@@ -312,6 +323,16 @@ export default function ProjectPipelinesView({
                         ? p.basic.sourceBranchProjectDefault
                         : p.basic.sourceBranchCustom}
                     </Badge>
+                    {scheduleLabel && (
+                      <Badge variant="outline" size="sm">
+                        {scheduleLabel}
+                      </Badge>
+                    )}
+                    {pipeline.next_scheduled_at && (
+                      <span className="truncate">
+                        {p.detail.nextRun}: {formatLocalDateTime(pipeline.next_scheduled_at)}
+                      </span>
+                    )}
                   </div>
                 </div>
 	                <div className="w-24 flex justify-center">

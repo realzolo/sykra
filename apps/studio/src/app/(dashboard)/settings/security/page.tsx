@@ -2,15 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { AlertTriangle, Check, Clock3, Copy, Key, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
+
+import SettingsPageShell from '@/components/settings/SettingsPageShell';
+import SettingsEmptyState from '@/components/settings/SettingsEmptyState';
+import SettingsNotice from '@/components/settings/SettingsNotice';
+import SettingsRow from '@/components/settings/SettingsRow';
+import SettingsSection from '@/components/settings/SettingsSection';
+import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { toast } from 'sonner';
-import { AlertTriangle, Copy, Check, Plus, Trash2, Key } from 'lucide-react';
-import SettingsNav from '@/components/settings/SettingsNav';
-import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { useClientDictionary } from '@/i18n/client';
 import { formatLocalDateTime } from '@/lib/dateFormat';
 
@@ -49,47 +53,46 @@ function ScopeChip({ scope }: { scope: string }) {
   );
 }
 
-function PageSkeleton() {
+function PageSkeleton({ title, description }: { title: string; description: string }) {
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="max-w-5xl px-6 py-6">
-        <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
-          <div className="space-y-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-4 w-28" />
-            ))}
+    <SettingsPageShell title={title} description={description}>
+      <div className="space-y-6">
+        <div className="space-y-3">
+          <Skeleton className="h-5 w-32" />
+          <div className="space-y-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-4">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-64" />
+            <Skeleton className="h-9 w-full" />
           </div>
-          <div className="space-y-6">
-            <Skeleton className="h-5 w-32" />
-            {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-4 space-y-3">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-3 w-64" />
-              </div>
-            ))}
+        </div>
+        <div className="space-y-3">
+          <Skeleton className="h-5 w-32" />
+          <div className="space-y-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-4">
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-3 w-72" />
+            <Skeleton className="h-16 w-full" />
           </div>
         </div>
       </div>
-    </div>
+    </SettingsPageShell>
   );
 }
 
 export default function SecurityPage() {
   const dict = useClientDictionary();
   const i18n = dict.settings.securityPage;
+  const router = useRouter();
+
   const scopeOptions = [
     { value: SCOPE_VALUES[0], label: i18n.scopeReadLabel, description: i18n.scopeReadDescription },
     { value: SCOPE_VALUES[1], label: i18n.scopeWriteLabel, description: i18n.scopeWriteDescription },
     { value: SCOPE_VALUES[2], label: i18n.scopeTriggerLabel, description: i18n.scopeTriggerDescription },
   ] as const;
-  const router = useRouter();
 
-  // Sessions
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [revokingId, setRevokingId] = useState<string | null>(null);
 
-  // API Tokens
   const [tokens, setTokens] = useState<ApiToken[]>([]);
   const [tokensLoading, setTokensLoading] = useState(true);
   const [newTokenName, setNewTokenName] = useState('');
@@ -163,9 +166,7 @@ export default function SecurityPage() {
   }
 
   function toggleScope(scope: string) {
-    setNewTokenScopes(prev =>
-      prev.includes(scope) ? prev.filter(s => s !== scope) : [...prev, scope]
-    );
+    setNewTokenScopes((prev) => (prev.includes(scope) ? prev.filter((item) => item !== scope) : [...prev, scope]));
   }
 
   async function handleCreateToken() {
@@ -177,6 +178,7 @@ export default function SecurityPage() {
       toast.error(i18n.scopeRequired);
       return;
     }
+
     setCreating(true);
     try {
       const res = await fetch('/api/tokens', {
@@ -211,7 +213,7 @@ export default function SecurityPage() {
       const res = await fetch(`/api/tokens/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(i18n.revokeTokenFailed);
       toast.success(i18n.revokeTokenSuccess);
-      setTokens(prev => prev.filter(t => t.id !== id));
+      setTokens((prev) => prev.filter((item) => item.id !== id));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : i18n.revokeTokenFailed);
     } finally {
@@ -220,140 +222,104 @@ export default function SecurityPage() {
     }
   }
 
-  if (sessionsLoading && tokensLoading) return <PageSkeleton />;
+  if (sessionsLoading && tokensLoading) {
+    return <PageSkeleton title={i18n.title} description={i18n.description} />;
+  }
 
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="max-w-5xl px-6 py-6">
-        <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
-          <SettingsNav />
-
-          <div className="space-y-10">
-
-            {/* ── Sessions ─────────────────────────────────────── */}
-            <section className="space-y-4">
-              <div>
-                <h1 className="text-[15px] font-semibold">{i18n.title}</h1>
-                <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">
-                  {i18n.description}
-                </p>
-              </div>
-
-              {sessions.length === 0 ? (
-                <Card>
-                  <CardContent className="p-6">
-                    <p className="text-[13px] text-[hsl(var(--ds-text-2))] text-center">{i18n.noSessions}</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-2">
-                  {sessions.map(session => (
-                    <Card key={session.id}>
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-[13px] font-medium">{i18n.sessionLabel}</h3>
-                              {session.isCurrent && <Badge size="sm" variant="accent">{i18n.currentBadge}</Badge>}
-                            </div>
-                            <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                              {i18n.ipLabel}: {session.ipAddress || i18n.unknown}
-                              {' | '}
-                              {i18n.lastUsedLabel}: {formatDate(session.lastUsedAt)}
-                            </p>
-                            <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                              {i18n.createdLabel}: {formatDate(session.createdAt)}
-                              {' | '}
-                              {i18n.expiresLabel}: {formatDate(session.expiresAt)}
-                            </p>
-                            {session.userAgent && (
-                              <p className="text-[12px] text-[hsl(var(--ds-text-2))] break-words">{session.userAgent}</p>
-                            )}
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={revokingId === session.id}
-                            onClick={() => setSessionToRevoke(session)}
-                          >
-                            {revokingId === session.id ? i18n.revoking : i18n.revokeAction}
-                          </Button>
+    <>
+      <SettingsPageShell title={i18n.title} description={i18n.description}>
+        <div className="space-y-6">
+          <SettingsSection title={i18n.sessionsTitle} description={i18n.sessionsDescription}>
+            {sessions.length === 0 ? (
+              <SettingsEmptyState
+                title={i18n.noSessions}
+                description={i18n.sessionsEmptyDescription}
+                icon={<Clock3 className="size-4" />}
+              />
+            ) : (
+              <div className="space-y-2">
+                {sessions.map((session) => (
+                  <SettingsRow
+                    key={session.id}
+                    align="start"
+                    left={
+                      <>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-[13px] font-medium">{i18n.sessionLabel}</h3>
+                          {session.isCurrent && <Badge size="sm" variant="accent">{i18n.currentBadge}</Badge>}
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* ── API Tokens ────────────────────────────────────── */}
-            <section className="space-y-4">
-              <div>
-                <h2 className="text-[15px] font-semibold flex items-center gap-2">
-                  <Key className="size-4" />
-                  {i18n.apiTokensTitle}
-                </h2>
-                <p className="text-[13px] text-[hsl(var(--ds-text-2))] mt-0.5">
-                  {i18n.apiTokensDescription}
-                </p>
+                        <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                          {i18n.ipLabel}: {session.ipAddress || i18n.unknown}
+                          {' | '}
+                          {i18n.lastUsedLabel}: {formatDate(session.lastUsedAt)}
+                        </p>
+                        <p className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                          {i18n.createdLabel}: {formatDate(session.createdAt)}
+                          {' | '}
+                          {i18n.expiresLabel}: {formatDate(session.expiresAt)}
+                        </p>
+                        {session.userAgent && (
+                          <p className="text-[12px] text-[hsl(var(--ds-text-2))] break-words">{session.userAgent}</p>
+                        )}
+                      </>
+                    }
+                    right={
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={revokingId === session.id}
+                        onClick={() => setSessionToRevoke(session)}
+                      >
+                        {revokingId === session.id ? i18n.revoking : i18n.revokeAction}
+                      </Button>
+                    }
+                  />
+                ))}
               </div>
+            )}
+          </SettingsSection>
 
-              {/* Newly created token banner */}
-              {createdToken && (
-                <div className="rounded-[8px] border border-success/40 bg-success/5 p-4 space-y-2">
-                  <p className="text-[13px] font-medium text-success">{i18n.tokenCreatedHint}</p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 text-[12px] font-mono bg-[hsl(var(--ds-background-2))] border border-[hsl(var(--ds-border-1))] rounded-[6px] px-3 py-2 break-all">
-                      {createdToken}
-                    </code>
-                    <Button size="sm" variant="outline" onClick={handleCopyToken} className="shrink-0 gap-1.5">
-                      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                      {copied ? dict.common.copied : dict.common.copy}
-                    </Button>
-                  </div>
-                  <Button size="sm" variant="ghost" className="text-[12px]" onClick={() => setCreatedToken(null)}>
+          <SettingsSection title={i18n.apiTokensTitle} description={i18n.apiTokensDescription}>
+            {createdToken && (
+              <div className="space-y-3">
+                <SettingsNotice
+                  variant="success"
+                  title={i18n.tokenCreatedHint}
+                  icon={<Check className="size-4" />}
+                />
+                <div className="flex items-center gap-2 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] px-4 py-3">
+                  <code className="min-w-0 flex-1 break-all font-mono text-[12px] text-foreground">
+                    {createdToken}
+                  </code>
+                  <Button size="sm" variant="outline" onClick={handleCopyToken} className="shrink-0 gap-1.5">
+                    {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                    {copied ? dict.common.copied : dict.common.copy}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="shrink-0 text-[12px]" onClick={() => setCreatedToken(null)}>
                     {i18n.dismiss}
                   </Button>
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Create form */}
-              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-4 space-y-4">
-                <p className="text-[13px] font-medium">{i18n.createTokenTitle}</p>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder={i18n.tokenNamePlaceholder}
-                    value={newTokenName}
-                    onChange={e => setNewTokenName(e.target.value)}
-                    className="h-8 text-[13px] max-w-xs"
-                    onKeyDown={e => { if (e.key === 'Enter') void handleCreateToken(); }}
-                  />
+            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-4 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[13px] font-medium">{i18n.createTokenTitle}</p>
+                  <p className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">{i18n.scopesTitle}</p>
                 </div>
-                <div className="space-y-2">
-                  <p className="text-[12px] text-[hsl(var(--ds-text-2))] font-medium">{i18n.scopesTitle}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {scopeOptions.map((opt) => {
-                      const active = newTokenScopes.includes(opt.value);
-                      return (
-                        <button
-                          key={opt.value}
-                          onClick={() => toggleScope(opt.value)}
-                          className={[
-                            'flex items-start gap-2 rounded-[6px] border px-3 py-2 text-left text-[12px] transition-colors duration-100',
-                            active
-                              ? 'border-foreground bg-[hsl(var(--ds-surface-2))] text-foreground'
-                              : 'border-[hsl(var(--ds-border-1))] text-[hsl(var(--ds-text-2))] hover:border-[hsl(var(--ds-border-2))] hover:text-foreground',
-                          ].join(' ')}
-                          >
-                          <div>
-                            <div className="font-medium">{opt.label}</div>
-                            <div className="text-[11px] opacity-70">{opt.description}</div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder={i18n.tokenNamePlaceholder}
+                  value={newTokenName}
+                  onChange={(e) => setNewTokenName(e.target.value)}
+                  className="h-8 text-[13px] max-w-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleCreateToken();
+                  }}
+                />
                 <Button
                   size="sm"
                   variant="outline"
@@ -365,59 +331,89 @@ export default function SecurityPage() {
                   {creating ? i18n.creating : i18n.createTokenAction}
                 </Button>
               </div>
-
-              {/* Token list */}
-              {tokensLoading ? (
-                <div className="space-y-2">
-                  {Array.from({ length: 2 }).map((_, i) => (
-                    <div key={i} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] p-4">
-                      <Skeleton className="h-4 w-40 mb-2" />
-                      <Skeleton className="h-3 w-64" />
-                    </div>
-                  ))}
-                </div>
-              ) : tokens.length === 0 ? (
-                <p className="text-[13px] text-[hsl(var(--ds-text-2))]">{i18n.noTokens}</p>
-              ) : (
-                <div className="space-y-2">
-                  {tokens.map(token => (
-                    <div
-                      key={token.id}
-                      className="flex items-center gap-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] px-4 py-3"
+              <div className="flex flex-wrap gap-2">
+                {scopeOptions.map((opt) => {
+                  const active = newTokenScopes.includes(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => toggleScope(opt.value)}
+                      className={[
+                        'flex max-w-[220px] items-start gap-2 rounded-[8px] border px-3 py-2 text-left text-[12px] transition-colors duration-100',
+                        active
+                          ? 'border-foreground bg-[hsl(var(--ds-surface-2))] text-foreground'
+                          : 'border-[hsl(var(--ds-border-1))] text-[hsl(var(--ds-text-2))] hover:border-[hsl(var(--ds-border-2))] hover:text-foreground',
+                      ].join(' ')}
                     >
-                      <Key className="size-4 text-[hsl(var(--ds-text-2))] shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
+                      <div>
+                        <div className="font-medium">{opt.label}</div>
+                        <div className="text-[11px] opacity-70">{opt.description}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {tokensLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 2 }).map((_, index) => (
+                  <div key={`token-skeleton-${index}`} className="rounded-[8px] border border-[hsl(var(--ds-border-1))] p-4">
+                    <Skeleton className="h-4 w-40 mb-2" />
+                    <Skeleton className="h-3 w-64" />
+                  </div>
+                ))}
+              </div>
+            ) : tokens.length === 0 ? (
+              <SettingsEmptyState
+                title={i18n.noTokens}
+                description={i18n.tokensEmptyDescription}
+                icon={<Key className="size-4" />}
+              />
+            ) : (
+              <div className="space-y-2">
+                {tokens.map((token) => (
+                  <SettingsRow
+                    key={token.id}
+                    align="start"
+                    left={
+                      <>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Key className="size-4 shrink-0 text-[hsl(var(--ds-text-2))]" />
                           <span className="text-[13px] font-medium text-foreground">{token.name}</span>
                           <code className="text-[11px] font-mono text-[hsl(var(--ds-text-2))]">{token.token_prefix}…</code>
-                          {token.scopes.map(s => <ScopeChip key={s} scope={s} />)}
+                          {token.scopes.map((scope) => (
+                            <ScopeChip key={scope} scope={scope} />
+                          ))}
                         </div>
-                        <p className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
+                        <p className="mt-0.5 text-[12px] text-[hsl(var(--ds-text-2))]">
                           {i18n.createdPrefix} {formatDate(token.created_at)}
                           {token.last_used_at
                             ? ` · ${i18n.lastUsedPrefix} ${formatDate(token.last_used_at)}`
                             : ` · ${i18n.neverUsed}`}
                         </p>
-                      </div>
+                      </>
+                    }
+                    right={
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="h-7 w-7 text-[hsl(var(--ds-text-2))] hover:text-danger shrink-0"
+                        className="h-7 w-7 shrink-0 text-[hsl(var(--ds-text-2))] hover:text-danger"
                         disabled={deletingId === token.id}
                         onClick={() => setTokenToRevoke(token)}
                         aria-label={i18n.revokeTokenAria}
                       >
                         <Trash2 className="size-3.5" />
                       </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-          </div>
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </SettingsSection>
         </div>
-      </div>
+      </SettingsPageShell>
 
       <ConfirmDialog
         open={sessionToRevoke !== null}
@@ -454,6 +450,6 @@ export default function SecurityPage() {
         loading={deletingId !== null}
         danger
       />
-    </div>
+    </>
   );
 }

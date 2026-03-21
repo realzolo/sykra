@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
@@ -359,54 +359,60 @@ export default function RuleSetDetailClient({
             <DialogHeader>
               <DialogTitle>{editRule ? dict.rules.editRule : dict.rules.addRule}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSaveRule} className="flex flex-col gap-4">
-              <div className="flex gap-3">
-                <div className="flex flex-col gap-1.5 flex-1">
-                  <label className="text-[12px] font-medium">{dict.rules.categoryLabel}</label>
-                  <Select value={fCategory} onValueChange={(value) => setFCategory(value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CAT_ITEMS.map(item => (
-                        <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            <DialogBody>
+              <form id="rule-editor-form" onSubmit={handleSaveRule} className="flex flex-col gap-4">
+                <div className="flex gap-3">
+                  <div className="flex flex-col gap-1.5 flex-1">
+                    <label className="text-[12px] font-medium">{dict.rules.categoryLabel}</label>
+                    <Select value={fCategory} onValueChange={(value) => setFCategory(value)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CAT_ITEMS.map(item => (
+                          <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5 w-[130px]">
+                    <label className="text-[12px] font-medium">{dict.rules.severityLabel}</label>
+                    <Select value={fSeverity} onValueChange={(value) => setFSeverity(value as 'error' | 'warning' | 'info')}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SEV_ITEMS.map(item => (
+                          <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1.5 w-[130px]">
-                  <label className="text-[12px] font-medium">{dict.rules.severityLabel}</label>
-                  <Select value={fSeverity} onValueChange={(value) => setFSeverity(value as 'error' | 'warning' | 'info')}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SEV_ITEMS.map(item => (
-                        <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[12px] font-medium">{dict.rules.ruleNameLabel}</label>
+                  <Input value={fName} onChange={e => setFName(e.target.value)} placeholder={dict.rules.ruleNamePlaceholder} required />
                 </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[12px] font-medium">{dict.rules.ruleNameLabel}</label>
-                <Input value={fName} onChange={e => setFName(e.target.value)} placeholder={dict.rules.ruleNamePlaceholder} required />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[12px] font-medium">{dict.rules.promptLabel}</label>
-                <Textarea value={fPrompt} onChange={e => setFPrompt(e.target.value)}
-                  placeholder={dict.rules.promptPlaceholder} required rows={4} className="font-mono text-[13px]" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[12px] font-medium">{dict.rules.weightLabel}</label>
-                <Input type="number" min={0} max={100} step={5} value={String(fWeight)}
-                  onChange={e => setFWeight(Number(e.target.value))} className="w-[120px]" />
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); setEditRule(null); }}>{dict.common.cancel}</Button>
-                <Button type="submit" disabled={saving}>{saving ? dict.rules.saving : editRule ? dict.rules.saveChanges : dict.rules.addRule}</Button>
-              </DialogFooter>
-            </form>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[12px] font-medium">{dict.rules.promptLabel}</label>
+                  <Textarea value={fPrompt} onChange={e => setFPrompt(e.target.value)}
+                    placeholder={dict.rules.promptPlaceholder} required rows={4} className="font-mono text-[13px]" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[12px] font-medium">{dict.rules.weightLabel}</label>
+                  <Input type="number" min={0} max={100} step={5} value={String(fWeight)}
+                    onChange={e => setFWeight(Number(e.target.value))} className="w-[120px]" />
+                </div>
+              </form>
+            </DialogBody>
+            <DialogFooter>
+              <Button type="button" variant="secondary" size="sm" className="min-w-24" onClick={() => { setDialogOpen(false); setEditRule(null); }}>
+                {dict.common.cancel}
+              </Button>
+              <Button form="rule-editor-form" type="submit" size="sm" className="min-w-28" disabled={saving}>
+                {saving ? dict.rules.saving : editRule ? dict.rules.saveChanges : dict.rules.addRule}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
