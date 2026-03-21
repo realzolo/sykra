@@ -5,6 +5,8 @@ import { formatErrorResponse } from '@/services/retry';
 import { isSchedulerAuthorized } from '@/services/schedulerAuth';
 import { queryOne, query } from '@/lib/db';
 import { sendEmail, absoluteStudioUrl } from '@/services/email';
+import { writeBackReviewRun } from '@/services/reviewWriteback';
+import { logger } from '@/services/logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -174,6 +176,9 @@ async function notifyReportDone(reportId: string) {
     .join('\n');
 
   await sendEmail({ to: user.email, subject, text }).catch(() => undefined);
+  await writeBackReviewRun(reportId).catch((error) => {
+    logger.warn('PR review write-back failed', error instanceof Error ? error : undefined);
+  });
 }
 
 export async function POST(request: NextRequest) {

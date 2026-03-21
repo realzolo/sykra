@@ -37,6 +37,7 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 
 **Key platform features:**
 - AI code review with configurable rule sets, quality gate scoring, and issue tracking
+- PR review write-back mirrors analysis summaries back into GitHub / GitLab PR or MR comments, updating the same external comment on re-analysis
 - Rule set template marketplace: 5 built-in templates (React, Go, Security/OWASP, Python, Performance) importable via `GET /api/rules/templates` + `POST /api/rules/templates/[id]/import`
 - Report comparison view: diff two reports side-by-side (new / resolved / persisting issues) at `/o/:orgId/projects/:id/reports/compare?a=...&b=...`
 - Pipeline concurrency control: `allow | queue | cancel_previous` modes stored in `pipelines.concurrency_mode` column (included in `docs/db/init.sql`; use migration for existing DBs)

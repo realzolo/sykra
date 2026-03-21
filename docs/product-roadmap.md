@@ -1,6 +1,6 @@
 # Spec-Axis Product Roadmap
 
-> **Last updated:** 2026-03-17
+> **Last updated:** 2026-03-21
 
 ---
 
@@ -18,7 +18,7 @@
    - [3.7 Integration Management](#37-integration-management)
    - [3.8 CI/CD Pipeline Engine](#38-cicd-pipeline-engine)
    - [3.9 Settings & Localization](#39-settings--localization)
-4. [Planned Features](#4-planned-features)
+4. [Next Build Order](#4-next-build-order)
    - [P0 — Core Experience](#p0--core-experience)
    - [P1 — Product Completeness](#p1--product-completeness)
    - [P2 — Growth & Collaboration](#p2--growth--collaboration)
@@ -75,7 +75,7 @@
 - Studio and Scheduler are separate services communicating over HTTP — Scheduler can be scaled independently
 - All pipeline execution happens in Scheduler; Studio is the management UI + API proxy
 - Integrations (VCS, AI) configured via web UI, stored encrypted in DB — no env var sprawl
-- Four-stage pipeline model (Source → Review → Build → Deploy) maps directly to internal job DAG at runtime
+- Stage-based pipeline builder with fixed core columns (`source`, `review`, `build`, `deploy`) and on-demand automation slots; runtime DAG is derived from stage order and dispatch mode
 
 ---
 
@@ -147,6 +147,8 @@
 | AI Chat on report | ✅ Done | Context-aware Q&A about the current report |
 | Report export | ✅ Done | Downloadable report artifact |
 | Quality score (0–100) | ✅ Done | Computed from issue severity and rule weights |
+| Report comparison view | ✅ Done | Side-by-side diff between two reports |
+| PR review write-back | ✅ Done | GitHub / GitLab comment summary after analysis completes |
 | Historical score trend chart | ✅ Done | Line chart per project over time |
 | PR auto-trigger via webhook | ✅ Done | `opened / reopened / synchronize` events |
 | Saved filters | ✅ Done | Per-user, per-project filter presets |
@@ -157,6 +159,7 @@
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Rule set CRUD | ✅ Done | Name, description, org-scoped |
+| Rule set template marketplace | ✅ Done | Built-in templates importable as a starting point |
 | Individual rule config | ✅ Done | Category, name, AI prompt, severity level |
 | Rule feedback | ✅ Done | Mark rules as helpful / noisy, stored in `quality_rule_feedback` |
 | Rule learning statistics | ✅ Done | Trigger count, hit rate in `quality_rule_stats` |
@@ -179,7 +182,7 @@
 
 ### 3.8 CI/CD Pipeline Engine
 
-The pipeline system follows a fixed four-stage model inspired by enterprise DevOps platforms (Alibaba Cloud DevOps, etc.):
+The pipeline system follows a stage-based model inspired by enterprise DevOps platforms (Alibaba Cloud DevOps, etc.):
 
 ```
 Source Checkout → Code Review Gate → Build → Deploy
@@ -187,7 +190,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Fixed four-stage model | ✅ Done | Replaces the old free-form DAG builder |
+| Stage-based pipeline profile | ✅ Done | Replaces the old free-form DAG builder |
 | 3-step creation wizard | ✅ Done | Basic Info → Configure Stages → Notifications |
 | Source stage — git clone / pull | ✅ Done | Repo URL fetched from Studio API via `source_checkout` executor |
 | Review stage — quality gate | ✅ Done | Fetches latest report score; blocks deploy if score < `minScore` |
@@ -209,6 +212,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Concurrent job execution | ✅ Done | `PIPELINE_CONCURRENCY` config |
 | Job DAG dependency resolution | ✅ Done | `needs` field, topological scheduling |
 | Cancel pending jobs on failure | ✅ Done | Upstream failure cancels downstream queued jobs |
+| Pipeline concurrency control | ✅ Done | `allow / queue / cancel_previous` modes |
 | Log retention cleanup | ✅ Done | Configurable via `PIPELINE_LOG_RETENTION_DAYS` |
 | Artifact storage (reserved) | ⬜ Planned | Schema exists (`pipeline_artifacts`), executor not implemented |
 | Docker / container executor | ⬜ Planned | Currently shell-only |
@@ -228,15 +232,30 @@ Source Checkout → Code Review Gate → Build → Deploy
 
 ---
 
-## 4. Planned Features
+## 4. Next Build Order
+
+The roadmap below excludes capabilities already shipped in the current build, including the dashboard home page, rule set template marketplace, report comparison view, pipeline concurrency control, and PR review write-back.
 
 ### P0 — Core Experience
 
-These are the most critical gaps that affect the daily usability of the product.
+These are the most important remaining gaps for daily product use.
 
-#### 4.1 Notification System
+#### 4.1 Pipeline Encrypted Environment Variables (Secrets)
 
-**Why:** The `notify_on_success` and `notify_on_failure` fields on pipelines already exist in the DB and config schema, but the actual delivery mechanism is not implemented. Users have no way to know when a run finishes without watching the UI.
+**Why:** Build and deploy steps often require tokens, passwords, and API keys. Storing them in plain text in the pipeline config is a security risk.
+
+**Scope:**
+- Secrets UI in pipeline Configure tab with key/value pairs
+- Secret values are write-only and masked after save
+- Secrets stored encrypted with the existing AES-256-GCM infrastructure
+- Referenced in step scripts as `$SECRET_NAME`
+- Separate `pipeline_secrets` table or a canonical secret reference model
+
+---
+
+#### 4.2 Notification Delivery System
+
+**Why:** Users need completion signals for analysis and pipelines without watching the UI. The settings surface exists, but delivery is still missing.
 
 **Scope:**
 - Email notification on pipeline run completion (success / failure)
@@ -251,37 +270,9 @@ These are the most critical gaps that affect the daily usability of the product.
 
 ---
 
-#### 4.2 Dashboard Home Page
+#### 4.3 Link Report Issues to Codebase Browser
 
-**Why:** The current home page immediately redirects to the projects list. There is no high-level overview for a user returning to the product.
-
-**Scope:**
-- Summary cards: total projects, open issues, pipelines running, avg quality score
-- Recent activity feed: last 10 reports, last 5 pipeline runs
-- Quality trend sparklines across all projects
-- Quick actions: "Analyze latest commit", "Trigger pipeline"
-
-**Implementation notes:**
-- Extend `GET /api/stats` (already exists) to return org-level aggregates
-- New dashboard page at `(dashboard)/page.tsx`
-
----
-
-#### 4.3 Pipeline Encrypted Environment Variables (Secrets)
-
-**Why:** Build and deploy steps often require tokens, passwords, and API keys. Storing them in plain text in the pipeline config is a security risk.
-
-**Scope:**
-- Secrets UI in pipeline Configure tab — key/value pairs, values are write-only (masked after save)
-- Secrets stored encrypted (reuse existing AES-256-GCM infrastructure)
-- Referenced in step scripts as `$SECRET_NAME`
-- Separate `pipeline_secrets` table or extend `vault_secret_name` pattern
-
----
-
-#### 4.4 Link Report Issues to Codebase Browser
-
-**Why:** Issues in a report identify the file and line number, but there is no click-through to the Codebase Browser. Users manually navigate — a poor UX.
+**Why:** Issues in a report identify the file and line number, but there is no click-through to the Codebase Browser. Users have to navigate manually, which breaks review flow.
 
 **Scope:**
 - "View in Codebase" button on each issue card
@@ -290,78 +281,21 @@ These are the most critical gaps that affect the daily usability of the product.
 
 ---
 
-### P1 — Product Completeness
+### P1 — Workflow Completeness
 
-#### 4.5 PR Review Result Write-Back
-
-**Why:** The AI analysis is triggered by GitHub PRs, but results stay inside Spec-Axis. Developers want to see the score and issues as GitHub PR comments — they shouldn't need to leave their workflow.
-
-**Scope:**
-- Post a PR comment on GitHub / GitLab with:
-  - Quality score badge
-  - Top 5 issues summary
-  - Link to full report
-- Update comment on re-analysis (instead of posting a new one)
-- Configurable: on/off per project
-
-**Implementation notes:**
-- Extend `review_runs` table with `comment_id` (to enable update vs. create)
-- GitHub API: `POST /repos/{owner}/{repo}/issues/{issue_number}/comments`
-- GitLab API: `POST /projects/{id}/merge_requests/{iid}/notes`
-
----
-
-#### 4.6 Scheduled Pipeline Triggers (Cron)
+#### 4.4 Scheduled Pipeline Triggers (Cron)
 
 **Why:** Many teams want nightly builds or weekly security scans without relying on a git push.
 
 **Scope:**
-- Cron expression input in pipeline configuration (e.g., `0 2 * * *` = 2 AM daily)
+- Cron expression input in pipeline configuration
 - Next scheduled run time displayed in list and detail pages
 - Stored as `trigger_schedule` on the `pipelines` table
 - Scheduler or Studio cron scheduler evaluates and enqueues runs
 
 ---
 
-#### 4.7 Concurrent Run Mutex / Queue
-
-**Why:** If a webhook fires twice quickly (force push, double event), two runs can start simultaneously for the same pipeline, wasting resources and producing inconsistent artifacts.
-
-**Scope:**
-- Per-pipeline: `concurrency_mode` = `allow / queue / cancel_previous`
-- `queue`: new run waits until previous completes
-- `cancel_previous`: new run immediately cancels the in-flight one
-- Displayed as a badge ("Waiting" / "Canceling") in run list
-
----
-
-#### 4.8 Rule Set Template Marketplace
-
-**Why:** New users struggle to write effective AI prompts for code review rules from scratch. Pre-built templates dramatically lower the onboarding barrier.
-
-**Scope:**
-- Built-in template library: React, Next.js, Go, Python, Java, Security (OWASP Top 10), Performance
-- "Import from template" button on the Rule Set page
-- Templates importable as a starting point (editable after import)
-- Stored as seed data in `init.sql` or loaded from a bundled JSON file
-
----
-
-#### 4.9 Report Comparison View
-
-**Why:** Teams want to see concrete improvement between two reports (e.g., before and after a sprint). Currently reports can only be viewed individually.
-
-**Scope:**
-- "Compare" button on the report list: select two reports
-- Side-by-side diff: new issues, resolved issues, score delta
-- Issue status changes highlighted (e.g., `open → fixed`)
-- Shareable comparison URL
-
----
-
-### P2 — Growth & Collaboration
-
-#### 4.10 GitLab Webhook Support
+#### 4.5 GitLab Webhook Support
 
 **Why:** The webhook receiver currently only handles GitHub events. Teams using GitLab cannot trigger analysis or pipeline runs automatically.
 
@@ -369,25 +303,39 @@ These are the most critical gaps that affect the daily usability of the product.
 - `POST /api/webhooks/gitlab` endpoint
 - Verify `X-Gitlab-Token` header
 - Handle `Push Hook` and `Merge Request Hook` events
-- Mirror sync + auto-trigger pipelines on push (same logic as GitHub)
+- Mirror sync + auto-trigger pipelines on push
 - Trigger analysis on MR open/update
 
 ---
 
-#### 4.11 External API Tokens
+#### 4.6 External API Tokens
 
-**Why:** Teams want to integrate Spec-Axis into their existing CI/CD workflows (e.g., call the analysis API from a GitHub Actions step, or trigger a pipeline from a Makefile).
+**Why:** Teams want to integrate Spec-Axis into their existing CI/CD workflows from GitHub Actions, Makefiles, or external services.
 
 **Scope:**
 - API token management UI in Settings > Security
 - Token scopes: `read` / `write` / `pipeline:trigger`
 - Token used as Bearer in `Authorization` header
-- `api_tokens` table; hashed storage (never returned after creation)
+- `api_tokens` table with hashed storage
 - Rate-limited separately from session-based requests
 
 ---
 
-#### 4.12 Org-Level Analytics Dashboard
+#### 4.7 Team Discussion on Issues
+
+**Why:** Teams need collaboration around false positives and remediation approaches without leaving the product.
+
+**Scope:**
+- Comment thread on each issue card
+- @mention team members with in-app notification support
+- Emoji reactions
+- Mark comment as resolving the issue
+
+---
+
+### P2 — Platform Scale
+
+#### 4.8 Org-Level Analytics Dashboard
 
 **Why:** Engineering managers need cross-project visibility: which projects have degrading quality, which teams are resolving issues fastest.
 
@@ -395,91 +343,71 @@ These are the most critical gaps that affect the daily usability of the product.
 - Org dashboard page with:
   - Quality score heatmap across all projects
   - Issue resolution rate per team / project
-  - Pipeline success rate and avg duration
+  - Pipeline success rate and average duration
   - Top recurring issue categories
 - Date range filter (last 7 / 30 / 90 days)
 - CSV export
 
 ---
 
-#### 4.13 Team Discussion on Issues
+#### 4.9 Artifact Management
 
-**Why:** The `analysis_issue_comments` table exists in the schema but the UI for collaborative discussion threads on issues is not implemented. Teams want to discuss false positives and remediation approaches without leaving the tool.
-
-**Scope:**
-- Comment thread on each issue card (expand/collapse)
-- @mention team members (triggers in-app notification)
-- Emoji reactions
-- Mark comment as "resolves issue" (changes status to `ignored` or `fixed`)
-
----
-
-### P3 — Platform Scale
-
-#### 4.14 Artifact Management
-
-**Why:** The `pipeline_artifacts` table and `LocalStorage` abstraction already exist in the Scheduler, but no executor produces or serves artifacts. Build outputs (binaries, Docker images, test results) need to be stored and downloadable.
+**Why:** Build outputs need to be stored, browsed, and downloaded; the artifact tables and storage abstractions are only partially ready today.
 
 **Scope:**
-- Artifact upload from shell steps via a sidecar or scheduler API endpoint
-- Artifact list in the run detail page (file name, size, download link)
+- Artifact upload from shell steps via a scheduler API endpoint
+- Artifact list in the run detail page
 - Configurable retention (`PIPELINE_ARTIFACT_RETENTION_DAYS`)
-- Optional S3 API remote storage backend
+- Optional S3-compatible remote storage backend
 
 ---
 
-#### 4.15 Docker / Container Step Executor
+#### 4.10 Docker / Container Step Executor
 
-**Why:** Shell steps require the host to have all build tools installed (Node.js, Go, Python, etc.). A container executor isolates builds and allows any language without host configuration.
+**Why:** Shell steps require the host to have all build tools installed. A container executor isolates builds and allows any language without host configuration.
 
 **Scope:**
-- New `docker` step type in pipeline config:
-  ```yaml
-  - id: build
-    type: docker
-    image: node:22-alpine
-    script: npm ci && npm run build
-  ```
-- Scheduler spawns Docker container, mounts workspace, streams logs
-- Image pull policy (always / if-not-present)
-- Resource limits (CPU, memory)
+- New `docker` step type in pipeline config
+- Scheduler spawns Docker containers, mounts workspace, streams logs
+- Image pull policy
+- Resource limits for CPU and memory
 
 ---
 
-#### 4.16 Multi-Scheduler Node Support
+#### 4.11 Multi-Scheduler Node Support
 
-**Why:** A single Scheduler process becomes a bottleneck as pipeline volume grows. The architecture should support horizontal scaling.
+**Why:** A single Scheduler process becomes a bottleneck as pipeline volume grows.
 
 **Scope:**
-- Scheduler registration/heartbeat (`worker_nodes` table)
+- Scheduler registration/heartbeat
 - Studio-side load balancing: assign runs to available schedulers
-- Scheduler health endpoint (`GET /v1/health`)
-- Graceful drain on shutdown (finish in-flight, reject new)
+- Scheduler health endpoint
+- Graceful drain on shutdown
 - Run-to-scheduler assignment visible in run detail
 
 ---
 
-#### 4.17 SSO / SAML Integration
+#### 4.12 SSO / SAML Integration
 
-**Why:** Enterprise customers require integration with their corporate identity providers (Okta, Azure AD, Google Workspace).
+**Why:** Enterprise customers require integration with their corporate identity providers.
 
 **Scope:**
 - SAML 2.0 SP-initiated flow
 - OIDC / OAuth 2.0 generic provider support
 - Auto-provision users on first SSO login
 - Map IdP groups to org roles
-- Org-level SSO enforcement (block password login when SSO is configured)
+- Org-level SSO enforcement
 
 ---
 
-#### 4.18 Fine-Grained RBAC
+#### 4.13 Fine-Grained RBAC
 
-**Why:** The current role model (`owner / admin / reviewer / member`) is coarse. Large teams need more control — e.g., a user who can trigger pipelines but not edit rules, or view reports but not export them.
+**Why:** The current role model is coarse. Large teams need more control over pipeline, rule, and report actions.
 
 **Scope:**
 - Permission-based model replacing role-based checks in API routes
-- Built-in permission sets that map to existing roles (no behavior break on rollout)
-- Custom role creation (admin-only)
+- Built-in permission sets that map to existing roles
+- Custom role creation
 - Permission matrix UI in Settings > Organizations
 
 ---
@@ -488,71 +416,62 @@ These are the most critical gaps that affect the daily usability of the product.
 
 ### Phase 1 — Stable MVP *(~6 weeks)*
 
-Focus: make the product reliable and usable for early adopters.
+Focus: close the remaining product gaps that block daily use.
 
 ```
-✅ Already done:
-   Auth · Orgs · Projects · AI Code Review · Rule System
-   Integrations · Pipeline Engine (4-stage) · Codebase Browser
-
 🚧 To complete in Phase 1:
-   ├── 4.1  Notification System (email)
-   ├── 4.2  Dashboard Home Page
-   ├── 4.3  Pipeline Encrypted Secrets
-   └── 4.4  Link Report Issues to Codebase Browser
+   ├── 4.1  Pipeline Encrypted Environment Variables (Secrets)
+   ├── 4.2  Notification Delivery System
+   └── 4.3  Link Report Issues to Codebase Browser
 ```
 
-**Exit criteria:** An engineering team can onboard, run their first AI review, set up a pipeline, and receive email alerts — end to end, without leaving the product.
+**Exit criteria:** An engineering team can onboard, run reviews and pipelines, and complete the core loop without leaving the product.
 
 ---
 
 ### Phase 2 — Product Complete *(~8 weeks)*
 
-Focus: close the remaining workflow gaps and drive retention.
+Focus: make the review and delivery workflow feel native and continuous.
 
 ```
 🚧 To complete in Phase 2:
-   ├── 4.5  PR Review Write-Back (GitHub + GitLab)
-   ├── 4.6  Scheduled Pipeline Triggers (Cron)
-   ├── 4.7  Concurrent Run Mutex / Queue
-   ├── 4.8  Rule Set Template Marketplace
-   └── 4.9  Report Comparison View
+   ├── 4.4  Scheduled Pipeline Triggers (Cron)
+   ├── 4.5  GitLab Webhook Support
+   ├── 4.6  External API Tokens
+   └── 4.7  Team Discussion on Issues
 ```
 
-**Exit criteria:** The product covers the full code review + deploy lifecycle with no manual workarounds.
+**Exit criteria:** Spec-Axis can stay inside the developer workflow across Git providers and recurring pipeline use cases.
 
 ---
 
 ### Phase 3 — Growth *(~10 weeks)*
 
-Focus: expand reach and enable team-scale usage.
+Focus: collaboration and management visibility.
 
 ```
 🚧 To complete in Phase 3:
-   ├── 4.10  GitLab Webhook Support
-   ├── 4.11  External API Tokens
-   ├── 4.12  Org-Level Analytics Dashboard
-   └── 4.13  Team Discussion on Issues
+   ├── 4.8  Org-Level Analytics Dashboard
+   ├── 4.9  Artifact Management
+   └── 4.10 Docker / Container Step Executor
 ```
 
-**Exit criteria:** Multi-team organizations can use Spec-Axis as their primary code quality + delivery control plane.
+**Exit criteria:** Multi-team organizations can use Spec-Axis as their shared code quality control plane.
 
 ---
 
 ### Phase 4 — Enterprise *(12+ weeks)*
 
-Focus: enterprise features, scale, and compliance.
+Focus: scale, isolation, and enterprise security.
 
 ```
 🚧 To complete in Phase 4:
-   ├── 4.14  Artifact Management
-   ├── 4.15  Docker / Container Step Executor
-   ├── 4.16  Multi-Scheduler Node Support
-   ├── 4.17  SSO / SAML Integration
-   └── 4.18  Fine-Grained RBAC
+   ├── 4.11  Multi-Scheduler Node Support
+   ├── 4.12  SSO / SAML Integration
+   └── 4.13  Fine-Grained RBAC
 ```
 
-**Exit criteria:** Spec-Axis can be deployed on-premises by enterprise customers with hundreds of engineers.
+**Exit criteria:** Spec-Axis can support large organizations with stricter security and scale requirements.
 
 ---
 

@@ -537,6 +537,7 @@ create table review_runs (
   pull_request_id uuid references pull_requests(id) on delete cascade,
   project_id uuid references code_projects(id) on delete set null,
   report_id uuid references analysis_reports(id) on delete set null,
+  comment_id text,
   trigger text not null check (trigger in ('webhook','manual','scheduled')),
   status text not null default 'queued' check (status in ('queued','running','completed','failed')),
   model text,

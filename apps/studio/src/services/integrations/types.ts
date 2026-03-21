@@ -121,6 +121,24 @@ export interface VCSClient {
    * Get diff between two refs
    */
   getCompareDiff(owner: string, repo: string, base: string, head: string): Promise<string>;
+
+  /**
+   * Create or update a PR / MR review comment.
+   * The returned comment id is stored so future runs can update the same thread.
+   */
+  upsertReviewComment(input: ReviewCommentUpsertInput): Promise<ReviewCommentUpsertResult>;
+}
+
+export interface ReviewCommentUpsertInput {
+  repoFullName: string;
+  pullRequestNumber: number;
+  body: string;
+  commentId?: string | null;
+}
+
+export interface ReviewCommentUpsertResult {
+  commentId: string;
+  url?: string | null;
 }
 
 /**

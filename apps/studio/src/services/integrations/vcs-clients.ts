@@ -9,6 +9,8 @@ import type {
   Repository,
   Commit,
   VCSProvider,
+  ReviewCommentUpsertInput,
+  ReviewCommentUpsertResult,
 } from './types';
 
 type GitHubRepoLite = {
@@ -231,6 +233,39 @@ export class GitHubClient implements VCSClient {
     });
     return data.map((b) => b.name);
   }
+
+  async upsertReviewComment(input: ReviewCommentUpsertInput): Promise<ReviewCommentUpsertResult> {
+    const [owner, repo] = splitRepoFullName(input.repoFullName);
+    const existingCommentId = input.commentId?.trim();
+
+    if (existingCommentId) {
+      const commentId = Number(existingCommentId);
+      if (Number.isFinite(commentId)) {
+        const { data } = await this.octokit.rest.issues.updateComment({
+          owner,
+          repo,
+          comment_id: commentId,
+          body: input.body,
+        });
+        return {
+          commentId: String(data.id),
+          url: data.html_url,
+        };
+      }
+    }
+
+    const { data } = await this.octokit.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number: input.pullRequestNumber,
+      body: input.body,
+    });
+
+    return {
+      commentId: String(data.id),
+      url: data.html_url,
+    };
+  }
 }
 
 /**
@@ -246,7 +281,7 @@ export class GitLabClient implements VCSClient {
     this.baseUrl = config.baseUrl || 'https://gitlab.com';
   }
 
-  private async fetch(endpoint: string, options: RequestInit = {}) {
+  private async request<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${this.baseUrl}/api/v4${endpoint}`;
     const response = await fetch(url, {
       ...options,
@@ -261,12 +296,16 @@ export class GitLabClient implements VCSClient {
       throw new Error(`GitLab API error: ${response.statusText}`);
     }
 
-    return response.json();
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return response.json() as Promise<T>;
   }
 
   async testConnection(): Promise<boolean> {
     try {
-      await this.fetch('/user');
+      await this.request('/user');
       return true;
     } catch (error) {
       console.error('GitLab connection test failed:', error);
@@ -277,7 +316,7 @@ export class GitLabClient implements VCSClient {
   async getRepositories(owner?: string): Promise<Repository[]> {
     try {
       const endpoint = owner ? `/groups/${owner}/projects` : '/projects';
-      const data = (await this.fetch(`${endpoint}?per_page=100&order_by=updated_at`)) as GitLabProjectLite[];
+      const data = await this.request<GitLabProjectLite[]>(`${endpoint}?per_page=100&order_by=updated_at`);
 
       return data.map((project) => {
         const mapped: Repository = {
@@ -303,9 +342,9 @@ export class GitLabClient implements VCSClient {
   async getCommits(owner: string, repo: string, branch: string, limit = 50): Promise<Commit[]> {
     try {
       const projectPath = encodeURIComponent(`${owner}/${repo}`);
-      const data = (await this.fetch(
+      const data = await this.request<GitLabCommitLite[]>(
         `/projects/${projectPath}/repository/commits?ref_name=${branch}&per_page=${limit}`
-      )) as GitLabCommitLite[];
+      );
 
       return data.map((commit) => ({
         sha: commit.id,
@@ -326,7 +365,7 @@ export class GitLabClient implements VCSClient {
   async getCommitDiff(owner: string, repo: string, sha: string): Promise<string> {
     try {
       const projectPath = encodeURIComponent(`${owner}/${repo}`);
-      const data = (await this.fetch(`/projects/${projectPath}/repository/commits/${sha}/diff`)) as GitLabDiffLite[];
+      const data = await this.request<GitLabDiffLite[]>(`/projects/${projectPath}/repository/commits/${sha}/diff`);
 
       // Convert GitLab diff format to unified diff
       return data
@@ -343,9 +382,9 @@ export class GitLabClient implements VCSClient {
   async getCompareDiff(owner: string, repo: string, base: string, head: string): Promise<string> {
     try {
       const projectPath = encodeURIComponent(`${owner}/${repo}`);
-      const data = await this.fetch(
+      const data = await this.request<{ diffs?: GitLabDiffLite[] }>(
         `/projects/${projectPath}/repository/compare?from=${encodeURIComponent(base)}&to=${encodeURIComponent(head)}`
-      ) as { diffs?: GitLabDiffLite[] };
+      );
 
       const diffs = data.diffs;
       if (!Array.isArray(diffs)) {
@@ -361,6 +400,38 @@ export class GitLabClient implements VCSClient {
       console.error('Failed to get compare diff:', error);
       throw new Error('Failed to fetch compare diff from GitLab');
     }
+  }
+
+  async upsertReviewComment(input: ReviewCommentUpsertInput): Promise<ReviewCommentUpsertResult> {
+    const projectPath = encodeURIComponent(input.repoFullName);
+    const noteId = input.commentId?.trim();
+
+    if (noteId) {
+      const data = await this.request<{ id: number; web_url?: string }>(
+        `/projects/${projectPath}/merge_requests/${input.pullRequestNumber}/notes/${encodeURIComponent(noteId)}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ body: input.body }),
+        }
+      );
+      return {
+        commentId: String(data.id),
+        url: data.web_url ?? null,
+      };
+    }
+
+    const data = await this.request<{ id: number; web_url?: string }>(
+      `/projects/${projectPath}/merge_requests/${input.pullRequestNumber}/notes`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ body: input.body }),
+      }
+    );
+
+    return {
+      commentId: String(data.id),
+      url: data.web_url ?? null,
+    };
   }
 }
 
@@ -408,4 +479,17 @@ export class GenericGitClient implements VCSClient {
   async getCompareDiff(): Promise<string> {
     throw new Error('Generic Git client requires specific implementation');
   }
+
+  async upsertReviewComment(input: ReviewCommentUpsertInput): Promise<ReviewCommentUpsertResult> {
+    void input;
+    throw new Error('Generic Git client does not support PR review comments');
+  }
+}
+
+function splitRepoFullName(repoFullName: string): [string, string] {
+  const [owner, repo, ...rest] = repoFullName.split('/');
+  if (!owner || !repo || rest.length > 0) {
+    throw new Error(`Invalid repository name: ${repoFullName}`);
+  }
+  return [owner, repo];
 }
