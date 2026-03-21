@@ -175,6 +175,11 @@ type PipelineRunDetail struct {
 	Steps []PipelineStep `json:"steps"`
 }
 
+type PipelineDeletionRefs struct {
+	RunIDs    []string
+	Artifacts []PipelineArtifact
+}
+
 func (s *Store) CreatePipeline(ctx context.Context, pipeline Pipeline) (*Pipeline, error) {
 	row := s.pool.QueryRow(
 		ctx,
@@ -661,6 +666,152 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+func (s *Store) DeletePipeline(ctx context.Context, pipelineID string) (*PipelineDeletionRefs, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var lockedPipelineID string
+	if err := tx.QueryRow(
+		ctx,
+		`select id
+		 from pipelines
+		 where id = $1
+		 for update`,
+		pipelineID,
+	).Scan(&lockedPipelineID); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var activeRunCount int
+	if err := tx.QueryRow(
+		ctx,
+		`select count(*)
+		 from pipeline_runs
+		 where pipeline_id = $1
+		   and status in ('queued', 'running', 'waiting_manual')`,
+		pipelineID,
+	).Scan(&activeRunCount); err != nil {
+		return nil, err
+	}
+	if activeRunCount > 0 {
+		return nil, fmt.Errorf("pipeline has active runs; cancel or wait for them to finish before deleting")
+	}
+
+	runRows, err := tx.Query(
+		ctx,
+		`select id
+		 from pipeline_runs
+		 where pipeline_id = $1`,
+		pipelineID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	runIDs := make([]string, 0)
+	for runRows.Next() {
+		var runID string
+		if err := runRows.Scan(&runID); err != nil {
+			runRows.Close()
+			return nil, err
+		}
+		runIDs = append(runIDs, runID)
+	}
+	if err := runRows.Err(); err != nil {
+		runRows.Close()
+		return nil, err
+	}
+	runRows.Close()
+
+	artifactRows, err := tx.Query(
+		ctx,
+		`select a.id, r.org_id, a.run_id, a.job_id, a.step_id, a.path, a.storage_path, a.size_bytes, a.sha256, a.created_at, a.expires_at
+		 from pipeline_artifacts a
+		 join pipeline_runs r on r.id = a.run_id
+		 where r.pipeline_id = $1`,
+		pipelineID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	artifacts := make([]PipelineArtifact, 0)
+	for artifactRows.Next() {
+		var artifact PipelineArtifact
+		var jobID pgtype.UUID
+		var stepID pgtype.UUID
+		var sha pgtype.Text
+		var createdAt pgtype.Timestamptz
+		var expiresAt pgtype.Timestamptz
+		if err := artifactRows.Scan(
+			&artifact.ID,
+			&artifact.OrgID,
+			&artifact.RunID,
+			&jobID,
+			&stepID,
+			&artifact.Path,
+			&artifact.StoragePath,
+			&artifact.SizeBytes,
+			&sha,
+			&createdAt,
+			&expiresAt,
+		); err != nil {
+			artifactRows.Close()
+			return nil, err
+		}
+		if jobID.Valid {
+			artifact.JobID = jobID.String()
+		}
+		if stepID.Valid {
+			artifact.StepID = stepID.String()
+		}
+		if sha.Valid {
+			artifact.Sha256 = sha.String
+		}
+		if createdAt.Valid {
+			value := createdAt.Time
+			artifact.CreatedAt = &value
+		}
+		if expiresAt.Valid {
+			value := expiresAt.Time
+			artifact.ExpiresAt = &value
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	if err := artifactRows.Err(); err != nil {
+		artifactRows.Close()
+		return nil, err
+	}
+	artifactRows.Close()
+
+	cmdTag, err := tx.Exec(
+		ctx,
+		`delete from pipelines where id = $1`,
+		pipelineID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return nil, nil
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &PipelineDeletionRefs{
+		RunIDs:    runIDs,
+		Artifacts: artifacts,
+	}, nil
 }
 
 type sourceBranchJob struct {

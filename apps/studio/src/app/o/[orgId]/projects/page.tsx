@@ -1,5 +1,5 @@
-import ProjectsPage from '@/app/(dashboard)/projects/page';
+import ProjectsScreen from '@/features/projects/ProjectsScreen';
 
 export const dynamic = 'force-dynamic';
 
-export default ProjectsPage;
+export default ProjectsScreen;

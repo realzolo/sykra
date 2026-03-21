@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { updatePipelineSchema, validateRequest } from '@/services/validation';
-import { getPipeline, updatePipeline } from '@/services/schedulerClient';
+import { deletePipeline, getPipeline, updatePipeline } from '@/services/schedulerClient';
 import { query as dbQuery } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -113,6 +114,51 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       [concurrencyMode, id, orgId]
     );
     return NextResponse.json({ concurrency_mode: concurrencyMode });
+  } catch (err) {
+    const { error, statusCode } = formatErrorResponse(err);
+    return NextResponse.json({ error }, { status: statusCode });
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const rateLimitResponse = rateLimiter(request);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  const user = await requireUser();
+  if (!user) return unauthorized();
+
+  try {
+    const { id } = await params;
+    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+    const role = await getOrgMemberRole(orgId, user.id);
+    if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const existing = await getPipeline(id);
+    const pipeline = existing.pipeline;
+    if (!pipeline) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    if (pipeline.org_id && pipeline.org_id !== orgId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    await deletePipeline(id);
+
+    const clientInfo = extractClientInfo(request);
+    await auditLogger.log({
+      action: 'delete',
+      entityType: 'pipeline',
+      entityId: id,
+      changes: {
+        scope: 'pipeline',
+        name: pipeline.name,
+      },
+      ...clientInfo,
+    });
+
+    return NextResponse.json({ ok: true });
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     return NextResponse.json({ error }, { status: statusCode });

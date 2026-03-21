@@ -1,6 +1,6 @@
 import { getLocale } from '@/lib/locale';
 import { getDictionary } from '@/i18n';
-import LoginClient from './LoginClient';
+import LoginClient from '@/features/auth/LoginClient';
 import { requireUser } from '@/services/auth';
 import { getActiveOrgId } from '@/services/orgs';
 import { redirect } from 'next/navigation';

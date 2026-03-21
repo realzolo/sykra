@@ -15,7 +15,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+      'fixed inset-0 z-50 bg-black/48 backdrop-blur-[3px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
       className,
     )}
     {...props}
@@ -32,7 +32,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100vh-1.5rem)] w-[calc(100%-1.5rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[12px] border border-[hsl(var(--ds-border-2))] bg-[hsl(var(--ds-background-2))] p-0 shadow-[0_18px_40px_hsl(0_0%_0%/0.28)] outline-none focus:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+        'fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] p-0 shadow-[0_20px_48px_hsl(0_0%_0%/0.3)] outline-none focus:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         className,
       )}
       {...props}
@@ -40,7 +40,7 @@ const DialogContent = React.forwardRef<
       {children}
       <DialogPrimitive.Close
         data-slot="dialog-close"
-        className="absolute right-4 top-4 rounded-[6px] p-1 text-[hsl(var(--ds-text-2))] transition-colors hover:bg-[hsl(var(--ds-surface-1))] hover:text-foreground focus:outline-none focus:ring-1 focus:ring-[hsl(var(--ds-accent-7))]"
+        className="absolute right-4 top-4 rounded-[7px] p-1.5 text-[hsl(var(--ds-text-2))] transition-colors hover:bg-[hsl(var(--ds-surface-1))] hover:text-foreground focus:outline-none focus:ring-1 focus:ring-[hsl(var(--ds-accent-7))]"
       >
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
@@ -53,7 +53,7 @@ DialogContent.displayName = DialogPrimitive.Content.displayName;
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     data-slot="dialog-header"
-    className={cn('flex flex-col gap-1 px-6 py-5 border-b border-[hsl(var(--ds-border-1))]', className)}
+    className={cn('flex flex-col gap-1.5 border-b border-[hsl(var(--ds-border-1))] px-6 py-5', className)}
     {...props}
   />
 );
@@ -68,7 +68,7 @@ const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
   <div
     data-slot="dialog-footer"
     className={cn(
-      'flex items-center justify-end gap-3 border-t border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] px-6 py-3.5 [&>button]:min-w-24 [&>button]:rounded-[8px] [&>button]:px-4',
+      'flex items-center justify-end gap-2.5 border-t border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-2))] px-6 py-4 [&>button]:min-w-22 [&>button]:rounded-[8px] [&>button]:px-4',
       className,
     )}
     {...props}

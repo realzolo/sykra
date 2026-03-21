@@ -60,6 +60,37 @@ type TriggerRunJobInput struct {
 	JobKey string
 }
 
+func (s *Service) DeletePipeline(ctx context.Context, pipelineID string) error {
+	if strings.TrimSpace(pipelineID) == "" {
+		return errors.New("pipelineId is required")
+	}
+	if s.Store == nil {
+		return errors.New("pipeline store is not configured")
+	}
+
+	refs, err := s.Store.DeletePipeline(ctx, pipelineID)
+	if err != nil {
+		return err
+	}
+	if refs == nil {
+		return errors.New("pipeline not found")
+	}
+
+	if s.Storage != nil {
+		_ = s.Storage.DeleteRunLogs(refs.RunIDs)
+	}
+	if s.Artifacts != nil {
+		for _, artifact := range refs.Artifacts {
+			if strings.TrimSpace(artifact.StoragePath) == "" || strings.TrimSpace(artifact.OrgID) == "" {
+				continue
+			}
+			_ = s.Artifacts.DeleteStoredArtifact(ctx, artifact.OrgID, artifact.StoragePath)
+		}
+	}
+
+	return nil
+}
+
 func (s *Service) CreatePipeline(ctx context.Context, input CreatePipelineInput) (*store.Pipeline, *store.PipelineVersion, error) {
 	if input.OrgID == "" {
 		return nil, nil, errors.New("orgId is required")

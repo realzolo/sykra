@@ -1,6 +1,6 @@
 import { getLocale } from '@/lib/locale';
 import { getDictionary } from '@/i18n';
-import VerifyClient from './VerifyClient';
+import VerifyClient from '@/features/auth/VerifyClient';
 
 export const dynamic = 'force-dynamic';
 

@@ -77,6 +77,9 @@ export function getErrorStatusCode(error: unknown): number {
 
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
+    if (message.includes('conflict') || message.includes('409')) {
+      return 409;
+    }
     if (message.includes('not found') || message.includes('404')) {
       return 404;
     }

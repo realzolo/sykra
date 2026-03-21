@@ -2,6 +2,7 @@ import {
   schedulerCancelPipelineRunResponseSchema,
   schedulerCreatePipelineResponseSchema,
   schedulerCreatePipelineRunResponseSchema,
+  schedulerDeletePipelineResponseSchema,
   schedulerGetPipelineResponseSchema,
   schedulerListPipelineRunsResponseSchema,
   schedulerListRunEventsResponseSchema,
@@ -12,6 +13,7 @@ import {
   type SchedulerPipelineRunDetail,
   type SchedulerRunEvent,
   type SchedulerCreatePipelineResponse,
+  type SchedulerDeletePipelineResponse,
   type SchedulerPipelineRun,
   type SchedulerGetPipelineResponse,
   type SchedulerUpdatePipelineResponse,
@@ -128,6 +130,14 @@ export async function updatePipeline(id: string, payload: unknown): Promise<Sche
     `/v1/pipelines/${id}`,
     { method: 'PUT', headers: schedulerHeaders(), body: JSON.stringify(payload) },
     schedulerUpdatePipelineResponseSchema
+  );
+}
+
+export async function deletePipeline(id: string): Promise<SchedulerDeletePipelineResponse> {
+  return fetchScheduler(
+    `/v1/pipelines/${id}`,
+    { method: 'DELETE', headers: schedulerHeaders() },
+    schedulerDeletePipelineResponseSchema
   );
 }
 

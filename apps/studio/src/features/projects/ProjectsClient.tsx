@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { AlertTriangle, Plus, Search, Github, GitBranch, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Github, GitBranch, MoreHorizontal, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
@@ -10,13 +10,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { toast } from 'sonner';
 import AddProjectModal from '@/components/project/AddProjectModal';
 import EditProjectModal from '@/components/project/EditProjectModal';
-import ConfirmDialog from '@/components/ui/confirm-dialog';
 import type { Dictionary } from '@/i18n';
 import { useOrgRole } from '@/lib/useOrgRole';
 import { withOrgPrefix } from '@/lib/orgPath';
@@ -32,8 +29,6 @@ export default function ProjectsClient({ initialProjects, dict }: { initialProje
   const [loadError, setLoadError] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
-  const [deleteCandidate, setDeleteCandidate] = useState<Project | null>(null);
-  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const { isAdmin } = useOrgRole();
   const router = useRouter();
   const pathname = usePathname();
@@ -56,21 +51,6 @@ export default function ProjectsClient({ initialProjects, dict }: { initialProje
       setLoadError(true);
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleDelete(id: string) {
-    setDeletingProjectId(id);
-    try {
-      const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('project_delete_failed');
-      toast.success(dict.projects.projectDeleted);
-      setProjects((prev) => prev.filter((p) => p.id !== id));
-      setDeleteCandidate(null);
-    } catch {
-      toast.error(dict.projects.deleteFailed);
-    } finally {
-      setDeletingProjectId(null);
     }
   }
 
@@ -196,8 +176,6 @@ export default function ProjectsClient({ initialProjects, dict }: { initialProje
                 canManage={isAdmin}
                 onUpdate={handleUpdate}
                 onOpen={() => router.push(withOrgPrefix(pathname, `/projects/${p.id}/commits`))}
-                onRequestDelete={() => setDeleteCandidate(p)}
-                deleting={deletingProjectId === p.id}
               />
             ))}
           </div>
@@ -216,23 +194,6 @@ export default function ProjectsClient({ initialProjects, dict }: { initialProje
         />
       )}
 
-      <ConfirmDialog
-        open={deleteCandidate !== null}
-        onOpenChange={(open) => {
-          if (!open && !deletingProjectId) setDeleteCandidate(null);
-        }}
-        icon={<AlertTriangle className="size-4 text-warning" />}
-        title={dict.projects.deleteProject}
-        description={deleteCandidate ? `${dict.common.name}: ${deleteCandidate.name}` : undefined}
-        confirmLabel={deletingProjectId ? dict.common.loading : dict.common.delete}
-        cancelLabel={dict.common.cancel}
-        onConfirm={() => {
-          if (!deleteCandidate || deletingProjectId) return;
-          void handleDelete(deleteCandidate.id);
-        }}
-        loading={deletingProjectId !== null}
-        danger
-      />
     </div>
   );
 }
@@ -243,16 +204,12 @@ function ProjectRow({
   canManage,
   onUpdate,
   onOpen,
-  onRequestDelete,
-  deleting,
 }: {
   project: Project;
   dict: Dictionary;
   canManage: boolean;
   onUpdate: (p: Project) => void;
   onOpen: () => void;
-  onRequestDelete: () => void;
-  deleting: boolean;
 }) {
   const [showEdit, setShowEdit] = useState(false);
 
@@ -297,7 +254,6 @@ function ProjectRow({
             variant="outline"
             className="h-8 gap-1 px-2.5 text-[12px]"
             onClick={onOpen}
-            disabled={deleting}
           >
             {dict.projects.review}
           </Button>
@@ -309,7 +265,6 @@ function ProjectRow({
                   variant="ghost"
                   className="h-8 w-8"
                   aria-label={dict.common.actions}
-                  disabled={deleting}
                 >
                   <MoreHorizontal className="size-3.5" />
                 </Button>
@@ -318,14 +273,6 @@ function ProjectRow({
                 <DropdownMenuItem onClick={() => setShowEdit(true)} className="text-[13px] gap-2">
                   <Pencil className="size-3.5" />
                   {dict.common.edit}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={onRequestDelete}
-                  className="text-[13px] gap-2 text-danger focus:text-danger"
-                >
-                  <Trash2 className="size-3.5" />
-                  {dict.common.delete}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

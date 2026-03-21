@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,9 @@ import {
 import { PageLoading } from "@/components/ui/page-loading";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import ConfirmDialog from "@/components/ui/confirm-dialog";
+import TypedConfirmDialog from "@/components/ui/typed-confirm-dialog";
+import SettingsDangerZone from "@/components/settings/SettingsDangerZone";
+import SettingsField from "@/components/settings/SettingsField";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -136,6 +139,8 @@ export default function PipelineDetailClient({
   dict: Dictionary;
   pipelineId: string;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { project } = useProject();
   const p = dict.pipelines;
@@ -155,6 +160,8 @@ export default function PipelineDetailClient({
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
   const [triggeringJobKey, setTriggeringJobKey] = useState<string | null>(null);
   const [configSection, setConfigSection] = useState<ConfigureSection>("jobs");
@@ -428,6 +435,26 @@ export default function PipelineDetailClient({
       toast.error(p.saveFailed);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/pipelines/${pipelineId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data?.error === "string" ? data.error : p.deleteFailed);
+      }
+      toast.success(p.deleteSuccess);
+      router.push(withProjectPipelinesPath(pathname, project.id));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : p.deleteFailed);
+    } finally {
+      setDeleting(false);
+      setDeleteDialogOpen(false);
     }
   }
 
@@ -1849,6 +1876,24 @@ export default function PipelineDetailClient({
                         })}
                       </div>
                     </div>
+
+                    {isAdmin && (
+                      <SettingsDangerZone
+                        title={p.settingsTab.dangerZoneTitle}
+                        description={p.settingsTab.dangerZoneDescription}
+                        warning={p.settingsTab.deletePipelineWarning}
+                        action={
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => setDeleteDialogOpen(true)}
+                            disabled={deleting}
+                          >
+                            {p.deleteAction}
+                          </Button>
+                        }
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -1875,8 +1920,7 @@ export default function PipelineDetailClient({
             <DialogDescription>{p.publishArtifactsDescription}</DialogDescription>
           </DialogHeader>
           <DialogBody className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-foreground">{p.publishRepositoryName}</label>
+            <SettingsField label={p.publishRepositoryName}>
               <Input
                 value={publishRepositoryName}
                 onChange={(event) => {
@@ -1886,31 +1930,28 @@ export default function PipelineDetailClient({
                 }}
                 placeholder={p.publishRepositoryNamePlaceholder}
               />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-foreground">{p.publishRepositorySlug}</label>
+            </SettingsField>
+            <SettingsField label={p.publishRepositorySlug}>
               <Input
                 value={publishRepositorySlug}
                 onChange={(event) => setPublishRepositorySlug(normalizeArtifactRepositorySlug(event.target.value))}
                 placeholder={p.publishRepositorySlugPlaceholder}
               />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-foreground">{p.publishVersion}</label>
+            </SettingsField>
+            <SettingsField label={p.publishVersion}>
               <Input
                 value={publishVersion}
                 onChange={(event) => setPublishVersion(event.target.value)}
                 placeholder={p.publishVersionPlaceholder}
               />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-foreground">{p.publishChannels}</label>
+            </SettingsField>
+            <SettingsField label={p.publishChannels}>
               <Input
                 value={publishChannels}
                 onChange={(event) => setPublishChannels(event.target.value)}
                 placeholder={p.publishChannelsPlaceholder}
               />
-            </div>
+            </SettingsField>
           </DialogBody>
           <DialogFooter>
             <Button
@@ -1953,6 +1994,25 @@ export default function PipelineDetailClient({
           });
         }}
         loading={secretDeleting === secretToDelete}
+        danger
+      />
+
+      <TypedConfirmDialog
+        open={deleteDialogOpen}
+        title={p.deleteDialogTitle}
+        description={p.deleteDialogDescription.replace("{{name}}", pipeline?.name ?? "")}
+        confirmLabel={dict.common.delete}
+        cancelLabel={dict.common.cancel}
+        keyword={pipeline?.name ?? ""}
+        keywordHint={p.settingsTab.deleteConfirmInstruction.replace("{{name}}", pipeline?.name ?? "")}
+        inputLabel={p.settingsTab.deleteConfirmLabel}
+        inputPlaceholder={p.settingsTab.deleteConfirmPlaceholder}
+        mismatchText={p.settingsTab.deleteConfirmMismatch}
+        onOpenChange={setDeleteDialogOpen}
+        onConfirm={() => {
+          void handleDelete();
+        }}
+        loading={deleting}
         danger
       />
 
@@ -2026,4 +2086,8 @@ function normalizePipelineConfigForSave(config: PipelineConfig, defaultBranch: s
     stages: normalizeStageSettings(config.stages),
     jobs: normalizePipelineJobs(config.jobs, config.stages, defaultBranch),
   };
+}
+
+function withProjectPipelinesPath(pathname: string, projectId: string) {
+  return pathname.replace(/\/projects\/[^/]+\/pipelines\/[^/]+$/, `/projects/${projectId}/pipelines`);
 }

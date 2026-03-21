@@ -112,6 +112,21 @@ func (s *LocalStorage) Cleanup(logRetention time.Duration, artifactRetention tim
 	}
 }
 
+func (s *LocalStorage) DeleteRunLogs(runIDs []string) error {
+	for _, runID := range runIDs {
+		trimmed := filepath.Clean(runID)
+		if trimmed == "." || trimmed == "" {
+			continue
+		}
+		runLogDir := filepath.Join(s.baseDir, "logs", trimmed)
+		err := os.RemoveAll(runLogDir)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *LocalStorage) cleanupDir(root string, cutoff time.Time) error {
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {

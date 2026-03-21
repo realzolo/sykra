@@ -1,6 +1,6 @@
 import { getLocale } from '@/lib/locale';
 import { getDictionary } from '@/i18n';
-import ResetClient from './ResetClient';
+import ResetClient from '@/features/auth/ResetClient';
 
 export const dynamic = 'force-dynamic';
 

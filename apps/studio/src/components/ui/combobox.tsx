@@ -48,7 +48,7 @@ export function Combobox({
           type="button"
           disabled={disabled}
           className={cn(
-            'flex h-9 w-full min-w-0 items-center justify-between overflow-hidden rounded-[7px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-1))] px-3 py-2 text-left text-[14px] text-foreground transition-[background-color,border-color,box-shadow] duration-150 hover:border-[hsl(var(--ds-border-2))] hover:bg-[hsl(var(--ds-surface-1))] focus-visible:outline-none focus-visible:border-[hsl(var(--ds-accent-7)/0.55)] focus-visible:ring-2 focus-visible:ring-[hsl(var(--ds-accent-7)/0.2)] disabled:cursor-not-allowed disabled:opacity-50',
+            'flex h-10 w-full min-w-0 items-center justify-between overflow-hidden rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-background-1))] px-3.5 py-2 text-left text-[14px] text-foreground transition-[background-color,border-color,box-shadow] duration-150 hover:border-[hsl(var(--ds-border-2))] hover:bg-[hsl(var(--ds-surface-1))] focus-visible:outline-none focus-visible:border-[hsl(var(--ds-accent-7)/0.44)] focus-visible:ring-2 focus-visible:ring-[hsl(var(--ds-accent-7)/0.16)] disabled:cursor-not-allowed disabled:opacity-50',
             className
           )}
         >

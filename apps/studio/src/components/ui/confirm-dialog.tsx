@@ -4,6 +4,7 @@ import { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -44,8 +45,12 @@ export default function ConfirmDialog({
             {icon}
             <span>{title}</span>
           </DialogTitle>
-          {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
+        {description ? (
+          <DialogBody>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogBody>
+        ) : null}
         <DialogFooter>
           <Button
             variant="secondary"

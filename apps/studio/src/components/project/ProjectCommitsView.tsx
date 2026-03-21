@@ -2,7 +2,7 @@
 
 import { useProject } from '@/lib/projectContext';
 import { useProjectBranches } from '@/lib/useProjectBranches';
-import CommitsClient from '@/app/(dashboard)/projects/[id]/CommitsClient';
+import ProjectCommitsClient from '@/components/project/ProjectCommitsClient';
 import type { Dictionary } from '@/i18n';
 
 export default function ProjectCommitsView({ projectId, dict }: { projectId: string; dict: Dictionary }) {
@@ -11,5 +11,5 @@ export default function ProjectCommitsView({ projectId, dict }: { projectId: str
 
   if (!project) return null;
 
-  return <CommitsClient project={project} branches={branches} dict={dict} />;
+  return <ProjectCommitsClient project={project} branches={branches} dict={dict} />;
 }

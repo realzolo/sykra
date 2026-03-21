@@ -2,7 +2,7 @@
 
 import { useProject } from '@/lib/projectContext';
 import { useProjectBranches } from '@/lib/useProjectBranches';
-import CodebaseClient from '@/app/(dashboard)/projects/[id]/CodebaseClient';
+import ProjectCodebaseClient from '@/components/project/ProjectCodebaseClient';
 import type { Dictionary } from '@/i18n';
 
 export default function ProjectCodebaseView({ projectId, dict }: { projectId: string; dict: Dictionary }) {
@@ -11,5 +11,5 @@ export default function ProjectCodebaseView({ projectId, dict }: { projectId: st
 
   if (!project) return null;
 
-  return <CodebaseClient project={project} branches={branches} dict={dict} />;
+  return <ProjectCodebaseClient project={project} branches={branches} dict={dict} />;
 }

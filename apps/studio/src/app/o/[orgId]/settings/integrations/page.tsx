@@ -1,1 +1,5 @@
-export { default } from '@/app/(dashboard)/settings/integrations/page';
+import IntegrationsScreen from '@/features/settings/IntegrationsScreen';
+
+export const dynamic = 'force-dynamic';
+
+export default IntegrationsScreen;

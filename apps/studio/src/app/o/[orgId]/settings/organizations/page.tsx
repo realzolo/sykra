@@ -1,1 +1,5 @@
-export { default } from '@/app/(dashboard)/settings/organizations/page';
+import OrganizationsScreen from '@/features/settings/OrganizationsScreen';
+
+export const dynamic = 'force-dynamic';
+
+export default OrganizationsScreen;

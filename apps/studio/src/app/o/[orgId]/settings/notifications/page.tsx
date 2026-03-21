@@ -1,6 +1,6 @@
-import NotificationsSettingsPage from '@/app/(dashboard)/settings/notifications/page';
+import NotificationsScreen from '@/features/settings/NotificationsScreen';
 
 export const dynamic = 'force-dynamic';
 
-export default NotificationsSettingsPage;
+export default NotificationsScreen;
 

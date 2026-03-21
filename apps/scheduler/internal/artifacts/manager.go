@@ -347,6 +347,10 @@ func (m *Manager) CleanupExpiredArtifacts(ctx context.Context, batchSize int) (i
 	}
 }
 
+func (m *Manager) DeleteStoredArtifact(ctx context.Context, orgID string, storagePath string) error {
+	return m.deleteStoredArtifact(ctx, orgID, storagePath)
+}
+
 func (m *Manager) deleteStoredArtifact(ctx context.Context, orgID string, storagePath string) error {
 	location, err := url.Parse(storagePath)
 	if err != nil {

@@ -1,5 +1,5 @@
-import RuleSetDetailPage from '@/app/(dashboard)/rules/[id]/page';
+import RuleSetDetailScreen from '@/features/rules/RuleSetDetailScreen';
 
 export const dynamic = 'force-dynamic';
 
-export default RuleSetDetailPage;
+export default RuleSetDetailScreen;

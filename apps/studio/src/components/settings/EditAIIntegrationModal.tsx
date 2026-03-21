@@ -212,11 +212,11 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
           <DialogTitle className="text-[16px] font-semibold">{i18n.title}</DialogTitle>
         </DialogHeader>
 
-        <DialogBody className="max-h-[calc(90vh-132px)] space-y-4">
+        <DialogBody className="max-h-[calc(90vh-132px)] space-y-5">
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">{i18n.name}</label>
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">{i18n.name}</label>
             <Input
-              className="h-9"
+              className="h-10"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={i18n.namePlaceholder}
@@ -224,11 +224,11 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
           </div>
 
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
               {i18n.baseUrl}
             </label>
             <Input
-              className="h-9"
+              className="h-10"
               value={config.baseUrl}
               onChange={(e) => updateConfig('baseUrl', e.target.value)}
               placeholder="https://api.openai.com/v1"
@@ -236,11 +236,11 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
           </div>
 
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
               {i18n.model}
             </label>
             <Input
-              className="h-9"
+              className="h-10"
               value={config.model}
               onChange={(e) => updateConfig('model', e.target.value)}
               placeholder="gpt-5.4"
@@ -248,11 +248,11 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
           </div>
 
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
               {i18n.outputLanguage}
             </label>
             <Select value={config.outputLanguage} onValueChange={(value) => updateConfig('outputLanguage', value)}>
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-10">
                 <SelectValue placeholder={i18n.outputLanguagePlaceholder} />
               </SelectTrigger>
               <SelectContent className="max-h-80">
@@ -266,11 +266,11 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
           </div>
 
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
               {secret ? i18n.apiKeyLabel : i18n.apiKeyLabelWithHint}
             </label>
             <Input
-              className="h-9"
+              className="h-10"
               type="password"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
@@ -289,11 +289,11 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
             {showAdvanced && (
               <div className="mt-3 space-y-3">
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+                  <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                     {i18n.apiStyle}
                   </label>
                   <Select value={config.apiStyle} onValueChange={(value) => updateConfig('apiStyle', value as APIStyle)}>
-                    <SelectTrigger className="h-9">
+                    <SelectTrigger className="h-10">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -304,11 +304,11 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+                  <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                     {i18n.maxTokensOptional}
                   </label>
                   <Input
-                    className="h-9"
+                    className="h-10"
                     type="number"
                     placeholder="4096"
                     value={config.maxTokens ?? ''}
@@ -324,12 +324,12 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+                  <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                     {i18n.temperatureOptional}
                   </label>
                   {parameterCapabilities.temperature.supported ? (
                     <Input
-                      className="h-9"
+                      className="h-10"
                       type="number"
                       step="0.1"
                       placeholder="0.7"
@@ -351,7 +351,7 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+                  <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                     {i18n.reasoningEffortOptional}
                   </label>
                   {parameterCapabilities.reasoningEffort.supported ? (
@@ -359,7 +359,7 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
                       {...(config.reasoningEffort ? { value: config.reasoningEffort } : {})}
                       onValueChange={(value) => updateConfig('reasoningEffort', value as ReasoningEffort)}
                     >
-                      <SelectTrigger className="h-9">
+                      <SelectTrigger className="h-10">
                         <SelectValue placeholder={i18n.reasoningEffortPlaceholder} />
                       </SelectTrigger>
                       <SelectContent>
@@ -381,7 +381,7 @@ export default function EditAIIntegrationModal({ integration, onClose, onSuccess
             )}
           </div>
 
-          <div className="flex items-center gap-2 pt-1">
+          <div className="flex items-center gap-2 pt-2">
             <Switch id="isDefault-edit-ai" checked={isDefault} onCheckedChange={setIsDefault} />
             <label htmlFor="isDefault-edit-ai" className="text-[13px]">{i18n.setDefault}</label>
           </div>

@@ -1,5 +1,5 @@
-import SettingsPage from '@/app/(dashboard)/settings/page';
+import SettingsIndexScreen from '@/features/settings/SettingsIndexScreen';
 
 export const dynamic = 'force-dynamic';
 
-export default SettingsPage;
+export default SettingsIndexScreen;

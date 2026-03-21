@@ -14,14 +14,18 @@ export default function ProjectSettingsView({
   const { project } = useProject();
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-[hsl(var(--ds-border-1))] bg-background shrink-0">
-        <div className="text-[16px] font-semibold text-foreground">{dict.projects.projectConfig}</div>
-        {project && (
-          <div className="text-[13px] text-[hsl(var(--ds-text-2))]">{project.name}</div>
-        )}
-      </div>
-      <div className="flex-1 overflow-auto p-8">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto w-full max-w-[980px] px-6 py-8">
+        <div className="mb-8 space-y-2">
+          {project ? (
+            <div className="text-[12px] font-medium uppercase tracking-[0.08em] text-[hsl(var(--ds-text-2))]">
+              {project.name}
+            </div>
+          ) : null}
+          <div className="text-[28px] font-semibold tracking-[-0.03em] text-foreground">
+            {dict.projects.projectConfig}
+          </div>
+        </div>
         <ProjectConfigPanel projectId={projectId} dict={dict} />
       </div>
     </div>

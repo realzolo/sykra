@@ -129,16 +129,16 @@ export default function EditVCSIntegrationModal({ integration, onClose, onSucces
           <DialogTitle className="text-[16px] font-semibold">{i18n.title}</DialogTitle>
         </DialogHeader>
 
-        <DialogBody className="max-h-[calc(90vh-132px)] flex flex-col gap-4">
+        <DialogBody className="max-h-[calc(90vh-132px)] flex flex-col gap-5">
           <div>
-            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.provider}</label>
-            <Input className="h-9" value={integration.provider} disabled />
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">{i18n.provider}</label>
+            <Input className="h-10" value={integration.provider} disabled />
           </div>
 
           <div>
-            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.name}</label>
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">{i18n.name}</label>
             <Input
-              className="h-9"
+              className="h-10"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={i18n.namePlaceholder}
@@ -147,12 +147,12 @@ export default function EditVCSIntegrationModal({ integration, onClose, onSucces
 
           {fields.map((field) => (
             <div key={field.key}>
-              <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">
+              <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                 {field.label}
                 {field.required && ' *'}
               </label>
               <Input
-                className="h-9"
+                className="h-10"
                 type={field.type}
                 placeholder={field.placeholder}
                 value={config[field.key] || ''}
@@ -165,11 +165,11 @@ export default function EditVCSIntegrationModal({ integration, onClose, onSucces
           ))}
 
           <div>
-            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
               {secret ? i18n.accessTokenLabel : i18n.accessTokenLabelWithHint}
             </label>
             <Input
-              className="h-9"
+              className="h-10"
               type="password"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
@@ -177,7 +177,7 @@ export default function EditVCSIntegrationModal({ integration, onClose, onSucces
             />
           </div>
 
-          <div className="flex items-center gap-2 pt-1">
+          <div className="flex items-center gap-2 pt-2">
             <Switch id="isDefault-edit-vcs" checked={isDefault} onCheckedChange={setIsDefault} />
             <label htmlFor="isDefault-edit-vcs" className="text-[13px]">{i18n.setDefault}</label>
           </div>

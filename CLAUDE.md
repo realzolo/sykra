@@ -63,6 +63,8 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Settings pages should also use `SettingsEmptyState` for no-data states so empty views stay visually consistent across integrations, organizations, security, and future settings surfaces.
 - Settings pages should use `SettingsNotice` for inline helper/success/warning messaging instead of ad hoc colored text blocks so feedback stays visually and semantically consistent.
 - Settings pages should use `SettingsRow` for repetitive label/control rows so toggles, inline inputs, and list rows stay compact and visually consistent.
+- Settings pages and settings-oriented dialogs should use `SettingsField` for stacked `label + helper + control` groups instead of ad hoc margin utilities so form rhythm stays consistent.
+- Settings-based destructive areas should use `SettingsDangerZone` instead of custom red cards so project/pipeline deletion UI stays visually and behaviorally consistent.
 - Dashboard org home page (`/o/:orgId`) shows 4 stat cards (projects, avg score, open issues, pipeline success rate), quick actions, per-project score list, and recent activity
 - Dashboard navigation shell is contextual: global routes render org-level sidebar items, and project routes (`/o/:orgId/projects/:id/*`) switch sidebar to project-scoped navigation (commits/reports/pipelines/artifacts/codebase/settings) with in-sidebar project switcher.
 - Dashboard shell includes productivity navigation aids: collapsible sidebar rail (persisted in local storage), a compact topbar scope switcher (single dropdown for team/project context on project-domain pages), global quick-jump command palette (`Cmd/Ctrl + K`) with keyboard navigation and grouped results, and mobile bottom navigation for project/global context switching on small screens.
@@ -162,6 +164,9 @@ This project does **not** use HeroUI. UI is built from:
 - Tailwind CSS tokens defined in `apps/studio/src/app/globals.css`
 
 Rules:
+- Treat `apps/studio/src/app` as the route layer only. Keep `page/layout/loading/error/not-found/template/default/route` files there, plus route-private `_components` / `_lib` folders when a segment truly needs private implementation details.
+- Do not import shared business UI or shared page implementations from one `app` route segment into another. Shared implementations must live under `src/features/*` or `src/components/*`, and route files should stay thin wrappers that compose those modules.
+- Shared feature entrypoints outside `src/app` should avoid the `*Page` suffix. Prefer names like `*Screen`, `*View`, or domain-specific module names so route semantics stay owned by the App Router files.
 - Prefer `components/ui/*` wrappers over direct Radix usage to keep styling and behavior consistent.
 - Use `components/ui/combobox.tsx` for searchable selection controls that need project branch discovery or any similar branch-picking UX; avoid ad hoc native `<select>` controls in those flows.
 - Direct `@radix-ui/*` imports are forbidden outside `src/components/ui/*` and enforced by ESLint (`no-restricted-imports`).
@@ -170,11 +175,15 @@ Rules:
 - Do not add framework-specific naming that implies legacy support (for example `legacy*`, `compat*`, `polyfill*`).
 - Interactive containers (cards/rows/panels) must be keyboard accessible (`role`, `tabIndex`, `Enter/Space` handling) when not using native interactive elements.
 - Primary async route segments should provide `loading.tsx` boundaries; avoid pure text placeholders as the only loading state.
+- Skeleton states should not display finalized page titles/descriptions or other real loaded copy in the same region; header/title areas should skeletonize as well until data is ready.
 - Destructive actions in product UI must use in-app confirmation dialogs (`components/ui/confirm-dialog.tsx`), not native `window.confirm`.
+- Destructive deletion of top-level entities such as projects and pipelines should live in the relevant Settings danger zone and require typed name confirmation, not a primary/list-level action.
 - In client UI, use shared date format helpers from `src/lib/dateFormat.ts` instead of direct `toLocaleString`/`toLocaleDateString` calls in feature components.
 - Dialogs follow a **single-scroll-container** rule: avoid outer `DialogContent` scrolling for complex modals; body/content panes should own scrolling to prevent nested or redundant scrollbars.
 - Dialog footers should keep a compact action rhythm: use `secondary` for cancel actions, `default` or `destructive` for the primary action, and keep action spacing at `gap-3` so modal controls read as a single grouped rail.
 - Dialog forms must keep `DialogFooter` as a direct child action rail of `DialogContent`; do not nest footers inside form/content wrappers that add extra padding, otherwise footer spacing becomes visually incorrect.
+- Dialogs must use the shared structure `DialogHeader + DialogBody + DialogFooter`; do not place raw content blocks directly under `DialogContent` unless the dialog is intentionally custom and handles its own spacing.
+- Simple confirmation dialogs should reuse shared primitives (`components/ui/confirm-dialog.tsx` or `components/ui/typed-confirm-dialog.tsx`) so spacing, copy hierarchy, and action layout stay consistent.
 - Dashboard information architecture is single-source navigation: in project scope, use sidebar navigation only (do not add an additional top tab bar such as `ProjectNav`).
 - Responsive navigation contract: desktop (`lg+`) uses sidebar + topbar, while mobile (`<lg`) hides sidebar and uses bottom navigation with the same route semantics.
 
@@ -190,7 +199,7 @@ Dashboard baseline typography is density-aware: `14px` for primary UI text (navi
 Do not use `text-xs` for primary labels, tab titles, or actionable control text. Reserve it only for dense metadata chips where `12px` would materially break layout.
 
 **Control density and states:** Keep control rhythm consistent across `Button/Input/Select/Textarea/Tabs/Dropdown` wrappers.
-Default control heights should align to `h-9` as baseline (`h-8` for compact, `h-10` for prominent actions). Hover/active/focus states must use the same neutral-surface progression and subtle accent focus ring.
+Buttons may use `h-9` as the standard dashboard action height, but form controls (`Input`, searchable `Combobox`, `Textarea`, modal `SelectTrigger`) should align to `h-10` so labels, helper text, and field chrome match the Vercel/Geist-style settings density. Hover/active/focus states must use the same neutral-surface progression and subtle accent focus ring.
 Avoid `h-7` as a default interactive control height in dashboard/product UI.
 Primary dashboard actions must render as true solid buttons with explicit token-based background and foreground colors; do not rely on undeclared semantic utility class names for critical call-to-action styling.
 
@@ -263,7 +272,7 @@ apps/
           settings/notifications/
         api/
           analyze/              # POST → enqueue scheduler task
-          pipelines/[id]/       # GET/PUT/PATCH (PATCH updates concurrency_mode)
+          pipelines/[id]/       # GET/PUT/PATCH/DELETE (PATCH updates concurrency_mode; DELETE blocks when runs are active)
           pipelines/[id]/runs/  # GET list + POST (enforces concurrency gate)
           pipeline-runs/        # Run detail + logs (proxy to scheduler)
           projects/[id]/artifact-download-stats/ # Artifact download observability metrics
@@ -605,6 +614,7 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - Dashboard routes must be accessed via `/o/:orgId/...` (middleware rewrites internally)
 - Project detail tabs support deep links via query params: `?tab=commits|codebase|stats|config`. Codebase supports `ref`, `path`, `line`, `commentId` for jump-to-location/thread.
 - `PATCH /api/pipelines/[id]` updates `concurrency_mode` in Studio DB (schema must include `pipelines.concurrency_mode`; present in `init.sql`)
+- `DELETE /api/pipelines/[id]` deletes a pipeline across Scheduler + Studio-backed state, but returns conflict when the pipeline still has `queued` / `running` / `waiting_manual` runs
 - `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling scheduler (409 if `queue` mode and run active)
 - Studio server calls Scheduler `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` (used by `cancel_previous` concurrency mode)
 - AI integration runtime routing: official OpenAI + reasoning-capable model (or explicit `reasoningEffort`) calls `/responses`; otherwise calls `/chat/completions` (Anthropic base URL uses Messages API)

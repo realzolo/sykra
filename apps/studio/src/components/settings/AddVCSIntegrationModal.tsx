@@ -102,11 +102,11 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
           <DialogTitle className="text-[16px] font-semibold">{i18n.title}</DialogTitle>
         </DialogHeader>
 
-        <DialogBody className="max-h-[calc(90vh-132px)] space-y-4">
+        <DialogBody className="max-h-[calc(90vh-132px)] space-y-5">
           <div>
-            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.provider}</label>
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">{i18n.provider}</label>
             <Select value={selectedProvider} onValueChange={(value) => setSelectedProvider(value)}>
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-10">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-80">
@@ -123,9 +123,9 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
           </div>
 
           <div>
-            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.name}</label>
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">{i18n.name}</label>
             <Input
-              className="h-9"
+              className="h-10"
               placeholder={i18n.namePlaceholder}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -133,9 +133,9 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
           </div>
 
           <div>
-            <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">{i18n.accessTokenLabel}</label>
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">{i18n.accessTokenLabel}</label>
             <Input
-              className="h-9"
+              className="h-10"
               type="password"
               placeholder={i18n.accessTokenPlaceholder}
               value={secret}
@@ -157,12 +157,12 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
             .filter((f) => f.key !== 'token')
             .map((field) => (
               <div key={field.key}>
-                <label className="text-[12px] font-medium text-[hsl(var(--ds-text-2))] mb-1.5 block">
+                <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                   {field.label}
                   {field.required && ' *'}
                 </label>
                 <Input
-                  className="h-9"
+                  className="h-10"
                   type={field.type}
                   placeholder={field.placeholder}
                   value={config[field.key] || ''}
@@ -176,7 +176,7 @@ export default function AddVCSIntegrationModal({ onClose, onSuccess }: Props) {
               </div>
             ))}
 
-          <div className="flex items-center gap-2 pt-1">
+          <div className="flex items-center gap-2 pt-2">
             <Switch id="isDefault" checked={isDefault} onCheckedChange={setIsDefault} />
             <label htmlFor="isDefault" className="text-[13px]">
               {i18n.setDefault}

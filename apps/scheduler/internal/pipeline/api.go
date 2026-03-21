@@ -134,6 +134,19 @@ func (a *API) handlePipelineByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			httpx.WriteJSON(w, http.StatusOK, map[string]any{"version": version})
+		case http.MethodDelete:
+			if err := a.service.DeletePipeline(r.Context(), pipelineID); err != nil {
+				status := http.StatusBadRequest
+				if strings.Contains(strings.ToLower(err.Error()), "not found") {
+					status = http.StatusNotFound
+				}
+				if strings.Contains(strings.ToLower(err.Error()), "active runs") {
+					status = http.StatusConflict
+				}
+				httpx.WriteError(w, status, err.Error())
+				return
+			}
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 		default:
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}

@@ -16,13 +16,13 @@ export default function SettingsRow({ left, right, align = 'center', className }
     <div
       data-settings-row
       className={cn(
-        'grid gap-3 px-0 py-4 md:grid-cols-[minmax(0,1fr)_auto]',
+        'grid gap-4 px-0 py-4.5 md:grid-cols-[minmax(0,1fr)_minmax(160px,420px)]',
         align === 'start' ? 'items-start' : 'items-start md:items-center',
         className,
       )}
     >
-      <div className="min-w-0 flex-1 space-y-0.5">{left}</div>
-      {right && <div className="shrink-0 md:justify-self-end">{right}</div>}
+      <div className="min-w-0 flex-1 space-y-1">{left}</div>
+      {right && <div className="min-w-0 md:justify-self-end">{right}</div>}
     </div>
   );
 }

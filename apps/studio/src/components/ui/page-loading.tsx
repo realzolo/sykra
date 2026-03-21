@@ -11,7 +11,8 @@ export function PageLoading({
   return (
     <div className={cn('h-full w-full flex items-center justify-center', className)}>
       <div className="w-full max-w-lg px-6 py-10 space-y-4">
-        {label ? <div className="text-xs text-muted-foreground">{label}</div> : null}
+        {label ? <span className="sr-only">{label}</span> : null}
+        <Skeleton className="h-3 w-24" />
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-4 w-5/6" />

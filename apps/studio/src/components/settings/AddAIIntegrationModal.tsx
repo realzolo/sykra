@@ -263,14 +263,14 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
           <DialogTitle className="text-[16px] font-semibold">{i18n.title}</DialogTitle>
         </DialogHeader>
 
-        <DialogBody className="max-h-[calc(90vh-132px)] space-y-4">
+        <DialogBody className="max-h-[calc(90vh-132px)] space-y-5">
           {presets.length > 0 && (
             <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-3">
-              <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+              <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                 {i18n.quickSetupModel}
               </label>
               <Select value={selectedPreset} onValueChange={setSelectedPreset}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-10">
                   <SelectValue placeholder={i18n.quickSetupModelPlaceholder} />
                 </SelectTrigger>
                 <SelectContent className="max-h-80">
@@ -285,9 +285,9 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
           )}
 
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">{i18n.name}</label>
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">{i18n.name}</label>
             <Input
-              className="h-9"
+              className="h-10"
               placeholder={i18n.namePlaceholder}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -295,11 +295,11 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
           </div>
 
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
               {i18n.baseUrl}
             </label>
             <Input
-              className="h-9"
+              className="h-10"
               placeholder="https://api.openai.com/v1"
               value={config.baseUrl}
               onChange={(e) => updateConfig('baseUrl', e.target.value)}
@@ -307,11 +307,11 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
           </div>
 
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
               {i18n.model}
             </label>
             <Input
-              className="h-9"
+              className="h-10"
               placeholder="gpt-5.4"
               value={config.model}
               onChange={(e) => updateConfig('model', e.target.value)}
@@ -319,11 +319,11 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
           </div>
 
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
               {i18n.outputLanguage}
             </label>
             <Select value={config.outputLanguage} onValueChange={(value) => updateConfig('outputLanguage', value)}>
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-10">
                 <SelectValue placeholder={i18n.outputLanguagePlaceholder} />
               </SelectTrigger>
               <SelectContent className="max-h-80">
@@ -337,11 +337,11 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
           </div>
 
           <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+            <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
               {i18n.apiKeyLabel}
             </label>
             <Input
-              className="h-9"
+              className="h-10"
               type="password"
               placeholder={i18n.apiKeyPlaceholder}
               value={secret}
@@ -370,11 +370,11 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
             {showAdvanced && (
               <div className="mt-3 space-y-3">
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+                  <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                     {i18n.apiStyle}
                   </label>
                   <Select value={config.apiStyle} onValueChange={(value) => updateConfig('apiStyle', value as APIStyle)}>
-                    <SelectTrigger className="h-9">
+                    <SelectTrigger className="h-10">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -385,11 +385,11 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+                  <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                     {i18n.maxTokensOptional}
                   </label>
                   <Input
-                    className="h-9"
+                    className="h-10"
                     type="number"
                     placeholder="4096"
                     value={config.maxTokens ?? ''}
@@ -405,12 +405,12 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+                  <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                     {i18n.temperatureOptional}
                   </label>
                   {parameterCapabilities.temperature.supported ? (
                     <Input
-                      className="h-9"
+                      className="h-10"
                       type="number"
                       step="0.1"
                       placeholder="0.7"
@@ -432,7 +432,7 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
+                  <label className="mb-2 block text-[12px] font-medium leading-5 text-[hsl(var(--ds-text-2))]">
                     {i18n.reasoningEffortOptional}
                   </label>
                   {parameterCapabilities.reasoningEffort.supported ? (
@@ -440,7 +440,7 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
                       {...(config.reasoningEffort ? { value: config.reasoningEffort } : {})}
                       onValueChange={(value) => updateConfig('reasoningEffort', value as ReasoningEffort)}
                     >
-                      <SelectTrigger className="h-9">
+                      <SelectTrigger className="h-10">
                         <SelectValue placeholder={i18n.reasoningEffortPlaceholder} />
                       </SelectTrigger>
                       <SelectContent>
@@ -462,7 +462,7 @@ export default function AddAIIntegrationModal({ onClose, onSuccess }: Props) {
             )}
           </div>
 
-          <div className="flex items-center gap-2 pt-1">
+          <div className="flex items-center gap-2 pt-2">
             <Switch id="isDefault" checked={isDefault} onCheckedChange={setIsDefault} />
             <label htmlFor="isDefault" className="text-[13px]">
               {i18n.setDefault}
