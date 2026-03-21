@@ -580,3 +580,26 @@ func (s *Service) OpenArtifactContent(ctx context.Context, runID string, artifac
 	}
 	return artifact, content, nil
 }
+
+func (s *Service) OpenPublishedArtifactFileContent(ctx context.Context, fileID string) (*store.ArtifactFile, *artifacts.OpenArtifactOutput, error) {
+	if strings.TrimSpace(fileID) == "" {
+		return nil, nil, errors.New("fileId is required")
+	}
+	if s.Artifacts == nil {
+		return nil, nil, errors.New("artifact manager is not configured")
+	}
+
+	file, err := s.Store.GetArtifactFile(ctx, fileID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if file == nil {
+		return nil, nil, errors.New("artifact file not found")
+	}
+
+	content, err := s.Artifacts.OpenArtifact(ctx, file.OrgID, file.StoragePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	return file, content, nil
+}

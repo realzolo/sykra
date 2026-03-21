@@ -11,6 +11,7 @@ import {
   GitBranch,
   GitCommit,
   Home,
+  Package,
   Search,
   Settings,
   Shield,
@@ -37,6 +38,7 @@ function resolveProjectScopeLabel(basePath: string, dict: Dictionary) {
   if (basePath.includes('/commits')) return dict.nav.project.commits;
   if (basePath.includes('/reports')) return dict.nav.project.reports;
   if (basePath.includes('/pipelines')) return dict.nav.project.pipelines;
+  if (basePath.includes('/artifacts')) return dict.nav.project.artifacts;
   if (basePath.includes('/codebase')) return dict.nav.project.codebase;
   if (basePath.includes('/settings')) return dict.nav.project.settings;
   return dict.nav.projects;
@@ -45,6 +47,7 @@ function resolveProjectScopeLabel(basePath: string, dict: Dictionary) {
 function resolvePathIcon(basePath: string) {
   if (basePath.includes('/reports')) return FileText;
   if (basePath.includes('/pipelines')) return GitBranch;
+  if (basePath.includes('/artifacts')) return Package;
   if (basePath.includes('/codebase')) return Code2;
   if (basePath.includes('/commits')) return GitCommit;
   if (basePath.startsWith('/projects')) return FolderOpen;
@@ -104,6 +107,7 @@ export default function CommandPalette({ dict }: { dict: Dictionary }) {
       { id: 'p-commits', group: 'project', label: dict.nav.project.commits, hint: dict.nav.quickJumpProject, href: withOrgPrefix(pathname, `/projects/${currentProjectId}/commits`), searchText: `${dict.nav.project.commits} commits`, icon: GitCommit },
       { id: 'p-reports', group: 'project', label: dict.nav.project.reports, hint: dict.nav.quickJumpProject, href: withOrgPrefix(pathname, `/projects/${currentProjectId}/reports`), searchText: `${dict.nav.project.reports} reports`, icon: FileText },
       { id: 'p-pipelines', group: 'project', label: dict.nav.project.pipelines, hint: dict.nav.quickJumpProject, href: withOrgPrefix(pathname, `/projects/${currentProjectId}/pipelines`), searchText: `${dict.nav.project.pipelines} pipelines`, icon: GitBranch },
+      { id: 'p-artifacts', group: 'project', label: dict.nav.project.artifacts, hint: dict.nav.quickJumpProject, href: withOrgPrefix(pathname, `/projects/${currentProjectId}/artifacts`), searchText: `${dict.nav.project.artifacts} artifacts`, icon: Package },
       { id: 'p-codebase', group: 'project', label: dict.nav.project.codebase, hint: dict.nav.quickJumpProject, href: withOrgPrefix(pathname, `/projects/${currentProjectId}/codebase`), searchText: `${dict.nav.project.codebase} codebase`, icon: Code2 },
       { id: 'p-settings', group: 'project', label: dict.nav.project.settings, hint: dict.nav.quickJumpProject, href: withOrgPrefix(pathname, `/projects/${currentProjectId}/settings`), searchText: `${dict.nav.project.settings} settings`, icon: Settings },
     ];

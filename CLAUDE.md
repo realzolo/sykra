@@ -54,13 +54,17 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Pipeline artifact observability: project pipelines page includes artifact download health cards (total, success rate, p95 latency, failures) powered by `GET /api/projects/:id/artifact-download-stats`
 - Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; scheduler uses project override first, then global scheduler default
 - Worker artifact handoff: deploy steps can declare `artifactInputs` patterns; Worker downloads matched artifacts from earlier steps in the same run before step execution, with checksum validation + retry and run events (`step.artifact.pull_*`)
+- Artifact registry is project-scoped and separate from run outputs: Studio exposes `/o/:orgId/projects/:id/artifacts`, published versions live in `artifact_repositories` / `artifact_versions` / `artifact_files` / `artifact_channels`, and pipeline runs can promote selected run outputs into immutable release versions.
+- Artifact blob storage is deduplicated by `(org_id, sha256)` in `artifact_blobs`; scheduler cleanup must not delete storage objects that are referenced by published registry versions.
+- Artifact deployment flow is pull-based for remote workers: workers should fetch immutable artifact versions from scheduler-backed artifact storage rather than receiving binary payloads over the WebSocket control channel; deployment/promotion provenance is recorded in `artifact_version_usages`.
+- Deploy steps can choose their artifact source explicitly: `run` consumes same-run outputs while `registry` consumes an immutable published repository version or deployment channel, and scheduler resolves the selected registry version before handing the step to Worker.
 - Notification settings UI at `/o/:orgId/settings/notifications` is delivery-aware and backed by `/api/notification-settings`; it exposes only shipped email preferences (`pipeline run results`, `analysis report ready`, optional report score threshold) and surfaces provider health (`live`, `development console`, `misconfigured`)
 - Global settings pages now share a common shell/section pattern via `SettingsPageShell` and `SettingsSection`; new settings surfaces should compose those primitives instead of introducing custom page chrome.
 - Settings pages should also use `SettingsEmptyState` for no-data states so empty views stay visually consistent across integrations, organizations, security, and future settings surfaces.
 - Settings pages should use `SettingsNotice` for inline helper/success/warning messaging instead of ad hoc colored text blocks so feedback stays visually and semantically consistent.
 - Settings pages should use `SettingsRow` for repetitive label/control rows so toggles, inline inputs, and list rows stay compact and visually consistent.
 - Dashboard org home page (`/o/:orgId`) shows 4 stat cards (projects, avg score, open issues, pipeline success rate), quick actions, per-project score list, and recent activity
-- Dashboard navigation shell is contextual: global routes render org-level sidebar items, and project routes (`/o/:orgId/projects/:id/*`) switch sidebar to project-scoped navigation (commits/reports/pipelines/codebase/settings) with in-sidebar project switcher.
+- Dashboard navigation shell is contextual: global routes render org-level sidebar items, and project routes (`/o/:orgId/projects/:id/*`) switch sidebar to project-scoped navigation (commits/reports/pipelines/artifacts/codebase/settings) with in-sidebar project switcher.
 - Dashboard shell includes productivity navigation aids: collapsible sidebar rail (persisted in local storage), a compact topbar scope switcher (single dropdown for team/project context on project-domain pages), global quick-jump command palette (`Cmd/Ctrl + K`) with keyboard navigation and grouped results, and mobile bottom navigation for project/global context switching on small screens.
 - Dashboard shell project data is single-source: `Sidebar`, `Topbar`, and `CommandPalette` consume shared project state from `DashboardShellProvider` (no duplicated `/api/projects` fetches per component).
 - Integration deletion is non-blocking: deleting an integration does not check `code_projects` usage references.
@@ -263,6 +267,8 @@ apps/
           pipelines/[id]/runs/  # GET list + POST (enforces concurrency gate)
           pipeline-runs/        # Run detail + logs (proxy to scheduler)
           projects/[id]/artifact-download-stats/ # Artifact download observability metrics
+          projects/[id]/artifacts/      # Project artifact registry list + publish entrypoint
+          projects/[id]/artifacts/channels/ # Promote artifact versions onto channels
           reports/[id]/         # Report CRUD + issues + stream + chat + export
           rules/
             templates/          # GET list of built-in templates
@@ -275,7 +281,7 @@ apps/
         layout/Sidebar.tsx, Topbar.tsx, CommandPalette.tsx
                DashboardShellContext.tsx, MobileBottomNav.tsx
         project/ProjectCard, ProjectCommitsView, ProjectReportsView, ProjectPipelinesView
-                ProjectCodebaseView, ProjectSettingsView
+                ProjectArtifactsView, ProjectCodebaseView, ProjectSettingsView
         report/IssueCard, AIChat, TrendChart, ExportButton, ReportCompareClient
         pipeline/PipelineDetailClient  # Builder, runs, concurrency mode, docker step editor
         dashboard/DashboardStats.tsx
@@ -319,6 +325,7 @@ docs/
       011_org_storage_settings.sql # Adds per-org artifact storage backend settings
       012_artifact_download_events_and_project_retention.sql # Adds artifact download audit table + project retention override
       013_orchestrator_dag_schema.sql # Scheduler/worker schema normalization after control-plane redesign
+      014_artifact_registry.sql # Adds immutable artifact registry tables, channels, and usage provenance
 packages/
   contracts/                    # Shared API/contracts (active)
 ```
@@ -515,10 +522,17 @@ If new install warnings appear, approve the dependency and update the allowlist.
   - `s3` provider: `s3://{bucket}/{prefix}/{org_id}/{run_id}/{job_id}/{step_id}/...`
   - Worker uploads artifacts through Scheduler internal API `PUT /v1/workers/artifacts/upload`
   - Artifact rows include optional `expires_at`; scheduler performs periodic expiry cleanup (storage delete + DB row delete) based on retention policy.
+- **Artifact registry** elevates selected run outputs into immutable project release versions:
+  - `artifact_repositories` defines the package/repository namespace per project.
+  - `artifact_versions` stores immutable published versions with source run / pipeline / commit provenance.
+  - `artifact_files` maps logical file paths to deduplicated `artifact_blobs`.
+  - `artifact_channels` maps mutable channels like `dev`, `staging`, `prod`, `latest` onto immutable versions.
+  - `artifact_version_usages` records promotion / download / deployment consumption events for traceability and future retention protection.
 - **Artifact download path**:
   - Studio issues short-lived signed download tokens at `POST /api/pipeline-runs/:runId/artifacts/:artifactId/download-token`
   - Studio streams artifact content via `GET /api/pipeline-runs/:runId/artifacts/:artifactId/download?token=...`
   - Studio fetches raw bytes from scheduler private endpoint `GET /v1/pipeline-runs/:runId/artifacts/:artifactId/content` using `X-Scheduler-Token`
+  - Published registry files stream through `GET /api/projects/:id/artifacts/files/:fileId/download`, which proxies scheduler private endpoint `GET /v1/artifact-files/:fileId/content`
 - **Scheduler → Studio callbacks (pipelines)**:
   - `source_checkout` fetches repo info from `GET /api/projects/:id`
   - `review_gate` fetches latest completed report score from `GET /api/reports?projectId=...&limit=1`

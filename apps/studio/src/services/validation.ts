@@ -61,12 +61,36 @@ const pipelineStepSchema = z.object({
   script: z.string(),
   artifactPaths: z.array(z.string().min(1)).optional(),
   artifactInputs: z.array(z.string().min(1)).optional(),
+  artifactSource: z.enum(['run', 'registry']).optional(),
+  registryRepository: z.string().min(1).optional(),
+  registryVersion: z.string().min(1).optional(),
+  registryChannel: z.string().min(1).optional(),
   type: z.enum(['shell', 'docker']).optional(),
   dockerImage: z.string().min(1).optional(),
   continueOnError: z.boolean().optional(),
   timeoutSeconds: z.number().int().positive().optional(),
   env: z.record(z.string(), z.string()).optional(),
   workingDir: z.string().optional(),
+}).superRefine((step, ctx) => {
+  if (step.artifactSource !== 'registry') {
+    return;
+  }
+  if (!step.registryRepository?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'registryRepository is required when artifactSource=registry',
+      path: ['registryRepository'],
+    });
+  }
+  const hasVersion = !!step.registryVersion?.trim();
+  const hasChannel = !!step.registryChannel?.trim();
+  if (hasVersion === hasChannel) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Choose exactly one of registryVersion or registryChannel',
+      path: hasVersion ? ['registryVersion'] : ['registryChannel'],
+    });
+  }
 });
 
 const pipelineJobSchema = z.object({

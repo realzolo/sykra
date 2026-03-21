@@ -34,6 +34,10 @@ export type PipelineStep = {
   script: string;
   artifactPaths?: string[];
   artifactInputs?: string[];
+  artifactSource?: 'run' | 'registry';
+  registryRepository?: string;
+  registryVersion?: string;
+  registryChannel?: string;
   type?: 'shell' | 'docker';
   dockerImage?: string;
   continueOnError?: boolean;

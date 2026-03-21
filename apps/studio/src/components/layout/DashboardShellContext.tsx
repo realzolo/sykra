@@ -25,15 +25,16 @@ type DashboardShellContextValue = {
   inProjectScope: boolean;
   currentProjectId: string | null;
   currentProject: ProjectSummary | null;
-  projectSection: 'commits' | 'reports' | 'pipelines' | 'codebase' | 'settings';
+  projectSection: 'commits' | 'reports' | 'pipelines' | 'artifacts' | 'codebase' | 'settings';
   refreshProjects: () => Promise<void>;
 };
 
 const DashboardShellContext = createContext<DashboardShellContextValue | null>(null);
 
-function resolveProjectSection(basePath: string): 'commits' | 'reports' | 'pipelines' | 'codebase' | 'settings' {
+function resolveProjectSection(basePath: string): 'commits' | 'reports' | 'pipelines' | 'artifacts' | 'codebase' | 'settings' {
   if (basePath.includes('/reports')) return 'reports';
   if (basePath.includes('/pipelines')) return 'pipelines';
+  if (basePath.includes('/artifacts')) return 'artifacts';
   if (basePath.includes('/codebase')) return 'codebase';
   if (basePath.match(/\/projects\/[^/]+\/settings/)) return 'settings';
   return 'commits';

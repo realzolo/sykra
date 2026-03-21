@@ -319,6 +319,7 @@ export default function CreatePipelineWizard({
                 jobs={config.jobs}
                 stageSettings={config.stages}
                 dict={p}
+                artifactLoadFailedMessage={dict.artifacts.loadFailed}
                 isAdmin
                 selectedJobId={selectedJobId}
                 onSelectJob={setSelectedJobId}

@@ -44,6 +44,7 @@ export default function Topbar({ dict, locale }: { dict: Dictionary; locale: Loc
     if (basePath.includes('/commits')) secondaryLabel = dict.nav.project.commits;
     else if (basePath.includes('/reports')) secondaryLabel = dict.nav.project.reports;
     else if (basePath.includes('/pipelines')) secondaryLabel = dict.nav.project.pipelines;
+    else if (basePath.includes('/artifacts')) secondaryLabel = dict.nav.project.artifacts;
     else if (basePath.includes('/codebase')) secondaryLabel = dict.nav.project.codebase;
     else if (basePath.includes('/settings')) secondaryLabel = dict.nav.project.settings;
   }

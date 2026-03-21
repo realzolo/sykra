@@ -18,6 +18,7 @@
    - [3.7 Integration Management](#37-integration-management)
    - [3.8 CI/CD Pipeline Engine](#38-cicd-pipeline-engine)
    - [3.9 Settings & Localization](#39-settings--localization)
+   - [3.10 Artifact Registry & Deployment](#310-artifact-registry--deployment)
 4. [Next Build Order](#4-next-build-order)
    - [P0 — Core Experience](#p0--core-experience)
    - [P1 — Product Completeness](#p1--product-completeness)
@@ -220,7 +221,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Cancel pending jobs on failure | ✅ Done | Upstream failure cancels downstream queued jobs |
 | Pipeline concurrency control | ✅ Done | `allow / queue / cancel_previous` modes |
 | Log retention cleanup | ✅ Done | Configurable via `PIPELINE_LOG_RETENTION_DAYS` |
-| Artifact storage (reserved) | ⬜ Planned | Schema exists (`pipeline_artifacts`), executor not implemented |
+| Run output artifacts | ✅ Done | Shell steps upload matched files, retention cleanup preserves downloadability, and Studio can fetch/download per-run artifacts |
 | Docker / container executor | ⬜ Planned | Currently shell-only |
 | In-place config editor | ✅ Done | "Configure" tab in detail page |
 | Notification on success / failure | ✅ Done | Scheduler posts pipeline/report events back to Studio; Studio sends email notifications with per-user preferences and pipeline-level channel gating |
@@ -237,11 +238,22 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Language switcher | ✅ Done | English / Chinese, cookie-persisted |
 | Full i18n coverage | ✅ Done | All UI strings in `en.json` / `zh.json` |
 
+### 3.10 Artifact Registry & Deployment
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Project-scoped artifact repositories | ✅ Done | Immutable repositories live under each project and are separate from run outputs |
+| Artifact publishing from pipeline runs | ✅ Done | Selected run outputs are promoted into versioned release artifacts |
+| Artifact channels | ✅ Done | Channels point to immutable versions for deploy-time resolution |
+| Artifact browser and download routes | ✅ Done | Studio exposes artifact pages and file download endpoints |
+| Deploy-step artifact source selection | ✅ Done | Deploy steps can target same-run outputs or a published registry version/channel |
+| Pull-based remote deployment | ✅ Done | Worker pulls immutable files from scheduler-backed storage during deployment |
+
 ---
 
 ## 4. Next Build Order
 
-The roadmap below excludes capabilities already shipped in the current build, including the dashboard home page, rule set template marketplace, report comparison view, pipeline concurrency control, and PR review write-back.
+The roadmap below excludes capabilities already shipped in the current build, including the dashboard home page, rule set template marketplace, report comparison view, pipeline concurrency control, PR review write-back, and artifact registry/deployment.
 
 ### P0 — Core Experience
 
@@ -258,23 +270,20 @@ These are the most important remaining gaps for daily product use.
 - Opens Codebase Browser at the correct file + line, scoped to the analyzed commit SHA
 - If the file no longer exists at HEAD, fall back gracefully
 
+#### 4.4 External API Tokens
+
+**Why:** Teams want to integrate Spec-Axis into GitHub Actions, Makefiles, and external automation without sharing user sessions.
+
+**Scope:**
+- API token management UI in Settings > Security
+- Token scopes: `read` / `write` / `pipeline:trigger`
+- Token used as Bearer in `Authorization` header
+- `api_tokens` table with hashed storage
+- Rate-limited separately from session-based requests
+
 ---
 
 ### P1 — Workflow Completeness
-
-#### 4.4 Scheduled Pipeline Triggers (Cron)
-
-**Status:** ✅ Shipped
-
-**Why:** Many teams want nightly builds or weekly security scans without relying on a git push.
-
-**Scope:**
-- Cron expression input in pipeline configuration
-- Next scheduled run time displayed in list and detail pages
-- Stored as `trigger_schedule` on the `pipelines` table
-- Scheduler evaluates and enqueues runs
-
----
 
 #### 4.5 GitLab Webhook Support
 
@@ -289,20 +298,7 @@ These are the most important remaining gaps for daily product use.
 
 ---
 
-#### 4.6 External API Tokens
-
-**Why:** Teams want to integrate Spec-Axis into their existing CI/CD workflows from GitHub Actions, Makefiles, or external services.
-
-**Scope:**
-- API token management UI in Settings > Security
-- Token scopes: `read` / `write` / `pipeline:trigger`
-- Token used as Bearer in `Authorization` header
-- `api_tokens` table with hashed storage
-- Rate-limited separately from session-based requests
-
----
-
-#### 4.7 Team Discussion on Issues
+#### 4.6 Team Discussion on Issues
 
 **Why:** Teams need collaboration around false positives and remediation approaches without leaving the product.
 
@@ -316,7 +312,7 @@ These are the most important remaining gaps for daily product use.
 
 ### P2 — Platform Scale
 
-#### 4.8 Org-Level Analytics Dashboard
+#### 4.7 Org-Level Analytics Dashboard
 
 **Why:** Engineering managers need cross-project visibility: which projects have degrading quality, which teams are resolving issues fastest.
 
@@ -331,19 +327,7 @@ These are the most important remaining gaps for daily product use.
 
 ---
 
-#### 4.9 Artifact Management
-
-**Why:** Build outputs need to be stored, browsed, and downloaded; the artifact tables and storage abstractions are only partially ready today.
-
-**Scope:**
-- Artifact upload from shell steps via a scheduler API endpoint
-- Artifact list in the run detail page
-- Configurable retention (`PIPELINE_ARTIFACT_RETENTION_DAYS`)
-- Optional S3-compatible remote storage backend
-
----
-
-#### 4.10 Docker / Container Step Executor
+#### 4.8 Docker / Container Step Executor
 
 **Why:** Shell steps require the host to have all build tools installed. A container executor isolates builds and allows any language without host configuration.
 
@@ -355,7 +339,7 @@ These are the most important remaining gaps for daily product use.
 
 ---
 
-#### 4.11 Multi-Scheduler Node Support
+#### 4.9 Multi-Scheduler Node Support
 
 **Why:** A single Scheduler process becomes a bottleneck as pipeline volume grows.
 
@@ -368,7 +352,9 @@ These are the most important remaining gaps for daily product use.
 
 ---
 
-#### 4.12 SSO / SAML Integration
+### P3 — Enterprise
+
+#### 4.10 SSO / SAML Integration
 
 **Why:** Enterprise customers require integration with their corporate identity providers.
 
@@ -381,7 +367,7 @@ These are the most important remaining gaps for daily product use.
 
 ---
 
-#### 4.13 Fine-Grained RBAC
+#### 4.11 Fine-Grained RBAC
 
 **Why:** The current role model is coarse. Large teams need more control over pipeline, rule, and report actions.
 
@@ -401,7 +387,8 @@ Focus: close the remaining product gaps that block daily use.
 
 ```
 🚧 To complete in Phase 1:
-   └── 4.3  Link Report Issues to Codebase Browser
+   ├── 4.3  Link Report Issues to Codebase Browser
+   └── 4.4  External API Tokens
 ```
 
 **Exit criteria:** An engineering team can onboard, run reviews and pipelines, and complete the core loop without leaving the product.
@@ -415,8 +402,7 @@ Focus: make the review and delivery workflow feel native and continuous.
 ```
 🚧 To complete in Phase 2:
    ├── 4.5  GitLab Webhook Support
-   ├── 4.6  External API Tokens
-   └── 4.7  Team Discussion on Issues
+   └── 4.6  Team Discussion on Issues
 ```
 
 **Exit criteria:** Spec-Axis can stay inside the developer workflow across Git providers and recurring pipeline use cases.
@@ -429,9 +415,9 @@ Focus: collaboration and management visibility.
 
 ```
 🚧 To complete in Phase 3:
-   ├── 4.8  Org-Level Analytics Dashboard
-   ├── 4.9  Artifact Management
-   └── 4.10 Docker / Container Step Executor
+   ├── 4.7  Org-Level Analytics Dashboard
+   ├── 4.8  Docker / Container Step Executor
+   └── 4.9  Multi-Scheduler Node Support
 ```
 
 **Exit criteria:** Multi-team organizations can use Spec-Axis as their shared code quality control plane.
@@ -444,9 +430,8 @@ Focus: scale, isolation, and enterprise security.
 
 ```
 🚧 To complete in Phase 4:
-   ├── 4.11  Multi-Scheduler Node Support
-   ├── 4.12  SSO / SAML Integration
-   └── 4.13  Fine-Grained RBAC
+   ├── 4.10  SSO / SAML Integration
+   └── 4.11  Fine-Grained RBAC
 ```
 
 **Exit criteria:** Spec-Axis can support large organizations with stricter security and scale requirements.
@@ -461,7 +446,6 @@ The following items are not user-facing features but should be addressed alongsi
 |------|----------|-------|
 | Remove duplicate report-detail clients | Medium | Keep single `ReportDetailClient.tsx` implementation |
 | Remove `proxy.ts` (unused auth middleware) | Low | Already marked unused in CLAUDE.md |
-| Scheduler `collectArtifacts` stub | Low | Kept as placeholder; remove or implement in Phase 4 |
 | Pipeline `auto_trigger` webhook — multiple orgs same repo | Medium | Currently iterates all orgs, could be expensive at scale |
 | Store `GetPipeline` / `ListPipelines` — add cursor pagination | Medium | Currently unbounded queries; will degrade with 1000+ pipelines |
 | SSE report streaming — add heartbeat | Low | Clients can time out on slow analyses |

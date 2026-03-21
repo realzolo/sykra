@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { GitCommit, FileText, GitBranch, Code2, Sliders } from 'lucide-react';
+import { GitCommit, FileText, GitBranch, Code2, Sliders, Package } from 'lucide-react';
 import type { Dictionary } from '@/i18n';
 import { stripOrgPrefix, withOrgPrefix } from '@/lib/orgPath';
 import { cn } from '@/lib/utils';
@@ -27,6 +27,7 @@ export default function ProjectNav({
     { tab: 'commits', label: dict.nav.project.commits, icon: GitCommit },
     { tab: 'reports', label: dict.nav.project.reports, icon: FileText },
     { tab: 'pipelines', label: dict.nav.project.pipelines, icon: GitBranch },
+    { tab: 'artifacts', label: dict.nav.project.artifacts, icon: Package },
     { tab: 'codebase', label: dict.nav.project.codebase, icon: Code2 },
     { tab: 'settings', label: dict.nav.project.settings, icon: Sliders },
   ];

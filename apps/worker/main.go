@@ -217,7 +217,19 @@ func (a *workerAgent) executeJob(message workerprotocol.ExecuteJobMessage) {
 		exitCode := 0
 		status := "success"
 		var runErr error
-		if len(step.ArtifactInputs) > 0 {
+		if strings.EqualFold(strings.TrimSpace(step.ArtifactSource), "registry") {
+			runErr = a.downloadRegistryArtifacts(stepCtx, message, step, workingDir, writer)
+			if runErr != nil {
+				exitCode = 1
+				if errors.Is(stepCtx.Err(), context.Canceled) {
+					status = "canceled"
+				} else if errors.Is(stepCtx.Err(), context.DeadlineExceeded) {
+					status = "timed_out"
+				} else {
+					status = "failed"
+				}
+			}
+		} else if len(step.ArtifactInputs) > 0 {
 			runErr = a.downloadStepArtifacts(stepCtx, message, step, workingDir, writer)
 			if runErr != nil {
 				exitCode = 1
@@ -411,6 +423,33 @@ func (a *workerAgent) downloadStepArtifacts(
 	return nil
 }
 
+func (a *workerAgent) downloadRegistryArtifacts(
+	ctx context.Context,
+	message workerprotocol.ExecuteJobMessage,
+	step workerprotocol.ExecuteStep,
+	workingDir string,
+	output io.Writer,
+) error {
+	if len(step.RegistryFiles) == 0 {
+		return fmt.Errorf("no registry files resolved for step %s", step.ID)
+	}
+	_, _ = fmt.Fprintf(
+		output,
+		"[artifact] Preparing %d published artifact file(s) from %s@%s for step %s\n",
+		len(step.RegistryFiles),
+		strings.TrimSpace(step.RegistryRepository),
+		strings.TrimSpace(step.RegistryVersion),
+		step.ID,
+	)
+	for _, file := range step.RegistryFiles {
+		if err := a.downloadPublishedArtifactFileWithRetry(ctx, message.RequestID, step.ID, file, workingDir); err != nil {
+			return err
+		}
+	}
+	_, _ = fmt.Fprintf(output, "[artifact] Prepared %d published artifact file(s) for step %s\n", len(step.RegistryFiles), step.ID)
+	return nil
+}
+
 func (a *workerAgent) listRunArtifacts(ctx context.Context, runID string) ([]runArtifact, error) {
 	httpBase, err := toSchedulerHTTPBase(a.cfg.SchedulerBaseURL)
 	if err != nil {
@@ -474,6 +513,176 @@ func filterArtifactInputs(artifacts []runArtifact, patterns []string) ([]runArti
 		return matched[i].Path < matched[j].Path
 	})
 	return matched, nil
+}
+
+func sanitizeDownloadRelativePath(value string) (string, error) {
+	normalized := path.Clean(strings.TrimSpace(strings.ReplaceAll(value, "\\", "/")))
+	if normalized == "." || normalized == "" {
+		return "", errors.New("artifact path is required")
+	}
+	if strings.HasPrefix(normalized, "../") || strings.HasPrefix(normalized, "/") || normalized == ".." {
+		return "", fmt.Errorf("invalid artifact path: %s", value)
+	}
+	return normalized, nil
+}
+
+func (a *workerAgent) downloadPublishedArtifactFileWithRetry(
+	ctx context.Context,
+	requestID string,
+	stepID string,
+	file workerprotocol.RegistryArtifactFile,
+	workingDir string,
+) error {
+	if strings.TrimSpace(file.FileID) == "" {
+		return errors.New("registry artifact file id is required")
+	}
+	cleanPath, err := sanitizeDownloadRelativePath(file.LogicalPath)
+	if err != nil {
+		return err
+	}
+
+	httpBase, err := toSchedulerHTTPBase(a.cfg.SchedulerBaseURL)
+	if err != nil {
+		return err
+	}
+	endpoint := strings.TrimRight(httpBase, "/") + "/v1/artifact-files/" + url.PathEscape(file.FileID) + "/content"
+	destinationPath := filepath.Join(workingDir, filepath.FromSlash(cleanPath))
+	if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
+		return err
+	}
+
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		startedAt := time.Now()
+		_ = a.send(workerprotocol.StepArtifactMessage{
+			Type:       workerprotocol.WorkerMessageTypeStepArtifact,
+			RequestID:  requestID,
+			StepID:     stepID,
+			Status:     "started",
+			ArtifactID: file.FileID,
+			Path:       cleanPath,
+			Attempt:    attempt,
+		})
+
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
+			request.Header.Set("X-Scheduler-Token", token)
+		}
+
+		client := &http.Client{Timeout: 15 * time.Minute}
+		response, err := client.Do(request)
+		if err != nil {
+			lastErr = err
+		} else {
+			err = a.writeDownloadedArtifact(response, destinationPath, file)
+			_ = response.Body.Close()
+			if err == nil {
+				_ = a.send(workerprotocol.StepArtifactMessage{
+					Type:       workerprotocol.WorkerMessageTypeStepArtifact,
+					RequestID:  requestID,
+					StepID:     stepID,
+					Status:     "downloaded",
+					ArtifactID: file.FileID,
+					Path:       cleanPath,
+					Attempt:    attempt,
+					DurationMs: time.Since(startedAt).Milliseconds(),
+					SizeBytes:  file.SizeBytes,
+				})
+				return nil
+			}
+			lastErr = err
+		}
+
+		downloadErr := classifyRegistryDownloadError(lastErr)
+		_ = a.send(workerprotocol.StepArtifactMessage{
+			Type:          workerprotocol.WorkerMessageTypeStepArtifact,
+			RequestID:     requestID,
+			StepID:        stepID,
+			Status:        "failed",
+			ArtifactID:    file.FileID,
+			Path:          cleanPath,
+			Attempt:       attempt,
+			DurationMs:    time.Since(startedAt).Milliseconds(),
+			ErrorCategory: downloadErr.category,
+			ErrorMessage:  downloadErr.message,
+		})
+		if !downloadErr.retryable || attempt == maxAttempts {
+			return downloadErr
+		}
+		time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return errors.New("published artifact download failed")
+}
+
+func (a *workerAgent) writeDownloadedArtifact(
+	response *http.Response,
+	destinationPath string,
+	file workerprotocol.RegistryArtifactFile,
+) error {
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		return fmt.Errorf("published artifact download failed: status=%d body=%s", response.StatusCode, string(body))
+	}
+
+	tempPath := destinationPath + ".part"
+	output, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = output.Close()
+	}()
+
+	hash := sha256.New()
+	written, err := io.Copy(io.MultiWriter(output, hash), response.Body)
+	if err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if file.SizeBytes > 0 && written != file.SizeBytes {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("artifact size mismatch for %s", file.LogicalPath)
+	}
+	if expected := strings.TrimSpace(file.Sha256); expected != "" {
+		actual := hex.EncodeToString(hash.Sum(nil))
+		if !strings.EqualFold(expected, actual) {
+			_ = os.Remove(tempPath)
+			return fmt.Errorf("artifact checksum mismatch for %s", file.LogicalPath)
+		}
+	}
+	if err := output.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := os.Rename(tempPath, destinationPath); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	return nil
+}
+
+func classifyRegistryDownloadError(err error) *artifactDownloadError {
+	if err == nil {
+		return &artifactDownloadError{category: "unknown", message: "download failed", retryable: true}
+	}
+	message := err.Error()
+	switch {
+	case strings.Contains(message, "status=404"):
+		return &artifactDownloadError{category: "artifact_not_found", message: message, retryable: false}
+	case strings.Contains(message, "checksum mismatch"):
+		return &artifactDownloadError{category: "checksum_mismatch", message: message, retryable: false}
+	case strings.Contains(message, "size mismatch"):
+		return &artifactDownloadError{category: "size_mismatch", message: message, retryable: false}
+	default:
+		return &artifactDownloadError{category: "download_failed", message: message, retryable: true}
+	}
 }
 
 func (a *workerAgent) downloadArtifactWithRetry(

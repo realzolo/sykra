@@ -122,15 +122,28 @@ type ExecuteJobMessage struct {
 }
 
 type ExecuteStep struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Script          string            `json:"script"`
-	Type            string            `json:"type,omitempty"`
-	DockerImage     string            `json:"dockerImage,omitempty"`
-	ArtifactPaths   []string          `json:"artifactPaths,omitempty"`
-	ArtifactInputs  []string          `json:"artifactInputs,omitempty"`
-	Env             map[string]string `json:"env,omitempty"`
-	WorkingDir      string            `json:"workingDir,omitempty"`
-	TimeoutSeconds  *int              `json:"timeoutSeconds,omitempty"`
-	ContinueOnError bool              `json:"continueOnError,omitempty"`
+	ID                 string                 `json:"id"`
+	Name               string                 `json:"name"`
+	Script             string                 `json:"script"`
+	Type               string                 `json:"type,omitempty"`
+	DockerImage        string                 `json:"dockerImage,omitempty"`
+	ArtifactPaths      []string               `json:"artifactPaths,omitempty"`
+	ArtifactInputs     []string               `json:"artifactInputs,omitempty"`
+	ArtifactSource     string                 `json:"artifactSource,omitempty"`
+	RegistryRepository string                 `json:"registryRepository,omitempty"`
+	RegistryVersion    string                 `json:"registryVersion,omitempty"`
+	RegistryChannel    string                 `json:"registryChannel,omitempty"`
+	RegistryFiles      []RegistryArtifactFile `json:"registryFiles,omitempty"`
+	Env                map[string]string      `json:"env,omitempty"`
+	WorkingDir         string                 `json:"workingDir,omitempty"`
+	TimeoutSeconds     *int                   `json:"timeoutSeconds,omitempty"`
+	ContinueOnError    bool                   `json:"continueOnError,omitempty"`
+}
+
+type RegistryArtifactFile struct {
+	FileID      string `json:"fileId"`
+	LogicalPath string `json:"logicalPath"`
+	FileName    string `json:"fileName"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	Sha256      string `json:"sha256,omitempty"`
 }

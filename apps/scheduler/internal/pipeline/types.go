@@ -88,15 +88,19 @@ type NotifyConfig struct {
 // ── Step (same for build and deploy) ─────────────────────────────────────
 
 type PipelineStep struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Script          string            `json:"script"`
-	ArtifactPaths   []string          `json:"artifactPaths,omitempty"`
-	ArtifactInputs  []string          `json:"artifactInputs,omitempty"`
-	Env             map[string]string `json:"env,omitempty"`
-	WorkingDir      string            `json:"workingDir,omitempty"`
-	TimeoutSeconds  *int              `json:"timeoutSeconds,omitempty"`
-	ContinueOnError bool              `json:"continueOnError,omitempty"`
+	ID                 string            `json:"id"`
+	Name               string            `json:"name"`
+	Script             string            `json:"script"`
+	ArtifactPaths      []string          `json:"artifactPaths,omitempty"`
+	ArtifactInputs     []string          `json:"artifactInputs,omitempty"`
+	ArtifactSource     string            `json:"artifactSource,omitempty"` // "run" | "registry"
+	RegistryRepository string            `json:"registryRepository,omitempty"`
+	RegistryVersion    string            `json:"registryVersion,omitempty"`
+	RegistryChannel    string            `json:"registryChannel,omitempty"`
+	Env                map[string]string `json:"env,omitempty"`
+	WorkingDir         string            `json:"workingDir,omitempty"`
+	TimeoutSeconds     *int              `json:"timeoutSeconds,omitempty"`
+	ContinueOnError    bool              `json:"continueOnError,omitempty"`
 	// Docker step fields
 	Type        string `json:"type,omitempty"`        // "shell" (default) | "docker"
 	DockerImage string `json:"dockerImage,omitempty"` // e.g. "node:22-alpine"
@@ -318,6 +322,16 @@ func ValidateConfig(cfg PipelineConfig) error {
 			}
 			if strings.EqualFold(strings.TrimSpace(step.Type), "docker") && strings.TrimSpace(step.DockerImage) == "" {
 				return fmt.Errorf("step %s in job %s requires dockerImage when type=docker", step.ID, job.ID)
+			}
+			if strings.EqualFold(strings.TrimSpace(step.ArtifactSource), "registry") {
+				if strings.TrimSpace(step.RegistryRepository) == "" {
+					return fmt.Errorf("step %s in job %s requires registryRepository when artifactSource=registry", step.ID, job.ID)
+				}
+				hasVersion := strings.TrimSpace(step.RegistryVersion) != ""
+				hasChannel := strings.TrimSpace(step.RegistryChannel) != ""
+				if hasVersion == hasChannel {
+					return fmt.Errorf("step %s in job %s must define exactly one of registryVersion or registryChannel", step.ID, job.ID)
+				}
 			}
 		}
 	}

@@ -21,6 +21,7 @@ import {
   Settings,
   Shield,
   Sliders,
+  Package,
   User,
 } from 'lucide-react';
 import {
@@ -208,6 +209,7 @@ export default function Sidebar({ dict }: SidebarProps) {
     { base: `/projects/${currentProjectId}/commits`, label: dict.nav.project.commits, icon: GitCommit },
     { base: `/projects/${currentProjectId}/reports`, label: dict.nav.project.reports, icon: FileText },
     { base: `/projects/${currentProjectId}/pipelines`, label: dict.nav.project.pipelines, icon: GitBranch },
+    { base: `/projects/${currentProjectId}/artifacts`, label: dict.nav.project.artifacts, icon: Package },
     { base: `/projects/${currentProjectId}/codebase`, label: dict.nav.project.codebase, icon: Code2 },
     { base: `/projects/${currentProjectId}/settings`, label: dict.nav.project.settings, icon: Sliders },
   ] : [];

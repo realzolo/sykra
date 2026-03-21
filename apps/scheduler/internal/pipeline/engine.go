@@ -508,6 +508,10 @@ func (e *Engine) runJobOnWorker(
 
 	steps := make([]workerprotocol.ExecuteStep, 0, len(job.Steps))
 	stepRecords := map[string]store.PipelineStep{}
+	runRecord, err := e.Store.GetPipelineRun(ctx, runID)
+	if err != nil {
+		return err
+	}
 	for _, step := range job.Steps {
 		stepRecord, err := e.Store.GetPipelineStepByKey(ctx, jobRecord.ID, step.ID)
 		if err != nil {
@@ -518,18 +522,47 @@ func (e *Engine) runJobOnWorker(
 		}
 		stepRecords[step.ID] = stepRecord
 		stepEnv := buildEnv(runID, cfg, secrets, job, step)
+		registryFiles := []workerprotocol.RegistryArtifactFile{}
+		registryVersion := strings.TrimSpace(step.RegistryVersion)
+		registryChannel := strings.TrimSpace(step.RegistryChannel)
+		if strings.EqualFold(strings.TrimSpace(step.ArtifactSource), "registry") {
+			resolvedVersion, files, resolveErr := e.resolveRegistryDeployment(ctx, runRecord, jobRecord, cfg, step)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			registryVersion = resolvedVersion.Version
+			registryChannel = resolvedVersion.ChannelName
+			registryFiles = files
+			_ = e.Store.AppendRunEvent(ctx, runID, "step.artifact.registry_resolved", map[string]any{
+				"runId":           runID,
+				"jobId":           jobRecord.ID,
+				"jobKey":          job.ID,
+				"stepId":          stepRecord.ID,
+				"stepKey":         step.ID,
+				"repository":      resolvedVersion.RepositorySlug,
+				"resolvedVersion": resolvedVersion.Version,
+				"channel":         resolvedVersion.ChannelName,
+				"fileCount":       len(files),
+				"resolvedAt":      time.Now().UTC().Format(time.RFC3339),
+			})
+		}
 		steps = append(steps, workerprotocol.ExecuteStep{
-			ID:              step.ID,
-			Name:            step.Name,
-			Script:          step.Script,
-			Type:            step.Type,
-			DockerImage:     step.DockerImage,
-			ArtifactPaths:   append([]string(nil), step.ArtifactPaths...),
-			ArtifactInputs:  append([]string(nil), step.ArtifactInputs...),
-			Env:             stepEnv,
-			WorkingDir:      step.WorkingDir,
-			TimeoutSeconds:  step.TimeoutSeconds,
-			ContinueOnError: step.ContinueOnError,
+			ID:                 step.ID,
+			Name:               step.Name,
+			Script:             step.Script,
+			Type:               step.Type,
+			DockerImage:        step.DockerImage,
+			ArtifactPaths:      append([]string(nil), step.ArtifactPaths...),
+			ArtifactInputs:     append([]string(nil), step.ArtifactInputs...),
+			ArtifactSource:     step.ArtifactSource,
+			RegistryRepository: step.RegistryRepository,
+			RegistryVersion:    registryVersion,
+			RegistryChannel:    registryChannel,
+			RegistryFiles:      registryFiles,
+			Env:                stepEnv,
+			WorkingDir:         step.WorkingDir,
+			TimeoutSeconds:     step.TimeoutSeconds,
+			ContinueOnError:    step.ContinueOnError,
 		})
 	}
 
@@ -969,8 +1002,70 @@ func requiredCapabilities(job PipelineJob, steps []workerprotocol.ExecuteStep) [
 		if len(step.ArtifactInputs) > 0 {
 			add("artifact_download")
 		}
+		if strings.EqualFold(step.ArtifactSource, "registry") {
+			add("artifact_download")
+		}
 	}
 	return capabilities
+}
+
+func (e *Engine) resolveRegistryDeployment(
+	ctx context.Context,
+	run *store.PipelineRun,
+	jobRecord store.PipelineJob,
+	cfg PipelineConfig,
+	step PipelineStep,
+) (*store.ArtifactVersion, []workerprotocol.RegistryArtifactFile, error) {
+	if run == nil || run.ProjectID == nil || strings.TrimSpace(*run.ProjectID) == "" {
+		return nil, nil, errors.New("registry deployment requires a project-scoped pipeline run")
+	}
+
+	resolvedVersion, err := e.Store.ResolveArtifactVersionForDeployment(
+		ctx,
+		*run.ProjectID,
+		step.RegistryRepository,
+		step.RegistryVersion,
+		step.RegistryChannel,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if resolvedVersion == nil {
+		return nil, nil, fmt.Errorf("artifact version not found for repository=%s version=%s channel=%s", step.RegistryRepository, step.RegistryVersion, step.RegistryChannel)
+	}
+
+	files, err := e.Store.ListArtifactFilesForVersion(ctx, resolvedVersion.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(files) == 0 {
+		return nil, nil, fmt.Errorf("artifact version %s does not contain any files", resolvedVersion.Version)
+	}
+
+	downloadFiles := make([]workerprotocol.RegistryArtifactFile, 0, len(files))
+	for _, file := range files {
+		downloadFiles = append(downloadFiles, workerprotocol.RegistryArtifactFile{
+			FileID:      file.ID,
+			LogicalPath: file.LogicalPath,
+			FileName:    file.FileName,
+			SizeBytes:   file.SizeBytes,
+			Sha256:      file.Sha256,
+		})
+	}
+
+	_ = e.Store.InsertArtifactVersionUsage(ctx, store.ArtifactVersionUsage{
+		OrgID:         resolvedVersion.OrgID,
+		ProjectID:     resolvedVersion.ProjectID,
+		RepositoryID:  resolvedVersion.RepositoryID,
+		VersionID:     resolvedVersion.ID,
+		PipelineRunID: run.ID,
+		PipelineJobID: jobRecord.ID,
+		Environment:   cfg.Environment,
+		ChannelName:   resolvedVersion.ChannelName,
+		UsageType:     "deployment",
+	})
+
+	return resolvedVersion, downloadFiles, nil
 }
 
 // collectArtifacts is kept for possible future shell-step artifact support.

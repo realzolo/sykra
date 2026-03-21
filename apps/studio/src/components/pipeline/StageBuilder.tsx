@@ -33,6 +33,7 @@ type Props = {
   jobs: PipelineJob[];
   stageSettings: PipelineStageSettings | undefined;
   dict: Dictionary["pipelines"];
+  artifactLoadFailedMessage: string;
   isAdmin: boolean;
   selectedJobId: string | null;
   onSelectJob: (jobId: string) => void;
@@ -189,6 +190,7 @@ export default function StageBuilder({
   jobs,
   stageSettings,
   dict,
+  artifactLoadFailedMessage,
   isAdmin,
   selectedJobId,
   onSelectJob,
@@ -540,6 +542,7 @@ export default function StageBuilder({
         {selectedJob && (
           <StageJobInspector
             dict={dict}
+            artifactLoadFailedMessage={artifactLoadFailedMessage}
             job={selectedJob}
             stage={inferPipelineJobStage(selectedJob, jobs)}
             isAdmin={isAdmin}
@@ -558,6 +561,7 @@ export default function StageBuilder({
 
 function StageJobInspector({
   dict,
+  artifactLoadFailedMessage,
   job,
   stage,
   isAdmin,
@@ -569,6 +573,7 @@ function StageJobInspector({
   onApplyTemplate,
 }: {
   dict: Dictionary["pipelines"];
+  artifactLoadFailedMessage: string;
   job: PipelineJob;
   stage: PipelineStageKey;
   isAdmin: boolean;
@@ -664,6 +669,7 @@ function StageJobInspector({
       {jobType === "shell" && (
         <PipelineStepEditor
           dict={dict}
+          artifactLoadFailedMessage={artifactLoadFailedMessage}
           job={job}
           isAdmin={isAdmin}
           showTemplates={stage === "build"}

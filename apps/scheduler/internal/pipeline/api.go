@@ -24,6 +24,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/pipelines", a.handlePipelines)
 	mux.HandleFunc("/v1/pipelines/", a.handlePipelineByID)
 	mux.HandleFunc("/v1/pipeline-runs/", a.handlePipelineRuns)
+	mux.HandleFunc("/v1/artifact-files/", a.handleArtifactFiles)
 }
 
 func (a *API) handlePipelines(w http.ResponseWriter, r *http.Request) {
@@ -363,4 +364,55 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteError(w, http.StatusNotFound, "not found")
+}
+
+func (a *API) handleArtifactFiles(w http.ResponseWriter, r *http.Request) {
+	if !a.authorized(r) {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/v1/artifact-files/")
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || parts[1] != "content" {
+		httpx.WriteError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if r.Method != http.MethodGet {
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	fileID := parts[0]
+	file, content, err := a.service.OpenPublishedArtifactFileContent(r.Context(), fileID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer content.Reader.Close()
+
+	filename := strings.TrimSpace(file.FileName)
+	if filename == "" {
+		filename = filepath.Base(file.LogicalPath)
+	}
+	if filename == "." || filename == "" {
+		filename = "artifact.bin"
+	}
+
+	contentType := strings.TrimSpace(content.ContentType)
+	if contentType == "" {
+		contentType = mime.TypeByExtension(filepath.Ext(filename))
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	if content.ContentSize > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(content.ContentSize, 10))
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, content.Reader)
 }

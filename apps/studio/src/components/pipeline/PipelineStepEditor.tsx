@@ -1,12 +1,18 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Combobox } from "@/components/ui/combobox";
+import { useProject } from "@/lib/projectContext";
 import { Plus, Trash2 } from "lucide-react";
 import type { Dictionary } from "@/i18n";
+import type { ArtifactRepositorySummary } from "@/services/artifactRegistry";
 import type { PipelineJob, PipelineStep } from "@/services/pipelineTypes";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 type BuildTemplateKey = "node" | "python" | "go";
 
@@ -32,12 +38,22 @@ function splitLines(value: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+function formatVersionLabel(version: { version: string; file_count: number }) {
+  return `${version.version} · ${version.file_count} files`;
+}
+
+function getRepositorySummary(repository: ArtifactRepositorySummary) {
+  const latest = repository.versions[0];
+  return latest ? `${repository.name} · ${latest.version}` : repository.name;
+}
+
 export function getBuildTemplateSteps(template: BuildTemplateKey): Array<Omit<PipelineStep, "id">> {
   return BUILD_TEMPLATES[template];
 }
 
 export default function PipelineStepEditor({
   dict,
+  artifactLoadFailedMessage,
   job,
   isAdmin,
   showTemplates = false,
@@ -47,6 +63,7 @@ export default function PipelineStepEditor({
   onUpdateStep,
 }: {
   dict: Dictionary["pipelines"];
+  artifactLoadFailedMessage: string;
   job: PipelineJob;
   isAdmin: boolean;
   showTemplates?: boolean;
@@ -55,6 +72,74 @@ export default function PipelineStepEditor({
   onRemoveStep: (stepId: string) => void;
   onUpdateStep: (stepId: string, patch: Partial<PipelineStep>) => void;
 }) {
+  const { project } = useProject();
+  const [artifactRepositories, setArtifactRepositories] = useState<ArtifactRepositorySummary[]>([]);
+  const [artifactRepositoriesLoading, setArtifactRepositoriesLoading] = useState(false);
+
+  useEffect(() => {
+    if ((job.stage ?? "build") !== "deploy") {
+      return;
+    }
+    let alive = true;
+    async function loadArtifactRepositories() {
+      setArtifactRepositoriesLoading(true);
+      try {
+        const response = await fetch(`/api/projects/${project.id}/artifacts`, { cache: "no-store" });
+        const payload = response.ok ? await response.json() : null;
+        if (!alive) return;
+        setArtifactRepositories(Array.isArray(payload?.repositories) ? payload.repositories : []);
+      } catch {
+        if (alive) {
+          setArtifactRepositories([]);
+          toast.error(artifactLoadFailedMessage);
+        }
+      } finally {
+        if (alive) setArtifactRepositoriesLoading(false);
+      }
+    }
+    void loadArtifactRepositories();
+    return () => {
+      alive = false;
+    };
+  }, [artifactLoadFailedMessage, job.stage, project.id]);
+
+  const repositoryOptions = useMemo(
+    () =>
+      artifactRepositories.map((repository) => ({
+        value: repository.slug,
+        label: getRepositorySummary(repository),
+        keywords: [repository.slug, repository.name, ...(repository.description ? [repository.description] : [])],
+      })),
+    [artifactRepositories]
+  );
+
+  function updateDeployStep(stepId: string, patch: Partial<PipelineStep>) {
+    const currentStep = job.steps.find((step) => step.id === stepId);
+    if (!currentStep) return;
+    const nextStep = { ...currentStep, ...patch };
+    if (patch.artifactSource === "run") {
+      delete nextStep.registryRepository;
+      delete nextStep.registryVersion;
+      delete nextStep.registryChannel;
+    }
+    if (patch.artifactSource === "registry") {
+      delete nextStep.artifactInputs;
+    }
+    if (patch.registryRepository !== undefined) {
+      delete nextStep.registryVersion;
+      delete nextStep.registryChannel;
+    }
+    if (patch.registryVersion !== undefined) {
+      delete nextStep.registryChannel;
+    }
+    if (patch.registryChannel !== undefined) {
+      delete nextStep.registryVersion;
+    }
+    onUpdateStep(stepId, nextStep);
+  }
+
+  const isDeployStage = (job.stage ?? "build") === "deploy";
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
@@ -204,20 +289,162 @@ export default function PipelineStepEditor({
             <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.artifactPathsHelp}</span>
           </div>
 
-          <div className="space-y-1.5">
-            <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.artifactInputsLabel}</span>
-            <Textarea
-              value={(step.artifactInputs ?? []).join("\n")}
-              onChange={(event) =>
-                onUpdateStep(step.id, { artifactInputs: splitLines(event.target.value) })
-              }
-              placeholder={dict.steps.artifactInputsPlaceholder}
-              rows={2}
-              className="resize-none font-mono text-[12px]"
-              disabled={!isAdmin}
-            />
-            <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.artifactInputsHelp}</span>
-          </div>
+          {isDeployStage ? (
+            <div className="space-y-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))]/60 p-3">
+              {(() => {
+                const stepDeployMode = (step.artifactSource ?? "run") as "run" | "registry";
+                const selectedRepository =
+                  artifactRepositories.find((repository) => repository.slug === step.registryRepository) ?? null;
+                const versionOptions = selectedRepository
+                  ? selectedRepository.versions.map((version) => ({
+                      value: version.version,
+                      label: formatVersionLabel(version),
+                      keywords: [version.version, version.source_branch ?? "", version.source_commit_sha ?? ""],
+                    }))
+                  : [];
+                const channelOptions = selectedRepository
+                  ? selectedRepository.channels.map((channel) => ({
+                      value: channel.name,
+                      label: `${channel.name} → ${channel.target_version}`,
+                      keywords: [channel.name, channel.target_version],
+                    }))
+                  : [];
+
+                return (
+                  <>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[13px] font-medium text-foreground">{dict.steps.deploySourceLabel}</div>
+                  <div className="mt-0.5 text-[12px] text-[hsl(var(--ds-text-2))]">
+                    {dict.steps.deploySourceHelp}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-1 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-1">
+                  {([
+                    { value: "run", label: dict.steps.deploySourceRun },
+                    { value: "registry", label: dict.steps.deploySourceRegistry },
+                  ] as const).map((option) => {
+                    const active = stepDeployMode === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => updateDeployStep(step.id, { artifactSource: option.value })}
+                        disabled={!isAdmin}
+                        className={cn(
+                          "rounded-[6px] px-3 py-1.5 text-[12px] font-medium transition-colors",
+                          active
+                            ? "bg-[hsl(var(--ds-accent-9))] text-white"
+                            : "text-[hsl(var(--ds-text-2))] hover:text-foreground",
+                          !isAdmin && "cursor-not-allowed opacity-60"
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {stepDeployMode === "run" && (
+                <div className="space-y-1.5">
+                  <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.artifactInputsLabel}</span>
+                  <Textarea
+                    value={(step.artifactInputs ?? []).join("\n")}
+                    onChange={(event) =>
+                      updateDeployStep(step.id, { artifactInputs: splitLines(event.target.value) })
+                    }
+                    placeholder={dict.steps.artifactInputsPlaceholder}
+                    rows={2}
+                    className="resize-none font-mono text-[12px]"
+                    disabled={!isAdmin}
+                  />
+                  <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                    {dict.steps.artifactInputsHelp}
+                  </span>
+                </div>
+              )}
+
+              {stepDeployMode === "registry" && (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.registryRepositoryLabel}</span>
+                    <Combobox
+                      value={step.registryRepository ?? ""}
+                      options={repositoryOptions}
+                      placeholder={dict.steps.registryRepositoryPlaceholder}
+                      searchPlaceholder={dict.steps.registryRepositorySearchPlaceholder}
+                      heading={dict.steps.registryRepositoryListHeading}
+                      emptyLabel={artifactRepositoriesLoading ? dict.steps.loading : dict.steps.registryRepositoryEmpty}
+                      disabled={!isAdmin || artifactRepositoriesLoading}
+                      className="h-9"
+                      contentClassName="w-[360px]"
+                      onChange={(value) => updateDeployStep(step.id, { registryRepository: value })}
+                    />
+                    <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.registryRepositoryHelp}</span>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.registryVersionLabel}</span>
+                      <Combobox
+                        value={step.registryVersion ?? ""}
+                        options={versionOptions}
+                        placeholder={dict.steps.registryVersionPlaceholder}
+                        searchPlaceholder={dict.steps.registryVersionSearchPlaceholder}
+                        heading={dict.steps.registryVersionListHeading}
+                        emptyLabel={dict.steps.registryVersionEmpty}
+                        disabled={!isAdmin || !selectedRepository}
+                        className="h-9"
+                        contentClassName="w-[320px]"
+                        onChange={(value) => updateDeployStep(step.id, { registryVersion: value })}
+                      />
+                      <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                        {dict.steps.registryVersionHelp}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.registryChannelLabel}</span>
+                      <Combobox
+                        value={step.registryChannel ?? ""}
+                        options={channelOptions}
+                        placeholder={dict.steps.registryChannelPlaceholder}
+                        searchPlaceholder={dict.steps.registryChannelSearchPlaceholder}
+                        heading={dict.steps.registryChannelListHeading}
+                        emptyLabel={dict.steps.registryChannelEmpty}
+                        disabled={!isAdmin || !selectedRepository}
+                        className="h-9"
+                        contentClassName="w-[320px]"
+                        onChange={(value) => updateDeployStep(step.id, { registryChannel: value })}
+                      />
+                      <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                        {dict.steps.registryChannelHelp}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+                  </>
+                );
+              })()}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.artifactInputsLabel}</span>
+              <Textarea
+                value={(step.artifactInputs ?? []).join("\n")}
+                onChange={(event) =>
+                  onUpdateStep(step.id, { artifactInputs: splitLines(event.target.value) })
+                }
+                placeholder={dict.steps.artifactInputsPlaceholder}
+                rows={2}
+                className="resize-none font-mono text-[12px]"
+                disabled={!isAdmin}
+              />
+              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.steps.artifactInputsHelp}</span>
+            </div>
+          )}
         </div>
       ))}
 

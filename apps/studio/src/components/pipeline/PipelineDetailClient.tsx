@@ -9,6 +9,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -108,6 +117,16 @@ const STATUS_ICON_SM: Record<PipelineRunStatus, React.ReactNode> = {
 
 type PipelineRun = PipelineRunDetail["run"];
 
+function normalizeArtifactRepositorySlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function PipelineDetailClient({
@@ -151,6 +170,12 @@ export default function PipelineDetailClient({
   const [secretDeleting, setSecretDeleting] = useState<string | null>(null);
   const [secretToDelete, setSecretToDelete] = useState<string | null>(null);
   const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [publishingArtifacts, setPublishingArtifacts] = useState(false);
+  const [publishRepositoryName, setPublishRepositoryName] = useState(project.name);
+  const [publishRepositorySlug, setPublishRepositorySlug] = useState(normalizeArtifactRepositorySlug(project.name));
+  const [publishVersion, setPublishVersion] = useState("");
+  const [publishChannels, setPublishChannels] = useState("");
 
   const normalizedSecretName = normalizePipelineSecretName(secretName);
   const secretNameError = validatePipelineSecretName(normalizedSecretName);
@@ -518,6 +543,39 @@ export default function PipelineDetailClient({
     }
   }
 
+  async function publishSelectedArtifacts() {
+    if (!selectedRunId || selectedArtifacts.length === 0) return;
+    setPublishingArtifacts(true);
+    try {
+      const response = await fetch(`/api/projects/${project.id}/artifacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runId: selectedRunId,
+          artifactIds: selectedArtifacts.map((artifact) => artifact.id),
+          repositoryName: publishRepositoryName,
+          repositorySlug: publishRepositorySlug,
+          version: publishVersion,
+          channelNames: publishChannels
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error ?? p.publishFailed);
+      }
+      toast.success(p.publishSuccess);
+      setPublishDialogOpen(false);
+      setPublishChannels("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : p.publishFailed);
+    } finally {
+      setPublishingArtifacts(false);
+    }
+  }
+
   async function handleTriggerJob(jobKey: string) {
     if (!selectedRunId) return;
     setTriggeringJobKey(jobKey);
@@ -741,16 +799,31 @@ export default function PipelineDetailClient({
     );
   }
 
+  const currentRun = runs.find((r) => r.id === selectedRunId);
+  const selectedArtifacts = selectedRuntimeJob
+    ? artifacts.filter((artifact) => artifact.job_id === selectedRuntimeJob.id)
+    : artifacts;
+
+  useEffect(() => {
+    setPublishRepositoryName(project.name);
+    setPublishRepositorySlug(normalizeArtifactRepositorySlug(project.name));
+  }, [project.name]);
+
+  useEffect(() => {
+    if (!publishDialogOpen) return;
+    const repositoryName = selectedRuntimeJobConfig?.name?.trim() || project.name;
+    setPublishRepositoryName(repositoryName);
+    setPublishRepositorySlug(normalizeArtifactRepositorySlug(repositoryName));
+    const versionSeed = currentRun?.commit_sha?.slice(0, 12) || selectedRunId?.slice(0, 8) || "";
+    setPublishVersion(versionSeed ? `build-${versionSeed}` : "");
+    setPublishChannels("");
+  }, [currentRun?.commit_sha, project.name, publishDialogOpen, selectedRunId, selectedRuntimeJobConfig?.name]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) {
     return <PageLoading label={dict.common.loading} />;
   }
-
-  const currentRun = runs.find((r) => r.id === selectedRunId);
-  const selectedArtifacts = selectedRuntimeJob
-    ? artifacts.filter((artifact) => artifact.job_id === selectedRuntimeJob.id)
-    : artifacts;
 
   return (
     <div className="flex flex-col h-full">
@@ -1248,11 +1321,23 @@ export default function PipelineDetailClient({
 
                               {selectedArtifacts.length > 0 && (
                                 <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-background">
-                                  <div className="flex items-center gap-2 border-b border-[hsl(var(--ds-border-1))] px-4 py-2.5">
-                                    <Package className="size-3.5 text-[hsl(var(--ds-text-2))]" />
-                                    <span className="text-[12px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
-                                      {p.artifactsLabel.replace("{{count}}", String(selectedArtifacts.length))}
-                                    </span>
+                                  <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--ds-border-1))] px-4 py-2.5">
+                                    <div className="flex items-center gap-2">
+                                      <Package className="size-3.5 text-[hsl(var(--ds-text-2))]" />
+                                      <span className="text-[12px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
+                                        {p.artifactsLabel.replace("{{count}}", String(selectedArtifacts.length))}
+                                      </span>
+                                    </div>
+                                    {isAdmin && (
+                                      <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => setPublishDialogOpen(true)}
+                                      >
+                                        {p.publishArtifacts}
+                                      </Button>
+                                    )}
                                   </div>
                                   <div className="divide-y divide-[hsl(var(--ds-border-1))]">
                                     {selectedArtifacts.map((artifact) => {
@@ -1401,6 +1486,7 @@ export default function PipelineDetailClient({
                       jobs={config.jobs}
                       stageSettings={config.stages}
                       dict={p}
+                      artifactLoadFailedMessage={dict.artifacts.loadFailed}
                       isAdmin={isAdmin}
                       selectedJobId={selectedConfigJobId}
                       onSelectJob={(jobId) => setSelectedConfigJobId(jobId)}
@@ -1781,6 +1867,75 @@ export default function PipelineDetailClient({
           </div>
         )}
       </div>
+
+      <Dialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{p.publishArtifactsTitle}</DialogTitle>
+            <DialogDescription>{p.publishArtifactsDescription}</DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium text-foreground">{p.publishRepositoryName}</label>
+              <Input
+                value={publishRepositoryName}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setPublishRepositoryName(value);
+                  setPublishRepositorySlug(normalizeArtifactRepositorySlug(value));
+                }}
+                placeholder={p.publishRepositoryNamePlaceholder}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium text-foreground">{p.publishRepositorySlug}</label>
+              <Input
+                value={publishRepositorySlug}
+                onChange={(event) => setPublishRepositorySlug(normalizeArtifactRepositorySlug(event.target.value))}
+                placeholder={p.publishRepositorySlugPlaceholder}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium text-foreground">{p.publishVersion}</label>
+              <Input
+                value={publishVersion}
+                onChange={(event) => setPublishVersion(event.target.value)}
+                placeholder={p.publishVersionPlaceholder}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium text-foreground">{p.publishChannels}</label>
+              <Input
+                value={publishChannels}
+                onChange={(event) => setPublishChannels(event.target.value)}
+                placeholder={p.publishChannelsPlaceholder}
+              />
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setPublishDialogOpen(false)}
+              disabled={publishingArtifacts}
+            >
+              {dict.common.cancel}
+            </Button>
+            <Button
+              type="button"
+              onClick={publishSelectedArtifacts}
+              disabled={
+                publishingArtifacts ||
+                !publishRepositoryName.trim() ||
+                !publishRepositorySlug.trim() ||
+                !publishVersion.trim()
+              }
+            >
+              {publishingArtifacts ? dict.common.loading : p.publishArtifacts}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={secretToDelete !== null}

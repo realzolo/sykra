@@ -122,6 +122,44 @@ type PipelineArtifact struct {
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
+type ArtifactFile struct {
+	ID           string     `json:"id"`
+	OrgID        string     `json:"org_id"`
+	ProjectID    string     `json:"project_id"`
+	RepositoryID string     `json:"repository_id"`
+	VersionID    string     `json:"version_id"`
+	LogicalPath  string     `json:"logical_path"`
+	FileName     string     `json:"file_name"`
+	StoragePath  string     `json:"storage_path"`
+	SizeBytes    int64      `json:"size_bytes"`
+	Sha256       string     `json:"sha256,omitempty"`
+	CreatedAt    *time.Time `json:"created_at,omitempty"`
+}
+
+type ArtifactVersion struct {
+	ID             string     `json:"id"`
+	OrgID          string     `json:"org_id"`
+	ProjectID      string     `json:"project_id"`
+	RepositoryID   string     `json:"repository_id"`
+	RepositorySlug string     `json:"repository_slug"`
+	Version        string     `json:"version"`
+	ChannelName    string     `json:"channel_name,omitempty"`
+	CreatedAt      *time.Time `json:"created_at,omitempty"`
+}
+
+type ArtifactVersionUsage struct {
+	OrgID         string
+	ProjectID     string
+	RepositoryID  string
+	VersionID     string
+	PipelineRunID string
+	PipelineJobID string
+	Environment   string
+	ChannelName   string
+	UsageType     string
+	CreatedBy     string
+}
+
 type RunEvent struct {
 	ID         string          `json:"id"`
 	RunID      string          `json:"run_id"`
@@ -1917,6 +1955,12 @@ func (s *Store) ListExpiredPipelineArtifacts(ctx context.Context, now time.Time,
 		 from pipeline_artifacts a
 		 join pipeline_runs r on r.id = a.run_id
 		 where a.expires_at is not null and a.expires_at <= $1
+		   and not exists (
+		     select 1
+		     from artifact_blobs b
+		     where b.org_id = r.org_id
+		       and (b.sha256 = a.sha256 or b.storage_path = a.storage_path)
+		   )
 		 order by a.expires_at asc
 		 limit $2`,
 		now,
@@ -1980,6 +2024,191 @@ func (s *Store) DeletePipelineArtifactsByID(ctx context.Context, ids []string) e
 		ctx,
 		`delete from pipeline_artifacts where id = any($1::uuid[])`,
 		ids,
+	)
+	return err
+}
+
+func (s *Store) GetArtifactFile(ctx context.Context, fileID string) (*ArtifactFile, error) {
+	row := s.pool.QueryRow(
+		ctx,
+		`select f.id, f.org_id, v.project_id, v.repository_id, f.version_id, f.logical_path, f.file_name,
+		        b.storage_path, b.size_bytes, b.sha256, f.created_at
+		   from artifact_files f
+		   join artifact_versions v on v.id = f.version_id
+		   join artifact_blobs b on b.id = f.blob_id
+		  where f.id = $1`,
+		fileID,
+	)
+
+	var out ArtifactFile
+	var sha pgtype.Text
+	var createdAt pgtype.Timestamptz
+	if err := row.Scan(
+		&out.ID,
+		&out.OrgID,
+		&out.ProjectID,
+		&out.RepositoryID,
+		&out.VersionID,
+		&out.LogicalPath,
+		&out.FileName,
+		&out.StoragePath,
+		&out.SizeBytes,
+		&sha,
+		&createdAt,
+	); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if sha.Valid {
+		out.Sha256 = sha.String
+	}
+	if createdAt.Valid {
+		value := createdAt.Time
+		out.CreatedAt = &value
+	}
+	return &out, nil
+}
+
+func (s *Store) ResolveArtifactVersionForDeployment(
+	ctx context.Context,
+	projectID string,
+	repositorySlug string,
+	version string,
+	channel string,
+) (*ArtifactVersion, error) {
+	repositorySlug = strings.TrimSpace(repositorySlug)
+	version = strings.TrimSpace(version)
+	channel = strings.TrimSpace(channel)
+	if repositorySlug == "" {
+		return nil, fmt.Errorf("repository slug is required")
+	}
+
+	var (
+		row         pgx.Row
+		out         ArtifactVersion
+		createdAt   pgtype.Timestamptz
+		channelName pgtype.Text
+	)
+	if channel != "" {
+		row = s.pool.QueryRow(
+			ctx,
+			`select v.id, v.org_id, v.project_id, v.repository_id, r.slug, v.version, c.name, v.created_at
+			   from artifact_channels c
+			   join artifact_versions v on v.id = c.version_id
+			   join artifact_repositories r on r.id = c.repository_id
+			  where c.project_id = $1
+			    and r.slug = $2
+			    and c.name = $3`,
+			projectID,
+			repositorySlug,
+			channel,
+		)
+	} else {
+		row = s.pool.QueryRow(
+			ctx,
+			`select v.id, v.org_id, v.project_id, v.repository_id, r.slug, v.version, null::text as channel_name, v.created_at
+			   from artifact_versions v
+			   join artifact_repositories r on r.id = v.repository_id
+			  where v.project_id = $1
+			    and r.slug = $2
+			    and v.version = $3`,
+			projectID,
+			repositorySlug,
+			version,
+		)
+	}
+	if err := row.Scan(
+		&out.ID,
+		&out.OrgID,
+		&out.ProjectID,
+		&out.RepositoryID,
+		&out.RepositorySlug,
+		&out.Version,
+		&channelName,
+		&createdAt,
+	); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if channelName.Valid {
+		out.ChannelName = channelName.String
+	}
+	if createdAt.Valid {
+		value := createdAt.Time
+		out.CreatedAt = &value
+	}
+	return &out, nil
+}
+
+func (s *Store) ListArtifactFilesForVersion(ctx context.Context, versionID string) ([]ArtifactFile, error) {
+	rows, err := s.pool.Query(
+		ctx,
+		`select f.id, f.org_id, v.project_id, v.repository_id, f.version_id, f.logical_path, f.file_name,
+		        b.storage_path, b.size_bytes, b.sha256, f.created_at
+		   from artifact_files f
+		   join artifact_versions v on v.id = f.version_id
+		   join artifact_blobs b on b.id = f.blob_id
+		  where f.version_id = $1
+		  order by f.logical_path asc`,
+		versionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ArtifactFile, 0)
+	for rows.Next() {
+		var item ArtifactFile
+		var sha pgtype.Text
+		var createdAt pgtype.Timestamptz
+		if err := rows.Scan(
+			&item.ID,
+			&item.OrgID,
+			&item.ProjectID,
+			&item.RepositoryID,
+			&item.VersionID,
+			&item.LogicalPath,
+			&item.FileName,
+			&item.StoragePath,
+			&item.SizeBytes,
+			&sha,
+			&createdAt,
+		); err != nil {
+			return nil, err
+		}
+		if sha.Valid {
+			item.Sha256 = sha.String
+		}
+		if createdAt.Valid {
+			value := createdAt.Time
+			item.CreatedAt = &value
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) InsertArtifactVersionUsage(ctx context.Context, usage ArtifactVersionUsage) error {
+	_, err := s.pool.Exec(
+		ctx,
+		`insert into artifact_version_usages
+		   (org_id, project_id, repository_id, version_id, pipeline_run_id, pipeline_job_id, environment, channel_name, usage_type, created_by, created_at)
+		 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())`,
+		usage.OrgID,
+		usage.ProjectID,
+		usage.RepositoryID,
+		usage.VersionID,
+		nullIfEmpty(usage.PipelineRunID),
+		nullIfEmpty(usage.PipelineJobID),
+		nullIfEmpty(usage.Environment),
+		nullIfEmpty(usage.ChannelName),
+		usage.UsageType,
+		nullIfEmpty(usage.CreatedBy),
 	)
 	return err
 }
