@@ -150,12 +150,27 @@ const pipelineStagesSchema = z
 export const pipelineConfigSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().optional(),
+  buildImage: z.string().optional(),
   variables: z.record(z.string(), z.string()).optional(),
   environment: z.enum(['development', 'staging', 'production']).default('production'),
   trigger: pipelineTriggerSchema,
   notifications: pipelineNotificationsSchema,
   stages: pipelineStagesSchema,
   jobs: z.array(pipelineJobSchema).min(1),
+}).superRefine((config, ctx) => {
+  for (const job of config.jobs) {
+    const stage = job.stage ?? (job.type === 'source_checkout' ? 'source' : job.type === 'review_gate' ? 'review' : 'build');
+    const isDeployStage = stage === 'deploy' || stage === 'after_deploy';
+    for (const step of job.steps) {
+      if (!isDeployStage && (step.type ?? 'shell') === 'docker') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'CI stages must use the pipeline buildImage instead of step-level docker mode',
+          path: ['jobs', config.jobs.indexOf(job), 'steps', job.steps.indexOf(step), 'type'],
+        });
+      }
+    }
+  }
 });
 
 export const createPipelineSchema = z.object({
@@ -163,12 +178,28 @@ export const createPipelineSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   config: pipelineConfigSchema,
+}).superRefine((value, ctx) => {
+  if (!value.config.buildImage?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'buildImage is required',
+      path: ['config', 'buildImage'],
+    });
+  }
 });
 
 export const updatePipelineSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
   config: pipelineConfigSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (value.config && !value.config.buildImage?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'buildImage is required',
+      path: ['config', 'buildImage'],
+    });
+  }
 });
 
 export const notificationSettingsSchema = z.object({

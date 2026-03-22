@@ -63,7 +63,7 @@ import type {
   PipelineSummary,
 } from "@/services/pipelineTypes";
 import {
-  analyzePipelineJobs,
+  analyzePipelineConfig,
   createDefaultPipelineConfig,
   detectPipelineSchedulePreset,
   durationLabel,
@@ -90,6 +90,7 @@ import {
 } from "@/services/pipelineSecrets";
 import StageBuilder from "@/components/pipeline/StageBuilder";
 import PipelineScheduleField from "@/components/pipeline/PipelineScheduleField";
+import BuildImageField from "@/components/pipeline/BuildImageField";
 
 type Tab = "runs" | "configure";
 type ConfigureSection = "jobs" | "settings";
@@ -215,8 +216,11 @@ export default function PipelineDetailClient({
   };
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const configDiagnostics = useMemo(
-    () => analyzePipelineJobs(config?.jobs ?? []),
-    [config?.jobs]
+    () =>
+      config
+        ? analyzePipelineConfig(config, config.jobs ?? [])
+        : [],
+    [config]
   );
   const hasConfigErrors = useMemo(
     () => configDiagnostics.some((item) => item.level === "error"),
@@ -434,7 +438,7 @@ export default function PipelineDetailClient({
     setSaving(true);
     try {
       const normalizedConfig = normalizePipelineConfigForSave(config, project.default_branch);
-      const diagnostics = analyzePipelineJobs(normalizedConfig.jobs);
+      const diagnostics = analyzePipelineConfig(normalizedConfig, normalizedConfig.jobs);
       const firstError = diagnostics.find((item) => item.level === "error");
       if (firstError) {
         toast.error(`${p.jobs.diagnosticsErrorPrefix}: ${firstError.message}`);
@@ -1596,6 +1600,14 @@ export default function PipelineDetailClient({
                       </div>
                     </div>
 
+                    <BuildImageField
+                      dict={p.basic}
+                      buildImage={config.buildImage ?? ""}
+                      onChange={(patch) =>
+                        setConfig((current) => (current ? { ...current, ...patch } : current))
+                      }
+                    />
+
                     <div className="flex items-start gap-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-muted/20 px-4 py-3 max-w-3xl">
                       <Switch
                         checked={config.trigger.autoTrigger}
@@ -2213,6 +2225,7 @@ function normalizePipelineConfigForSave(config: PipelineConfig, defaultBranch: s
   const schedule = config.trigger.schedule?.trim();
   return {
     ...config,
+    buildImage: config.buildImage?.trim() ?? "",
     trigger: {
       autoTrigger: config.trigger.autoTrigger,
       ...(schedule ? { schedule } : {}),

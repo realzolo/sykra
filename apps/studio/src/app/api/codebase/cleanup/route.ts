@@ -7,9 +7,9 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   const token = request.headers.get('x-task-token');
-  const isTaskScheduler = Boolean(process.env.TASK_SCHEDULER_TOKEN && token === process.env.TASK_SCHEDULER_TOKEN);
-  const user = isTaskScheduler ? null : await requireUser();
-  if (!isTaskScheduler && !user) return unauthorized();
+  const isTaskConductor = Boolean(process.env.TASK_CONDUCTOR_TOKEN && token === process.env.TASK_CONDUCTOR_TOKEN);
+  const user = isTaskConductor ? null : await requireUser();
+  if (!isTaskConductor && !user) return unauthorized();
 
   const { searchParams } = new URL(request.url);
   const maxAgeHours = parsePositiveNumber(searchParams.get('max_age_hours'));

@@ -23,7 +23,7 @@ AI-powered code review and CI/CD pipeline platform. Connect GitHub/GitLab reposi
 | AI | Anthropic Claude SDK (supports custom `ANTHROPIC_BASE_URL`) |
 | Database | PostgreSQL 14+ |
 | Coordination | PostgreSQL-backed polling |
-| Scheduler (Control Plane) | Go 1.24 |
+| Conductor (Control Plane) | Go 1.24 |
 | Auth | Session cookies + email verification |
 
 ## Monorepo Layout
@@ -31,8 +31,8 @@ AI-powered code review and CI/CD pipeline platform. Connect GitHub/GitLab reposi
 ```
 apps/
   studio/     Next.js web app (port 8109 in dev)
-  scheduler/     Go control-plane service (port 8200 in dev)
-  worker/     Go execution agent (optional in local dev, required for pipeline steps)
+  conductor/  Go Conductor service (port 8200 in dev)
+  worker/     Go deploy worker (remote deployment executor)
 docs/
   db/         init.sql schema + incremental migrations
 ```
@@ -58,8 +58,8 @@ Create `apps/studio/.env`:
 ```env
 DATABASE_URL=postgres://user:pass@localhost/specaxis
 ENCRYPTION_KEY=<64-char hex>          # openssl rand -hex 32
-SCHEDULER_BASE_URL=http://localhost:8200
-SCHEDULER_TOKEN=dev-scheduler
+CONDUCTOR_BASE_URL=http://localhost:8200
+CONDUCTOR_TOKEN=dev-conductor
 EMAIL_PROVIDER=console
 EMAIL_VERIFICATION_REQUIRED=false
 ```
@@ -72,14 +72,14 @@ psql "$DATABASE_URL" -f docs/db/init.sql
 # Apply the numbered files in docs/db/migrations/ in order.
 ```
 
-### 4. Configure the Scheduler
+### 4. Configure Conductor
 
-Create `apps/scheduler/config.toml`:
+Create `apps/conductor/config.toml`:
 
 ```toml
-[scheduler]
+[conductor]
 port = "8200"
-token = "dev-scheduler"
+token = "dev-conductor"
 
 [database]
 url = "postgres://user:pass@localhost/specaxis"
@@ -89,7 +89,7 @@ encryption_key = "<same key as Studio>"
 
 [studio]
 url = "http://localhost:8109"
-token = "dev-scheduler"
+token = "dev-conductor"
 ```
 
 ### 5. Start
@@ -99,10 +99,10 @@ token = "dev-scheduler"
 pnpm dev
 
 # Terminal 2
-cd apps/scheduler && go run .
+cd apps/conductor && go run .
 
-# Terminal 3 (optional, for distributed pipeline execution)
-cd apps/worker && go run .
+# Terminal 3 (remote deploy worker)
+cd apps/worker && WORKER_ID=deploy-worker-1 go run .
 ```
 
 Open [http://localhost:8109](http://localhost:8109).
@@ -113,10 +113,10 @@ Open [http://localhost:8109](http://localhost:8109).
 pnpm dev                                  # Studio dev server
 pnpm build                                # Production build + TypeScript check
 pnpm lint                                 # ESLint
-cd apps/scheduler && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...  # Build scheduler
+cd apps/conductor && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...  # Build Conductor
 cd apps/worker && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...  # Build worker
-cd apps/scheduler && go run .                # Start scheduler
-cd apps/worker && go run .                # Start worker
+cd apps/conductor && go run .                # Start Conductor
+cd apps/worker && go run .                    # Start deploy worker
 psql "$DATABASE_URL" -f docs/db/init.sql  # Reset schema
 ```
 
@@ -130,6 +130,15 @@ Local caches are standardized under repository root `/.cache/` (for example `/.c
 | `docker` | `dockerImage: "node:22-alpine"` | `docker run --rm -w /workspace -v {workingDir}:/workspace {image} /bin/sh -c "{script}"` |
 
 Set step type in pipeline job steps (Shell/Docker).
+
+## Pipeline Execution Model
+
+| Executor | Responsibility | Typical Location |
+|----------|----------------|------------------|
+| `Conductor` | Create CI runner containers, execute checkout/review/build inside the sandbox, publish artifacts | Same server as Studio or same private network |
+| `Worker` | Pull artifacts from Conductor and deploy to target environment | Remote server / target environment |
+
+Conductor is the only CI executor. Every pipeline must define a top-level `buildImage`; Conductor uses that image to create a fresh per-job runner container for every `source`, `review`, and `build` job, then runs all steps in that job via `docker exec` inside the same sandbox so workspace state persists across steps. Worker is deploy-only; it connects to Conductor over WebSocket, downloads prepared artifacts, and executes deployment steps remotely. Workers that advertise the `docker` capability probe the Docker daemon at startup and fail fast if it is unavailable.
 
 ## Pipeline Concurrency Modes
 
@@ -168,18 +177,22 @@ VCS and AI integrations are configured in the web UI (Settings > Integrations), 
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | Studio Postgres connection string |
-| `ENCRYPTION_KEY` | AES-256-GCM key (32 bytes hex) — same value for Studio and Scheduler |
-| `SCHEDULER_BASE_URL` | Scheduler HTTP base URL |
-| `SCHEDULER_TOKEN` | Shared auth token (Studio → Scheduler) |
+| `ENCRYPTION_KEY` | AES-256-GCM key (32 bytes hex) — same value for Studio and Conductor |
+| `CONDUCTOR_BASE_URL` | Conductor HTTP base URL |
+| `CONDUCTOR_TOKEN` | Shared auth token (Studio → Conductor) |
 | `EMAIL_PROVIDER` | `console` or `resend` |
 | `EMAIL_VERIFICATION_REQUIRED` | `true` or `false` |
 
-Scheduler also needs `STUDIO_URL` and `STUDIO_TOKEN`. See [CLAUDE.md](./CLAUDE.md) for the full list.
+Conductor also needs `STUDIO_URL` and `STUDIO_TOKEN`, and it now fails fast at startup if Docker is unavailable. See [CLAUDE.md](./CLAUDE.md) for the full list.
+
+Worker is deploy-only and no longer uses `WORKER_ROLE`. See [CLAUDE.md](./CLAUDE.md) for the full worker env matrix.
 
 ## Deployment
 
-- Studio and Scheduler should be deployed with the same container-first workflow on your own infrastructure.
-- Studio runs as a Next.js server image, Scheduler runs as a Go service image, and both sit behind a reverse proxy such as nginx, Traefik, or Caddy.
+- Studio and Conductor should be deployed with the same container-first workflow on your own infrastructure.
+- Studio runs as a Next.js server image, Conductor runs as a Go service image, and both sit behind a reverse proxy such as nginx, Traefik, or Caddy.
+- Conductor itself must run with access to the host Docker daemon (for example by mounting `/var/run/docker.sock`) so CI runner containers can be created and destroyed per job.
+- The pipeline `buildImage` must already contain the toolchain your project needs. CI stages no longer support step-level `docker` mode; `source`, `review`, and `build` all run inside the job sandbox image.
 - Keep Postgres as the required external service, and apply `docs/db/init.sql` plus all migrations before deploying.
 
 ## Documentation

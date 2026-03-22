@@ -1,6 +1,6 @@
 # Spec-Axis Product Roadmap
 
-> **Last updated:** 2026-03-21
+> **Last updated:** 2026-03-22
 
 ---
 
@@ -58,31 +58,24 @@
 │        Next.js 16 · React 19 · TypeScript           │
 │   UI · API Routes · Auth · DB Services · Webhooks   │
 └────────────────────┬────────────────────────────────┘
-                     │ HTTP (SCHEDULER_BASE_URL)
-                     │ X-Scheduler-Token
+                     │ HTTP (CONDUCTOR_BASE_URL)
+                     │ X-Conductor-Token
 ┌────────────────────▼────────────────────────────────┐
-│                    apps/scheduler                       │
-│                  Go 1.24 Service                     │
-│  Control Plane · Postgres Polling · Worker Dispatch │
-└──────────┬──────────────────────────┬───────────────┘
-           │
-    ┌──────▼──────┐
-    │  PostgreSQL  │
-    │ (data +      │
-    │ coordination)│
-    └─────────────┘
-                     WebSocket control channel
-                               │
-                     ┌─────────▼─────────┐
-                     │    apps/worker    │
-                     │ Execution Agent   │
-                     │ Shell · Docker    │
-                     └───────────────────┘
+│                    apps/conductor                  │
+│                  Go 1.24 Service                   │
+│  Control Plane · CI Sandbox Manager · Dispatch     │
+└──────────┬───────────────────────────────┬──────────┘
+           │                               │
+    ┌──────▼──────┐                ┌───────▼────────┐
+    │  PostgreSQL  │                │ Deploy Worker  │
+    │ (data +      │                │ (remote host)  │
+    │ coordination)│                │ deploy-only    │
+    └─────────────┘                └────────────────┘
 ```
 
 **Key design decisions:**
-- Studio and Scheduler are separate services communicating over HTTP — Scheduler can be scaled independently
-- Scheduler is the control plane; Worker agents execute pipeline jobs and stream step progress, logs, and artifacts back to Scheduler
+- Studio and Conductor are separate services communicating over HTTP — Conductor can be scaled independently
+- Conductor is both the control plane and the CI sandbox manager; it creates per-job runner containers from the pipeline `buildImage` for checkout/review/build execution, while remote deploy workers handle deployment-only jobs
 - PostgreSQL is the coordination layer for analysis admission and pipeline dispatch
 - Integrations (VCS, AI) configured via web UI, stored encrypted in DB — no env var sprawl
 - Stage-based pipeline builder with fixed core columns (`source`, `review`, `build`, `deploy`) and on-demand automation slots; runtime DAG is derived from stage order and dispatch mode
@@ -217,7 +210,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Run history list | ✅ Done | Status icon, trigger type, branch, timestamp, duration |
 | Stage progress visualization | ✅ Done | 4-dot pipeline bar with labels |
 | Real-time log viewer | ✅ Done | Dark terminal UI, polling at 2.5 s while running |
-| Per-step log files | ✅ Done | Stored at `SCHEDULER_DATA_DIR/logs/{run_id}/{job}/{step}.log` |
+| Per-step log files | ✅ Done | Stored at `CONDUCTOR_DATA_DIR/logs/{run_id}/{job}/{step}.log` |
 | Concurrent job execution | ✅ Done | `PIPELINE_CONCURRENCY` config |
 | Job DAG dependency resolution | ✅ Done | `needs` field, topological scheduling |
 | Cancel pending jobs on failure | ✅ Done | Upstream failure cancels downstream queued jobs |
@@ -226,9 +219,9 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Run output artifacts | ✅ Done | Shell steps upload matched files, retention cleanup preserves downloadability, and Studio can fetch/download per-run artifacts |
 | Docker / container executor | ⬜ Planned | Currently shell-only |
 | In-place config editor | ✅ Done | "Configure" tab in detail page |
-| Notification on success / failure | ✅ Done | Scheduler posts pipeline/report events back to Studio; Studio sends email notifications with per-user preferences and pipeline-level channel gating |
-| Cron / scheduled trigger | ✅ Done | `trigger_schedule` + `last_scheduled_at` + `next_scheduled_at` persisted on pipelines; scheduler scans and enqueues due runs |
-| TOML config file for Scheduler | ✅ Done | `[scheduler]`, `[pipeline]`, `[studio]`, `[database]`, etc. |
+| Notification on success / failure | ✅ Done | Conductor posts pipeline/report events back to Studio; Studio sends email notifications with per-user preferences and pipeline-level channel gating |
+| Cron / scheduled trigger | ✅ Done | `trigger_schedule` + `last_scheduled_at` + `next_scheduled_at` persisted on pipelines; conductor scans and enqueues due runs |
+| TOML config file for Conductor | ✅ Done | `[conductor]`, `[pipeline]`, `[studio]`, `[database]`, etc. |
 
 ### 3.9 Settings & Localization
 
@@ -249,7 +242,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Artifact channels | ✅ Done | Channels point to immutable versions for deploy-time resolution |
 | Artifact browser and download routes | ✅ Done | Studio exposes artifact pages and file download endpoints |
 | Deploy-step artifact source selection | ✅ Done | Deploy steps can target same-run outputs or a published registry version/channel |
-| Pull-based remote deployment | ✅ Done | Worker pulls immutable files from scheduler-backed storage during deployment |
+| Pull-based remote deployment | ✅ Done | Worker pulls immutable files from conductor-backed storage during deployment |
 
 ---
 
@@ -335,22 +328,22 @@ These are the most important remaining gaps for daily product use.
 
 **Scope:**
 - New `docker` step type in pipeline config
-- Scheduler spawns Docker containers, mounts workspace, streams logs
+- Conductor spawns Docker containers, mounts workspace, streams logs
 - Image pull policy
 - Resource limits for CPU and memory
 
 ---
 
-#### 4.9 Multi-Scheduler Node Support
+#### 4.9 Multi-Conductor Node Support
 
-**Why:** A single Scheduler process becomes a bottleneck as pipeline volume grows.
+**Why:** A single Conductor process becomes a bottleneck as pipeline volume grows.
 
 **Scope:**
-- Scheduler registration/heartbeat
-- Studio-side load balancing: assign runs to available schedulers
-- Scheduler health endpoint
+- Conductor registration/heartbeat
+- Studio-side load balancing: assign runs to available conductors
+- Conductor health endpoint
 - Graceful drain on shutdown
-- Run-to-scheduler assignment visible in run detail
+- Run-to-conductor assignment visible in run detail
 
 ---
 
@@ -419,7 +412,7 @@ Focus: collaboration and management visibility.
 🚧 To complete in Phase 3:
    ├── 4.7  Org-Level Analytics Dashboard
    ├── 4.8  Docker / Container Step Executor
-   └── 4.9  Multi-Scheduler Node Support
+   └── 4.9  Multi-Conductor Node Support
 ```
 
 **Exit criteria:** Multi-team organizations can use Spec-Axis as their shared code quality control plane.
@@ -451,6 +444,6 @@ The following items are not user-facing features but should be addressed alongsi
 | Pipeline `auto_trigger` webhook — multiple orgs same repo | Medium | Currently iterates all orgs, could be expensive at scale |
 | Store `GetPipeline` / `ListPipelines` — add cursor pagination | Medium | Currently unbounded queries; will degrade with 1000+ pipelines |
 | SSE report streaming — add heartbeat | Low | Clients can time out on slow analyses |
-| Test coverage — Scheduler pipeline package | High | No unit tests for `engine.go`, `executor.go`, `types.go` |
+| Test coverage — Conductor pipeline package | High | No unit tests for `engine.go`, `executor.go`, `types.go` |
 | Test coverage — Studio API routes | High | No integration tests for critical routes |
 | Dependency audit | Low | Review and approve any new `pnpm` build scripts in `.npmrc` |

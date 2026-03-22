@@ -8,6 +8,6 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./scheduler": "./src/scheduler.ts"
+    "./conductor": "./src/conductor.ts"
   }
 }

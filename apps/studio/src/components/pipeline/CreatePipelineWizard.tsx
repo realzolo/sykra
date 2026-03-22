@@ -27,13 +27,14 @@ import type {
   PipelineJobDiagnostic,
 } from "@/services/pipelineTypes";
 import {
-  analyzePipelineJobs,
+  analyzePipelineConfig,
   createDefaultPipelineConfig,
   normalizePipelineJobs,
   normalizeStageSettings,
 } from "@/services/pipelineTypes";
 import StageBuilder from "@/components/pipeline/StageBuilder";
 import PipelineScheduleField from "@/components/pipeline/PipelineScheduleField";
+import BuildImageField from "@/components/pipeline/BuildImageField";
 
 type Props = {
   open: boolean;
@@ -70,8 +71,8 @@ export default function CreatePipelineWizard({
     [config.jobs, config.stages, project.default_branch]
   );
   const diagnostics = useMemo(
-    () => analyzePipelineJobs(normalizedJobs),
-    [normalizedJobs]
+    () => analyzePipelineConfig(config, normalizedJobs),
+    [config, normalizedJobs]
   );
   const hasBlockingErrors = useMemo(
     () => diagnostics.some((item) => item.level === "error"),
@@ -122,7 +123,7 @@ export default function CreatePipelineWizard({
       const trimmedName = name.trim();
       const trimmedDescription = description.trim();
       const finalJobs = normalizePipelineJobs(config.jobs, config.stages, project.default_branch);
-      const jobDiagnostics = analyzePipelineJobs(finalJobs);
+      const jobDiagnostics = analyzePipelineConfig(config, finalJobs);
       const firstError = jobDiagnostics.find((item) => item.level === "error");
 
       if (!trimmedName) {
@@ -138,6 +139,7 @@ export default function CreatePipelineWizard({
       const finalConfig: PipelineConfig = {
         ...config,
         name: trimmedName,
+        buildImage: config.buildImage?.trim() ?? "",
         trigger: {
           autoTrigger: config.trigger.autoTrigger,
           ...(config.trigger.schedule?.trim()
@@ -275,6 +277,13 @@ export default function CreatePipelineWizard({
                   {p.basic.environmentHelp}
                 </div>
               </div>
+
+              <BuildImageField
+                dict={p.basic}
+                buildImage={config.buildImage ?? ""}
+                required
+                onChange={(patch) => setConfig((current) => ({ ...current, ...patch }))}
+              />
 
               <div className="flex items-start gap-3 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-muted/20 px-4 py-3">
                 <Switch

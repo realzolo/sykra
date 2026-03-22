@@ -3,13 +3,13 @@
 
 const args = process.argv.slice(2);
 const baseUrl = (process.env.STUDIO_BASE_URL || 'http://localhost:8109').replace(/\/+$/, '');
-const token = process.env.TASK_SCHEDULER_TOKEN;
+const token = process.env.TASK_CONDUCTOR_TOKEN;
 
 const maxAgeHours = getArgValue(args, '--max-age-hours');
 const maxAgeMs = getArgValue(args, '--max-age-ms');
 
 if (!token) {
-  console.error('TASK_SCHEDULER_TOKEN is required to run codebase cleanup via API.');
+  console.error('TASK_CONDUCTOR_TOKEN is required to run codebase cleanup via API.');
   process.exit(1);
 }
 

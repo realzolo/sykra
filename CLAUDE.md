@@ -31,9 +31,9 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 
 AI code review + CI/CD platform: Next.js 16 + React 19 + TypeScript + Tailwind CSS v4.
 Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring, and a stage-based pipeline builder.
-Backend: PostgreSQL for core data, Go scheduler executes analysis jobs, evaluates cron-based pipeline schedules, and orchestrates analysis/pipeline execution with Postgres-backed polling; pipeline step execution is worker-only and handled by long-lived Worker agents connected over WebSocket control channels (Scheduler=control plane, Worker=execution plane); status updates stream via SSE with polling fallback.
-Monorepo layout: `apps/studio` (Next.js), `apps/scheduler` (Go scheduler control plane), `apps/worker` (Go execution agent), `packages/*` (shared contracts).
-Deployment model: Studio and Scheduler are self-hosted services deployed with the same container-first workflow; Studio is built as a Next.js server image, Scheduler as a Go service image, and both are run behind a reverse proxy on the same platform or cluster.
+Backend: PostgreSQL for core data, Go Conductor executes analysis jobs, evaluates cron-based pipeline schedules, and orchestrates analysis/pipeline execution with Postgres-backed polling; pipeline `source/review/build` execution runs inside Conductor-managed per-job runner containers while remote Worker agents remain deploy-only executors connected over WebSocket control channels; status updates stream via SSE with polling fallback.
+Monorepo layout: `apps/studio` (Next.js), `apps/conductor` (Go Conductor service), `apps/worker` (Go execution agent), `packages/*` (shared contracts).
+Deployment model: Studio and Conductor are self-hosted services deployed with the same container-first workflow; Studio is built as a Next.js server image, Conductor as a Go service image, and both are run behind a reverse proxy on the same platform or cluster. Conductor is also the CI sandbox manager for pipeline `source/review/build` stages and must have access to the host Docker daemon (for example via `/var/run/docker.sock`) so it can create per-job runner containers from the pipeline `buildImage`; remote Workers are deploy-only nodes that pull prepared artifacts for deployment.
 Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 
 **Key platform features:**
@@ -48,18 +48,18 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Project branch selection is unified through a shared searchable combobox + `useProjectBranches` hook across codebase browsing, commit filtering/compare, and pipeline Source editing so branch UX stays consistent everywhere.
 - Project-scoped single-value filters that need searchable selection, such as report status or commit author, should also use the shared combobox rather than bespoke select widgets.
 - Project configuration selectors that are effectively searchable single-value bindings, such as AI integration selection, should also use the shared combobox.
-- Pipeline environment is execution-semantic, not decorative: `config.environment` is sent through scheduler dispatch for worker selection and exposed to steps as `PIPELINE_ENVIRONMENT`.
-- Pipeline trigger scheduling is first-class: `config.trigger.schedule` stores a UTC cron expression, scheduler persists `pipelines.trigger_schedule` / `last_scheduled_at` / `next_scheduled_at`, and the schedule loop owns due-run enqueueing.
+- Pipeline environment is execution-semantic, not decorative: `config.environment` is sent through Conductor dispatch for worker selection and exposed to steps as `PIPELINE_ENVIRONMENT`.
+- Pipeline trigger scheduling is first-class: `config.trigger.schedule` stores a UTC cron expression, Conductor persists `pipelines.trigger_schedule` / `last_scheduled_at` / `next_scheduled_at`, and the schedule loop owns due-run enqueueing.
 - Pipeline runtime UX is separate from authoring: runs render as stage columns with per-node status, logs, artifacts, and node-level manual trigger actions for jobs that enter a manual stage
-- Manual execution semantics are node-based, not stage-resume based: when a manual stage becomes ready, each ready job is marked `waiting_manual`; Studio triggers a specific `job_key`, scheduler requeues the run, and only that approved node proceeds
+- Manual execution semantics are node-based, not stage-resume based: when a manual stage becomes ready, each ready job is marked `waiting_manual`; Studio triggers a specific `job_key`, Conductor requeues the run, and only that approved node proceeds
 - Pipeline run lifecycle control is explicit: active runs can be canceled from Studio through the local `/api/pipeline-runs/:runId/cancel` route before pipeline deletion can succeed, and run-history node details should open in a dialog instead of a persistent right-side inspector panel.
 - Pipeline artifact observability: project pipelines page includes artifact download health cards (total, success rate, p95 latency, failures) powered by `GET /api/projects/:id/artifact-download-stats`
-- Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; scheduler uses project override first, then global scheduler default
+- Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; Conductor uses project override first, then global Conductor default
 - Worker artifact handoff: deploy steps can declare `artifactInputs` patterns; Worker downloads matched artifacts from earlier steps in the same run before step execution, with checksum validation + retry and run events (`step.artifact.pull_*`)
 - Artifact registry is project-scoped and separate from run outputs: Studio exposes `/o/:orgId/projects/:id/artifacts`, published versions live in `artifact_repositories` / `artifact_versions` / `artifact_files` / `artifact_channels`, and pipeline runs can promote selected run outputs into immutable release versions.
-- Artifact blob storage is deduplicated by `(org_id, sha256)` in `artifact_blobs`; scheduler cleanup must not delete storage objects that are referenced by published registry versions.
-- Artifact deployment flow is pull-based for remote workers: workers should fetch immutable artifact versions from scheduler-backed artifact storage rather than receiving binary payloads over the WebSocket control channel; deployment/promotion provenance is recorded in `artifact_version_usages`.
-- Deploy steps can choose their artifact source explicitly: `run` consumes same-run outputs while `registry` consumes an immutable published repository version or deployment channel, and scheduler resolves the selected registry version before handing the step to Worker.
+- Artifact blob storage is deduplicated by `(org_id, sha256)` in `artifact_blobs`; Conductor cleanup must not delete storage objects that are referenced by published registry versions.
+- Artifact deployment flow is pull-based for remote workers: workers should fetch immutable artifact versions from Conductor-backed artifact storage rather than receiving binary payloads over the WebSocket control channel; deployment/promotion provenance is recorded in `artifact_version_usages`.
+- Deploy steps can choose their artifact source explicitly: `run` consumes same-run outputs while `registry` consumes an immutable published repository version or deployment channel, and Conductor resolves the selected registry version before handing the step to Worker.
 - Notification settings UI at `/o/:orgId/settings/notifications` is delivery-aware and backed by `/api/notification-settings`; it exposes only shipped email preferences (`pipeline run results`, `analysis report ready`, optional report score threshold) and surfaces provider health (`live`, `development console`, `misconfigured`)
 - Global settings pages now share a common shell/section pattern via `SettingsPageShell` and `SettingsSection`; new settings surfaces should compose those primitives instead of introducing custom page chrome.
 - Settings pages should also use `SettingsEmptyState` for no-data states so empty views stay visually consistent across integrations, organizations, security, and future settings surfaces.
@@ -118,12 +118,12 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 | PostgreSQL | 14+ | Primary database (self-managed) |
 | Octokit | `^5.0.5` | GitHub API |
 | Native Fetch (LLM adapters) | Built-in | Unified provider transport for AI integrations (`/chat/completions`, `/responses`, Anthropic Messages API) |
-| Go | 1.24.0 | Scheduler service |
-| Gorilla WebSocket | ^1.5.3 | Scheduler↔Worker long-lived control channel |
-| AWS SDK for Go v2 | ^1.39 | Scheduler artifact backend for S3-compatible object storage |
-| robfig/cron/v3 | ^3.x | Scheduler cron parsing and next-run evaluation |
+| Go | 1.24.0 | Conductor service |
+| Gorilla WebSocket | ^1.5.3 | Conductor↔Worker long-lived control channel |
+| AWS SDK for Go v2 | ^1.39 | Conductor artifact backend for S3-compatible object storage |
+| robfig/cron/v3 | ^3.x | Conductor cron parsing and next-run evaluation |
 | doublestar | ^4.10 | Worker-side `artifactPaths` glob matching (includes `**`) |
-| TOML | 1.6.0 | `github.com/BurntSushi/toml` for scheduler config |
+| TOML | 1.6.0 | `github.com/BurntSushi/toml` for conductor config |
 | sonner | ^2 | Toast notifications |
 | zod | `^4.3.6` | Runtime validation |
 | lucide-react | ^0.577 | Icons |
@@ -132,8 +132,8 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 
 - **No compatibility design/code paths**: Do not add dual-field parsing (`foo ?? Foo`), legacy aliases, or fallback branches for stale response shapes.
 - **No compatibility naming**: Do not introduce `legacy*`, `compat*`, `polyfill*`, or similar identifiers.
-- **Single contract source**: Scheduler HTTP contracts are defined in `packages/contracts/src/scheduler.ts` and consumed by Studio.
-- **Scheduler timestamp contract**: Scheduler API datetime fields must be validated as ISO8601/RFC3339 with timezone offsets allowed (`datetime({ offset: true })`), not `Z`-only.
+- **Single contract source**: Conductor HTTP contracts are defined in `packages/contracts/src/conductor.ts` and consumed by Studio.
+- **Conductor timestamp contract**: Conductor API datetime fields must be validated as ISO8601/RFC3339 with timezone offsets allowed (`datetime({ offset: true })`), not `Z`-only.
 - **Server-enforced project scope**: Project-scoped list APIs (for example `/api/reports` and `/api/pipelines`) must validate `projectId` access and enforce filtering on the server side; never rely on client-side filtering for tenant boundaries.
 - **Type safety baseline**: `apps/studio/tsconfig.json` enforces strict type checks (`allowJs: false`, `skipLibCheck: false`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true`).
 - **Schema requirement**: latest schema (`docs/db/init.sql`) and any required upgrade migrations must be applied before runtime. Missing required columns/tables (for example `pipelines.concurrency_mode`, `code_projects.artifact_retention_days`, `pipeline_artifact_download_events`) are treated as errors, not tolerated with fallback logic.
@@ -141,7 +141,7 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 - **Fail-fast on unsupported providers**: Provider switch statements must throw on unknown values; no silent fallback client selection.
 - **Unified AI transport**: Studio AI integrations must use the shared fetch-based adapter path; do not add provider-specific SDK dependencies in feature/business routes.
 - **Capability-driven AI params**: AI integration forms must render advanced parameters (for example `temperature`, `reasoningEffort`) from model/baseUrl/apiStyle capability rules, and unsupported parameters must not be sent in runtime requests.
-- **Git hygiene**: Runtime and build outputs must stay untracked (`apps/scheduler/data/`, `apps/scheduler/scheduler`, `apps/worker/worker`), and local environment files should use `*.env` patterns while keeping `*.env.example` tracked. Scheduler local config lives at `apps/scheduler/config.toml` and must remain untracked.
+- **Git hygiene**: Runtime and build outputs must stay untracked (`apps/conductor/data/`, `apps/conductor/conductor`, `apps/worker/worker`), and local environment files should use `*.env` patterns while keeping `*.env.example` tracked. Conductor local config lives at `apps/conductor/config.toml` and must remain untracked.
 
 ## Naming & Design Rules
 
@@ -156,8 +156,8 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 - Studio CI baseline must be green on every change set:
   - `pnpm -C apps/studio lint` returns 0 errors and 0 warnings.
   - `pnpm -C apps/studio build` succeeds.
-- Scheduler backend baseline must compile:
-  - `cd apps/scheduler && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...`
+- Conductor backend baseline must compile:
+  - `cd apps/conductor && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...`
 
 ## UI Components
 
@@ -277,7 +277,7 @@ apps/
           analyze/              # POST → create report with admission control
           pipelines/[id]/       # GET/PUT/PATCH/DELETE (PATCH updates concurrency_mode; DELETE blocks when runs are active)
           pipelines/[id]/runs/  # GET list + POST (enforces concurrency gate)
-          pipeline-runs/        # Run detail + logs (proxy to scheduler)
+          pipeline-runs/        # Run detail + logs (proxy to Conductor)
           projects/[id]/artifact-download-stats/ # Artifact download observability metrics
           projects/[id]/artifacts/      # Project artifact registry list + publish entrypoint
           projects/[id]/artifacts/channels/ # Promote artifact versions onto channels
@@ -286,7 +286,7 @@ apps/
             templates/          # GET list of built-in templates
             templates/[id]/import/ # POST import template → new ruleset
           notification-settings/ # GET/PUT notification preferences
-          scheduler/events/        # POST (Scheduler → Studio callbacks)
+          conductor/events/        # POST (Conductor → Studio callbacks)
           commits/ projects/ stats/ github/ stream/ webhooks/
         layout.tsx providers.tsx globals.css
       components/
@@ -312,20 +312,20 @@ apps/
       services/
         db.ts github.ts claude.ts analyzeTask.ts
         pipelineTypes.ts        # Pipeline editor/view types + pipeline summaries
-        schedulerClient.ts         # cancelPipelineRun() + other scheduler proxy functions
+        conductorClient.ts         # cancelPipelineRun() + other Conductor proxy functions
       proxy.ts                  # Unused auth middleware
     middleware.ts               # Org cookie sync + dashboard redirect (Next.js middleware)
-  apps/scheduler/
-    main.go                     # Go scheduler entrypoint (control plane)
-    internal/workerhub/         # Scheduler-side worker connection/session hub + dispatch
-    pkg/workerprotocol/         # Scheduler↔Worker control-plane message contract (shared)
+  apps/conductor/
+    main.go                     # Go Conductor entrypoint (control plane)
+    internal/workerhub/         # Conductor-side worker connection/session hub + dispatch
+    pkg/workerprotocol/         # Conductor↔Worker control-plane message contract (shared)
     internal/pipeline/
       executor.go               # ShellExecutor, DockerExecutor, SourceCheckoutExecutor, ReviewGateExecutor
-      engine.go                 # Worker-dispatched job execution engine (no local fallback)
+      engine.go                 # Conductor-local build execution + deploy-worker dispatch
       types.go                  # Pipeline config + step/job contracts
       storage.go, api.go, graph.go, service.go
   apps/worker/
-    main.go                     # Go worker agent entrypoint (execution plane)
+    main.go                     # Go worker agent entrypoint (execution plane; deploy-only)
 docs/
   db/
     init.sql                    # Full schema initialization
@@ -336,7 +336,7 @@ docs/
       010_worker_nodes.sql      # Legacy migration creating worker_nodes (renamed later)
       011_org_storage_settings.sql # Adds per-org artifact storage backend settings
       012_artifact_download_events_and_project_retention.sql # Adds artifact download audit table + project retention override
-      013_orchestrator_dag_schema.sql # Scheduler/worker schema normalization after control-plane redesign
+      013_orchestrator_dag_schema.sql # Conductor/worker schema normalization after control-plane redesign
       014_artifact_registry.sql # Adds immutable artifact registry tables, channels, and usage provenance
 packages/
   contracts/                    # Shared API/contracts (active)
@@ -344,15 +344,15 @@ packages/
 
 ## Environment Variables
 
-Bootstrap-first rule: `.env.example` and `apps/scheduler/config.example.toml` intentionally contain only startup-essential settings. Product runtime policy knobs such as analyze admission thresholds, report timeout, and codebase preview limits are configured from Studio Settings > Runtime instead of per-developer local files. Additional env overrides listed below are supported for advanced local debugging, but they are intentionally omitted from the example templates.
+Bootstrap-first rule: `.env.example` and `apps/conductor/config.example.toml` intentionally contain only startup-essential settings. Product runtime policy knobs such as analyze admission thresholds, report timeout, and codebase preview limits are configured from Studio Settings > Runtime instead of per-developer local files. Additional env overrides listed below are supported for advanced local debugging, but they are intentionally omitted from the example templates.
 
 ```
 DATABASE_URL=               # Studio Postgres connection string
 ENCRYPTION_KEY=             # AES-256-GCM key for secrets
 EMAIL_VERIFICATION_REQUIRED= # Require email verification before login (true|false)
-SCHEDULER_BASE_URL=            # Scheduler base URL (e.g. http://localhost:8200)
-SCHEDULER_TOKEN=               # Shared token for scheduler auth
-TASK_SCHEDULER_TOKEN=          # Optional, protects internal task endpoints (e.g. /api/codebase/sync)
+CONDUCTOR_BASE_URL=            # Conductor base URL (e.g. http://localhost:8200)
+CONDUCTOR_TOKEN=               # Shared token for Conductor auth
+TASK_CONDUCTOR_TOKEN=          # Optional, protects internal task endpoints (e.g. /api/codebase/sync)
 EMAIL_PROVIDER=             # Email provider for notifications: console|resend
 EMAIL_FROM=                 # From address (required for resend)
 RESEND_API_KEY=             # Resend API key (required when EMAIL_PROVIDER=resend)
@@ -373,17 +373,17 @@ AI_COST_INPUT_PER_MILLION_USD=          # Optional cost model for phase-level co
 AI_COST_OUTPUT_PER_MILLION_USD=         # Optional cost model for phase-level cost estimation
 ```
 
-**Scheduler env (apps/scheduler):**
+**Conductor env (apps/conductor):**
 ```
-SCHEDULER_PORT=8200
-SCHEDULER_TOKEN=
+CONDUCTOR_PORT=8200
+CONDUCTOR_TOKEN=
 DATABASE_URL=               # Postgres connection string
 ENCRYPTION_KEY=             # Same key used by studio for decrypting secrets
-STUDIO_URL=                 # Studio base URL (Scheduler -> Studio), used by pipeline executors
-STUDIO_TOKEN=               # Token presented to Studio as X-Scheduler-Token (defaults to SCHEDULER_TOKEN; dev falls back to "dev-scheduler")
+STUDIO_URL=                 # Studio base URL (Conductor -> Studio), used by pipeline executors
+STUDIO_TOKEN=               # Token presented to Studio as X-Conductor-Token (defaults to CONDUCTOR_TOKEN; dev falls back to "dev-conductor")
 PIPELINE_CONCURRENCY=       # Max concurrent pipeline jobs
 WORKER_LEASE_TTL=           # Worker heartbeat lease window (default 45s)
-SCHEDULER_DATA_DIR=            # Local logs/artifacts root
+CONDUCTOR_DATA_DIR=            # Local logs/artifacts root
 PIPELINE_LOG_RETENTION_DAYS=
 PIPELINE_ARTIFACT_RETENTION_DAYS=
 ANALYZE_PHASE_CORE_TIMEOUT=                 # Optional phase timeout override (e.g. 20m)
@@ -391,14 +391,15 @@ ANALYZE_PHASE_QUALITY_TIMEOUT=              # Optional phase timeout override (e
 ANALYZE_PHASE_SECURITY_PERFORMANCE_TIMEOUT= # Optional phase timeout override (e.g. 15m)
 ANALYZE_PHASE_SUGGESTIONS_TIMEOUT=          # Optional phase timeout override (e.g. 10m)
 ```
-**Scheduler config file (TOML, optional):**
-- Auto-detected: `apps/scheduler/config.toml` or `config.toml` in current working directory
-- Override path via `SCHEDULER_CONFIG` or `-config`
+Conductor startup now fails fast if Docker daemon access is unavailable because CI sandbox creation depends on it.
+**Conductor config file (TOML, optional):**
+- Auto-detected: `apps/conductor/config.toml` or `config.toml` in current working directory
+- Override path via `CONDUCTOR_CONFIG` or `-config`
 - Precedence: env vars > TOML > defaults
 
 Example config (tables, no redundant prefixes):
 ```
-[scheduler]
+[conductor]
 port = "8200"
 token = ""
 concurrency = 4
@@ -426,13 +427,13 @@ token = ""
 
 **Worker env (apps/worker):**
 ```
-SCHEDULER_BASE_URL=            # Scheduler control-plane URL (e.g. http://scheduler:8200)
-SCHEDULER_TOKEN=               # Same shared token used by Scheduler auth
+CONDUCTOR_BASE_URL=            # Conductor control-plane URL (e.g. http://conductor:8200)
+CONDUCTOR_TOKEN=               # Same shared token used by Conductor auth
 WORKER_ID=                  # Stable worker identifier (required in production)
 WORKER_HOSTNAME=            # Optional display hostname
 WORKER_VERSION=             # Optional worker version metadata
 WORKER_MAX_CONCURRENCY=     # Parallel job slots per worker (default 1)
-WORKER_CAPABILITIES=        # Comma list: shell,docker,source_checkout,review_gate
+WORKER_CAPABILITIES=        # Comma list override; default: deploy,shell,docker,artifact_download
 WORKER_LABELS=              # Comma kv list: env=production,region=cn-shanghai
 WORKER_WORKSPACE_ROOT=      # Run workspace root on worker (default /tmp/spec-axis-runs)
 WORKER_HEARTBEAT_SECONDS=   # Heartbeat interval (default 10)
@@ -456,7 +457,7 @@ Environment files for Studio live under `apps/studio` (e.g. `apps/studio/.env`).
 - Project-level AI integration binding can be changed in **Project Settings > Project Configuration**; selecting "Use organization default" clears project override and falls back to org default.
 - Non-sensitive config → `org_integrations` table; secrets → encrypted in `vault_secret_name`
 - Secret encryption format is strict AES-256-GCM with 12-byte nonce and 16-byte tag: `iv:authTag:salt:ciphertext`
-- Studio and Scheduler both enforce this format for integration secrets; if old secrets were produced with non-standard nonce/tag size, re-save/recreate those integrations to rotate ciphertext
+- Studio and Conductor both enforce this format for integration secrets; if old secrets were produced with non-standard nonce/tag size, re-save/recreate those integrations to rotate ciphertext
 - Priority: project-specific > org default (no env var fallback)
 
 ## Common Commands
@@ -466,13 +467,13 @@ pnpm dev     # Console dev server (port 8109)
 pnpm build   # Console production build (TypeScript check)
 pnpm start   # Console production server
 pnpm lint    # Console ESLint
-pnpm codebase:cleanup   # Cleanup stale workspaces (uses TASK_SCHEDULER_TOKEN; optional STUDIO_BASE_URL)
+pnpm codebase:cleanup   # Cleanup stale workspaces (uses TASK_CONDUCTOR_TOKEN; optional STUDIO_BASE_URL)
 psql "$DATABASE_URL" -f docs/db/init.sql   # Initialize schema (fresh DB)
-cd apps/scheduler && go run .   # Scheduler service (reads config.toml if present)
-cd apps/worker && go run .   # Worker service
+cd apps/conductor && go run .   # Conductor service (reads config.toml if present)
+cd apps/worker && go run .      # Deploy worker service
 ```
 
-`pnpm codebase:cleanup` uses `TASK_SCHEDULER_TOKEN` and optional `STUDIO_BASE_URL` (default `http://localhost:8109`).
+`pnpm codebase:cleanup` uses `TASK_CONDUCTOR_TOKEN` and optional `STUDIO_BASE_URL` (default `http://localhost:8109`).
 
 ## Dependency Build Scripts
 
@@ -487,42 +488,48 @@ If new install warnings appear, approve the dependency and update the allowlist.
    - fixed-window rate limits stored in PostgreSQL (`org+user+project`, `org`, auxiliary IP hash)
    - queue backpressure guard based on active `analysis_reports` (`pending`/`running`) counts
 2. Studio performs integration preflight (AI integration must decrypt/resolve successfully) before creating the report.
-3. On accepted request, Studio creates `analysis_reports` with an immutable `analysis_snapshot`; the scheduler later claims `pending` reports directly from PostgreSQL.
+3. On accepted request, Studio creates `analysis_reports` with an immutable `analysis_snapshot`; the Conductor later claims `pending` reports directly from PostgreSQL.
 4. API returns `{ reportId, status: "queued" | "running" | "done" | "partial_failed", deduplicated }` depending on whether the request created a new report or reused an existing one.
-5. Reports support manual termination via `POST /api/reports/[id]/terminate` (Studio marks the report `canceled`; Scheduler watches the database state and aborts in-flight analysis).
+5. Reports support manual termination via `POST /api/reports/[id]/terminate` (Studio marks the report `canceled`; Conductor watches the database state and aborts in-flight analysis).
 6. Studio also auto-fails timed-out reports (`pending`/`running`) based on `ANALYZE_REPORT_TIMEOUT_MS`.
-7. Scheduler canonical report status model is `pending -> running -> done | partial_failed | failed | canceled`.
-8. Scheduler executes phased analysis:
+7. Conductor canonical report status model is `pending -> running -> done | partial_failed | failed | canceled`.
+8. Conductor executes phased analysis:
    - `core` (score/category/issues/summary/context)
    - `quality` (complexity/duplication/dependency metrics)
    - `security_performance` (security + performance findings)
    - `suggestions` (refactor suggestions + code explanations)
    Non-core phases run in parallel after core completes.
 9. Each phase is persisted in `analysis_report_sections` (`report_id + phase + attempt`), including payload, duration, token usage, and failure reason.
-10. Scheduler increments `analysis_reports.sse_seq` on progress/section/status updates; SSE uses sequence + snapshot diff to stream ordered updates.
+10. Conductor increments `analysis_reports.sse_seq` on progress/section/status updates; SSE uses sequence + snapshot diff to stream ordered updates.
 11. Frontend subscribes to `/api/reports/[id]/stream` and receives `status_update` with `status`, `score`, `analysisProgress`, `analysisSections`, `tokenUsage`, `tokensUsed`, `errorMessage`, `sequence`.
 12. Studio SSE backend is event-driven via Postgres `LISTEN/NOTIFY` channel `analysis_report_updates` (with periodic timeout sweep checks), not fixed-interval polling.
 
 ## Pipeline Engine (CI/CD)
 
 - **Studio** ships a native stage builder under `/pipelines` with fixed lifecycle columns (`source -> after_source -> review -> after_review -> build -> after_build -> deploy -> after_deploy`), on-demand automation insertion, stage-level controls for core stages, and an in-place job inspector.
+- **Pipeline execution roles** are split by responsibility: `source/review/build` stages execute inside Conductor-managed per-job runner containers created from the pipeline `buildImage`, while `deploy/after_deploy` stages route to remote deploy workers over the worker control channel.
+- Conductor must verify local Docker daemon availability at startup because CI sandbox creation depends on it.
+- Workers that advertise the `docker` capability must verify Docker daemon availability at startup and fail fast if it is unavailable.
+- Docker step containers use a `conductor-step-<run>-<job>-<step>-<request>` name so container inspection maps cleanly back to pipeline execution.
 - **Pipelines** always belong to a project (`project_id` is required, never null).
 - **Pipeline config** is versioned in `pipeline_versions` and linked from `pipelines.current_version_id`.
 - **Pipeline secrets** are stored in `pipeline_secrets` encrypted at rest (AES-256-GCM, `ENCRYPTION_KEY`) and injected into every step as environment variables (write-only in UI). Secret keys are canonical uppercase env names, may be multiline, are limited to 100 per pipeline, and cannot use the reserved `PIPELINE_` namespace.
 - **Authoring model**: users edit stage settings plus stage-local jobs; `source` is fixed single-entry, automation slots are fixed `auto + parallel`, and runtime `needs` edges are derived from stage order and stage `dispatchMode`.
 - **Execution model**: jobs still execute as a DAG after derivation, and steps run sequentially inside a job.
-- **Step types**: `shell` (default) runs via `/bin/sh -c`; `docker` runs `docker run --rm -w /workspace -v {workingDir}:/workspace {envFlags} {image} /bin/sh -c "{script}"`. Docker env values are inherited from the worker process environment instead of being embedded into CLI args, so injected secrets are not exposed in the host process list. Set `type: "docker"` and `dockerImage` on a step to use Docker.
-- **Step artifacts**: each user-defined step can declare `artifactPaths` (glob/file list, one per line in UI). Worker resolves patterns within the workspace (supports `**`) and uploads matched files after successful step execution.
-- **Artifact upload reliability**: worker uploads each artifact with bounded retry (`maxAttempts=3`) and emits attempt metadata; scheduler records observability events (`step.artifact.uploaded`, `step.artifact.upload_failed`, `step.artifact.upload_observed`) for timing/error-category analysis.
+- **CI sandbox image**: every pipeline must define a top-level `buildImage`. Conductor creates a fresh runner container from that image for each `source/review/build` job, mounts an isolated workspace snapshot into `/workspace`, and runs all job steps via `docker exec` inside the same container so step state persists across the job.
+- **CI build image authoring**: Studio may offer curated build-image presets for common runtimes, but persisted pipeline config must remain explicit `buildImage` only. Presets are UI affordances derived from the current image value; do not persist preset identifiers into pipeline versions or execution-facing runtime config.
+- **Step types**: in CI stages, steps run as `shell` inside the job sandbox created from `buildImage`; step-level `docker` is not allowed there. In deploy stages, `shell` runs on the remote worker host and `docker` runs `docker run --rm -w /workspace --mount type=bind,src={workingDir},dst=/workspace {envFlags} {image} /bin/sh -c "{script}"`. Docker env values are inherited from the executor process environment instead of being embedded into CLI args, so injected secrets are not exposed in the host process list.
+- **Step artifacts**: each user-defined step can declare `artifactPaths` (glob/file list, one per line in UI). Conductor resolves and uploads artifacts after CI sandbox steps complete; deploy workers download required inputs from Conductor-backed artifact storage before deployment steps execute.
+- **Artifact upload reliability**: worker uploads each artifact with bounded retry (`maxAttempts=3`) and emits attempt metadata; Conductor records observability events (`step.artifact.uploaded`, `step.artifact.upload_failed`, `step.artifact.upload_observed`) for timing/error-category analysis.
 - **Concurrency modes**: each pipeline has a `concurrency_mode` column (`allow` / `queue` / `cancel_previous`). Studio API enforces this before creating a new run. Included in `docs/db/init.sql`; existing DBs should apply `docs/db/migrations/add_concurrency_mode.sql`.
 - **Events** are appended to `pipeline_run_events` for UI polling and audit.
-- **Logs** are stored locally under `SCHEDULER_DATA_DIR`:
+- **Logs** are stored locally under `CONDUCTOR_DATA_DIR`:
   - `logs/{run_id}/{job_key}/{step_key}.log`
 - **Artifacts** use org-level storage backend settings (`org_storage_settings`):
-  - `local` provider: `{SCHEDULER_DATA_DIR}/{localBasePath}/{org_id}/{run_id}/{job_id}/{step_id}/...`
+  - `local` provider: `{CONDUCTOR_DATA_DIR}/{localBasePath}/{org_id}/{run_id}/{job_id}/{step_id}/...`
   - `s3` provider: `s3://{bucket}/{prefix}/{org_id}/{run_id}/{job_id}/{step_id}/...`
-  - Worker uploads artifacts through Scheduler internal API `PUT /v1/workers/artifacts/upload`
-  - Artifact rows include optional `expires_at`; scheduler performs periodic expiry cleanup (storage delete + DB row delete) based on retention policy.
+  - Worker uploads artifacts through Conductor internal API `PUT /v1/workers/artifacts/upload`
+  - Artifact rows include optional `expires_at`; conductor performs periodic expiry cleanup (storage delete + DB row delete) based on retention policy.
 - **Artifact registry** elevates selected run outputs into immutable project release versions:
   - `artifact_repositories` defines the package/repository namespace per project.
   - `artifact_versions` stores immutable published versions with source run / pipeline / commit provenance.
@@ -532,13 +539,13 @@ If new install warnings appear, approve the dependency and update the allowlist.
 - **Artifact download path**:
   - Studio issues short-lived signed download tokens at `POST /api/pipeline-runs/:runId/artifacts/:artifactId/download-token`
   - Studio streams artifact content via `GET /api/pipeline-runs/:runId/artifacts/:artifactId/download?token=...`
-  - Studio fetches raw bytes from scheduler private endpoint `GET /v1/pipeline-runs/:runId/artifacts/:artifactId/content` using `X-Scheduler-Token`
-  - Published registry files stream through `GET /api/projects/:id/artifacts/files/:fileId/download`, which proxies scheduler private endpoint `GET /v1/artifact-files/:fileId/content`
-- **Scheduler → Studio callbacks (pipelines)**:
+  - Studio fetches raw bytes from Conductor private endpoint `GET /v1/pipeline-runs/:runId/artifacts/:artifactId/content` using `X-Conductor-Token`
+  - Published registry files stream through `GET /api/projects/:id/artifacts/files/:fileId/download`, which proxies Conductor private endpoint `GET /v1/artifact-files/:fileId/content`
+- **Conductor → Studio callbacks (pipelines)**:
   - `source_checkout` fetches repo info from `GET /api/projects/:id`
   - `review_gate` fetches latest completed report score from `GET /api/reports?projectId=...&limit=1`
-  - Scheduler emits completion events to Studio at `POST /api/scheduler/events` (authorized via `X-Scheduler-Token`) so Studio can send notifications
-  - Scheduler must be configured with `STUDIO_URL` and a token (`STUDIO_TOKEN`, defaults to `SCHEDULER_TOKEN`) and Studio must accept `X-Scheduler-Token` (shared secret)
+  - Conductor emits completion events to Studio at `POST /api/conductor/events` (authorized via `X-Conductor-Token`) so Studio can send notifications
+  - Conductor must be configured with `STUDIO_URL` and a token (`STUDIO_TOKEN`, defaults to `CONDUCTOR_TOKEN`) and Studio must accept `X-Conductor-Token` (shared secret)
 
 **GitHub webhook:** `/api/webhooks/github` supports `?project_id=...`. If a repo matches multiple projects, the endpoint returns 409 and requires `project_id`.
 
@@ -566,9 +573,9 @@ Codebase comments API contract:
 Codebase tree/file endpoints accept `sync=0` to skip mirror fetch for faster browsing (manual sync still available).
 Automatic mirror sync can be triggered by:
 - GitHub `push` webhooks (forces mirror fetch for matching projects).
-- Scheduled POST to `/api/codebase/sync` (uses `x-task-token` if `TASK_SCHEDULER_TOKEN` is set). Supports `limit`, `force`, `project_id`, and `org_id`.
+- Scheduled POST to `/api/codebase/sync` (uses `x-task-token` if `TASK_CONDUCTOR_TOKEN` is set). Supports `limit`, `force`, `project_id`, and `org_id`.
 - Project creation triggers an initial mirror sync in the background.
-Stale workspaces can be cleared via `POST /api/codebase/cleanup` (uses `x-task-token` if `TASK_SCHEDULER_TOKEN` is set).
+Stale workspaces can be cleared via `POST /api/codebase/cleanup` (uses `x-task-token` if `TASK_CONDUCTOR_TOKEN` is set).
 
 Tool caches are centralized under repo root `/.cache/` (for example `/.cache/go/mod`, `/.cache/go/build`, `/.cache/pnpm/store`, `/.cache/codebase`) and are not committed to Git.
 `CodebaseService` default root is `/.cache/codebase` (override via `CODEBASE_ROOT` when needed).
@@ -597,7 +604,7 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 
 ## Runtime Contracts
 
-- All API routes require login; a small set of Studio endpoints accept `X-Scheduler-Token` for Scheduler-to-Studio calls (pipeline executors)
+- All API routes require login; a small set of Studio endpoints accept `X-Conductor-Token` for Conductor-to-Studio calls (pipeline executors)
 - Auth uses the `session` HTTP-only cookie; email verification is controlled by `EMAIL_VERIFICATION_REQUIRED` (default true)
 - `analysis_issues.status`: `open | fixed | ignored | false_positive | planned`
 - `/api/projects/[id]/trends` returns array directly (no `data` wrapper)
@@ -606,9 +613,9 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - Dashboard routes must be accessed via `/o/:orgId/...` (middleware rewrites internally)
 - Project detail tabs support deep links via query params: `?tab=commits|codebase|stats|config`. Codebase supports `ref`, `path`, `line`, `commentId` for jump-to-location/thread.
 - `PATCH /api/pipelines/[id]` updates `concurrency_mode` in Studio DB (schema must include `pipelines.concurrency_mode`; present in `init.sql`)
-- `DELETE /api/pipelines/[id]` deletes a pipeline across Scheduler + Studio-backed state, but returns conflict when the pipeline still has `queued` / `running` / `waiting_manual` runs
-- `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling scheduler (409 if `queue` mode and run active)
-- Studio server calls Scheduler `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` (used by `cancel_previous` concurrency mode)
+- `DELETE /api/pipelines/[id]` deletes a pipeline across Conductor + Studio-backed state, but returns conflict when the pipeline still has `queued` / `running` / `waiting_manual` runs
+- `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling Conductor (409 if `queue` mode and run active)
+- Studio server calls Conductor `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` (used by `cancel_previous` concurrency mode)
 - AI integration runtime routing: official OpenAI + reasoning-capable model (or explicit `reasoningEffort`) calls `/responses`; otherwise calls `/chat/completions` (Anthropic base URL uses Messages API)
 - AI integration protocol selection requires explicit `apiStyle`: `anthropic` forces Messages API; `openai` forces OpenAI-compatible APIs.
 - `POST /api/reports/[id]/chat` resolves AI config from project/org integrations (same precedence as analyze), streams assistant output via SSE (`meta` / `delta` / `done` / `error` events), and returns integration binding errors (`AI_INTEGRATION_MISSING` / `AI_INTEGRATION_REBIND_REQUIRED`) instead of relying on `ANTHROPIC_API_KEY`.
@@ -618,8 +625,8 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 - `GET /api/reports/[id]/chat?latest=1` returns only the latest conversation for the report (used by AI chat initialization to avoid loading full history).
 - Chat history query responses include `updated_at` for ordering conversation history in the AI reviewer dialog.
 - Studio AI runtime implementation is SDK-free and uses a single HTTP adapter strategy across providers (including Anthropic Messages API).
-- Scheduler analysis error normalization: token-limit truncation and empty upstream body are surfaced as actionable messages instead of raw JSON parse errors.
-- Scheduler AI client performs one automatic token-budget retry on output truncation (`max_tokens` / `max_output_tokens`) before failing.
+- Conductor analysis error normalization: token-limit truncation and empty upstream body are surfaced as actionable messages instead of raw JSON parse errors.
+- Conductor AI client performs one automatic token-budget retry on output truncation (`max_tokens` / `max_output_tokens`) before failing.
 - Report stream payload (`type: "status_update"`) includes `status`, `score`, `analysisProgress`, `analysisSections`, `tokenUsage`, `tokensUsed`, `errorMessage`, and `sequence`
 - `GET /api/rules/templates` returns static template list; `POST /api/rules/templates/[id]/import` is admin-only
 - Report compare page: `/o/:orgId/projects/:id/reports/compare?a=reportIdA&b=reportIdB`
@@ -657,6 +664,6 @@ psql "$DATABASE_URL" -f docs/db/migrations/018_drop_analysis_tasks.sql
 
 ## FAQ
 
-**TypeScript build errors?** Run `pnpm build`. Common causes: contract mismatch between Scheduler and Studio, dictionary key mismatch between `en.json` and `zh.json`, or stale type cache (`rm -rf .next`).
+**TypeScript build errors?** Run `pnpm build`. Common causes: contract mismatch between Conductor and Studio, dictionary key mismatch between `en.json` and `zh.json`, or stale type cache (`rm -rf .next`).
 
 **Dark mode?** Theme is controlled via `data-theme` on `:root` (see `apps/studio/src/app/globals.css`). Prefer token-driven styling instead of per-component theme conditionals.

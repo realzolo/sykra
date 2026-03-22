@@ -1,0 +1,21 @@
+# Conductor config (TOML). Environment variables override these values.
+# Keep only bootstrap infrastructure values here.
+# Product runtime policies are configured from Studio Settings > Runtime.
+
+[conductor]
+port = "8200"
+token = ""
+data_dir = "data" # optional local state path
+
+[database]
+url = "postgres://user:pass@localhost:5432/spec_axis"
+
+[security]
+encryption_key = ""
+
+[studio]
+# Base URL for Studio (used by pipeline source_checkout and review_gate job types)
+url = "http://localhost:8109"
+# Optional: token presented to Studio as `X-Conductor-Token`. If empty, Conductor will
+# fall back to the main `CONDUCTOR_TOKEN` env var / `[conductor].token` value.
+token = ""

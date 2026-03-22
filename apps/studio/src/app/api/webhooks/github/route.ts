@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { exec, queryOne } from '@/lib/db';
 import { getProjectById, listProjectsByRepo, getRulesBySetId } from '@/services/db';
 import { buildReportCommits } from '@/services/analyzeTask';
-import { listPipelines, createPipelineRun, getPipeline } from '@/services/schedulerClient';
+import { listPipelines, createPipelineRun, getPipeline } from '@/services/conductorClient';
 import { logger } from '@/services/logger';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { codebaseService } from '@/services/CodebaseService';

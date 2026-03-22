@@ -10,18 +10,18 @@ export const dynamic = 'force-dynamic';
 
 const rateLimiter = createRateLimiter(RATE_LIMITS.general);
 
-function schedulerBaseUrl() {
-  const baseUrl = process.env.SCHEDULER_BASE_URL?.replace(/\/+$/, '');
+function conductorBaseUrl() {
+  const baseUrl = process.env.CONDUCTOR_BASE_URL?.replace(/\/+$/, '');
   if (!baseUrl) {
-    throw new Error('SCHEDULER_BASE_URL is not configured');
+    throw new Error('CONDUCTOR_BASE_URL is not configured');
   }
   return baseUrl;
 }
 
-function schedulerToken() {
-  const token = process.env.SCHEDULER_TOKEN?.trim();
+function conductorToken() {
+  const token = process.env.CONDUCTOR_TOKEN?.trim();
   if (!token) {
-    throw new Error('SCHEDULER_TOKEN is not configured');
+    throw new Error('CONDUCTOR_TOKEN is not configured');
   }
   return token;
 }
@@ -48,11 +48,11 @@ export async function GET(
     }
 
     const upstream = await fetch(
-      `${schedulerBaseUrl()}/v1/artifact-files/${encodeURIComponent(fileId)}/content`,
+      `${conductorBaseUrl()}/v1/artifact-files/${encodeURIComponent(fileId)}/content`,
       {
         method: 'GET',
         headers: {
-          'X-Scheduler-Token': schedulerToken(),
+          'X-Conductor-Token': conductorToken(),
         },
       }
     );
@@ -60,7 +60,7 @@ export async function GET(
     if (!upstream.ok || !upstream.body) {
       const text = await upstream.text().catch(() => '');
       return NextResponse.json(
-        { error: text || `Scheduler download failed: ${upstream.status}` },
+        { error: text || `Conductor download failed: ${upstream.status}` },
         { status: upstream.status || 502 }
       );
     }

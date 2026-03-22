@@ -5,7 +5,8 @@ import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requi
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { createPipelineSchema, projectIdSchema, validateRequest } from '@/services/validation';
-import { createPipeline, listPipelines } from '@/services/schedulerClient';
+import { createPipeline, listPipelines } from '@/services/conductorClient';
+import type { ConductorCreatePipelineRequest } from '@spec-axis/contracts/conductor';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const payload: Record<string, unknown> = {
+    const payload: ConductorCreatePipelineRequest = {
       orgId,
       name: validated.name,
       description: validated.description ?? '',

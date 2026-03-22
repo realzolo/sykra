@@ -6,8 +6,9 @@ import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { updatePipelineSchema, validateRequest } from '@/services/validation';
-import { deletePipeline, getPipeline, updatePipeline } from '@/services/schedulerClient';
+import { deletePipeline, getPipeline, updatePipeline } from '@/services/conductorClient';
 import { query as dbQuery } from '@/lib/db';
+import type { ConductorUpdatePipelineRequest } from '@spec-axis/contracts/conductor';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,9 +74,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const payload = {
-      name: validated.name ?? '',
-      description: validated.description ?? '',
+    const payload: ConductorUpdatePipelineRequest = {
+      name: validated.name ?? pipeline.name,
+      description: validated.description ?? pipeline.description,
       config: validated.config,
       updatedBy: user.id,
     };

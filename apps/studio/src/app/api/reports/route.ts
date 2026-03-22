@@ -6,7 +6,7 @@ import { withRetry, formatErrorResponse } from '@/services/retry';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, requireProjectAccess } from '@/services/orgs';
-import { isSchedulerAuthorized } from '@/services/schedulerAuth';
+import { isConductorAuthorized } from '@/services/conductorAuth';
 import { projectIdSchema } from '@/services/validation';
 import { query } from '@/lib/db';
 import { failTimedOutReports } from '@/services/reportTimeout';
@@ -22,8 +22,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Scheduler: review gate fetches latest report score without a user session.
-    if (isSchedulerAuthorized(request)) {
+    // Conductor: review gate fetches latest report score without a user session.
+    if (isConductorAuthorized(request)) {
       const rawProjectId = request.nextUrl.searchParams.get('projectId');
       if (!rawProjectId) {
         return NextResponse.json({ error: 'projectId is required' }, { status: 400 });

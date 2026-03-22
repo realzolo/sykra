@@ -1,5 +1,5 @@
 -- spec-axis unified init schema (PostgreSQL)
--- This script initializes all core tables for Studio + Scheduler.
+-- This script initializes all core tables for Studio + Conductor.
 
 create extension if not exists "pgcrypto";
 create extension if not exists "citext";
@@ -787,7 +787,7 @@ create index idx_quality_learned_patterns_project on quality_learned_patterns(pr
 create index idx_quality_learned_patterns_enabled on quality_learned_patterns(is_enabled);
 
 -- ============================================================
--- Pipeline engine (Scheduler)
+-- Pipeline engine (Conductor)
 -- ============================================================
 create table pipelines (
   id uuid primary key default gen_random_uuid(),

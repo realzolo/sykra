@@ -17,9 +17,9 @@ const orgIdSchema = z.string().uuid('Invalid org ID');
 
 export async function POST(request: NextRequest) {
   const token = request.headers.get('x-task-token');
-  const isTaskScheduler = Boolean(process.env.TASK_SCHEDULER_TOKEN && token === process.env.TASK_SCHEDULER_TOKEN);
-  const user = isTaskScheduler ? null : await requireUser();
-  if (!isTaskScheduler && !user) return unauthorized();
+  const isTaskConductor = Boolean(process.env.TASK_CONDUCTOR_TOKEN && token === process.env.TASK_CONDUCTOR_TOKEN);
+  const user = isTaskConductor ? null : await requireUser();
+  if (!isTaskConductor && !user) return unauthorized();
 
   try {
     const { searchParams } = new URL(request.url);
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
     if (projectIdParam) {
       const projectId = projectIdSchema.parse(projectIdParam);
-      if (isTaskScheduler) {
+      if (isTaskConductor) {
         const data = await queryOne<{ id: string; org_id: string | null; repo: string | null }>(
           `select id, org_id, repo
            from code_projects
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
 
       const orgId = orgIdSchema.parse(orgIdParam);
 
-      if (!isTaskScheduler && user) {
+      if (!isTaskConductor && user) {
         const role = await getOrgMemberRole(orgId, user.id);
         if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
           return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

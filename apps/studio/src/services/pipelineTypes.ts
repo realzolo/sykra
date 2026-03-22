@@ -101,6 +101,7 @@ export type PipelineNotifications = {
 export type PipelineConfig = {
   name: string;
   description?: string;
+  buildImage?: string;
   variables?: Record<string, string>;
   environment?: PipelineEnvironment;
   trigger: PipelineTrigger;
@@ -307,6 +308,7 @@ export function createDefaultPipelineConfig(name: string, defaultBranch = 'main'
 
   return {
     name,
+    buildImage: '',
     environment: 'production',
     trigger: { autoTrigger: false },
     stages: { ...DEFAULT_STAGE_SETTINGS },
@@ -708,6 +710,30 @@ export function analyzePipelineJobs(jobs: PipelineJob[]): PipelineJobDiagnostic[
     }
   }
 
+  return diagnostics;
+}
+
+export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[]): PipelineJobDiagnostic[] {
+  const diagnostics = analyzePipelineJobs(jobs);
+  if (!config.buildImage?.trim()) {
+    diagnostics.unshift({
+      level: 'error',
+      message: 'CI build image is required.',
+    });
+  }
+  for (const job of jobs) {
+    const stage = inferPipelineJobStage(job, jobs);
+    if (stage !== 'deploy' && stage !== 'after_deploy') {
+      for (const step of job.steps) {
+        if ((step.type ?? 'shell') === 'docker') {
+          diagnostics.push({
+            level: 'error',
+            message: `Step "${step.name}" in job "${job.name}" cannot use Docker step mode in CI stages. Set the pipeline build image instead.`,
+          });
+        }
+      }
+    }
+  }
   return diagnostics;
 }
 

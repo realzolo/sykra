@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 type BuildTemplateKey = "node" | "python" | "go";
+type StepExecutionType = NonNullable<PipelineStep["type"]>;
 
 const BUILD_TEMPLATES: Record<BuildTemplateKey, Array<Omit<PipelineStep, "id">>> = {
   node: [
@@ -139,6 +140,9 @@ export default function PipelineStepEditor({
   }
 
   const isDeployStage = (job.stage ?? "build") === "deploy";
+  const effectiveStepType = (stepType?: PipelineStep["type"]) =>
+    !isDeployStage ? "shell" : (stepType ?? "shell");
+  const availableStepTypes: StepExecutionType[] = isDeployStage ? ["shell", "docker"] : ["shell"];
 
   return (
     <div className="space-y-3">
@@ -199,14 +203,14 @@ export default function PipelineStepEditor({
                 {dict.steps.typeLabel}
               </span>
               <div className="flex gap-1">
-                {(["shell", "docker"] as const).map((type) => (
+                {availableStepTypes.map((type) => (
                   <button
                     key={type}
                     type="button"
                     onClick={() => onUpdateStep(step.id, { type })}
                     disabled={!isAdmin}
                     className={`rounded-[4px] border px-2.5 py-1.5 text-[12px] transition-colors ${
-                      (step.type ?? "shell") === type
+                      effectiveStepType(step.type) === type
                         ? "border-primary bg-primary/10 text-primary font-medium"
                         : "border-[hsl(var(--ds-border-1))] text-[hsl(var(--ds-text-2))]"
                     } ${!isAdmin ? "cursor-not-allowed opacity-60" : "hover:bg-muted/40"}`}

@@ -6,7 +6,7 @@ import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { query, exec } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
-import { getPipeline } from '@/services/schedulerClient';
+import { getPipeline } from '@/services/conductorClient';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import {
   PIPELINE_SECRET_MAX_COUNT,

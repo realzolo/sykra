@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST() {
   return NextResponse.json(
-    { error: 'Task execution moved to scheduler service. Use SCHEDULER_BASE_URL.' },
+    { error: 'Task execution moved to the Conductor service. Use CONDUCTOR_BASE_URL.' },
     { status: 410 }
   );
 }

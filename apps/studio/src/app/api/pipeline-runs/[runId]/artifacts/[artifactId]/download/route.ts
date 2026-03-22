@@ -74,18 +74,18 @@ async function insertDownloadEvent(input: DownloadEventInput): Promise<void> {
   ).catch(() => undefined);
 }
 
-function schedulerBaseUrl(): string {
-  const baseUrl = process.env.SCHEDULER_BASE_URL?.replace(/\/+$/, '');
+function conductorBaseUrl(): string {
+  const baseUrl = process.env.CONDUCTOR_BASE_URL?.replace(/\/+$/, '');
   if (!baseUrl) {
-    throw new Error('SCHEDULER_BASE_URL is not configured');
+    throw new Error('CONDUCTOR_BASE_URL is not configured');
   }
   return baseUrl;
 }
 
-function schedulerToken(): string {
-  const token = process.env.SCHEDULER_TOKEN?.trim();
+function conductorToken(): string {
+  const token = process.env.CONDUCTOR_TOKEN?.trim();
   if (!token) {
-    throw new Error('SCHEDULER_TOKEN is not configured');
+    throw new Error('CONDUCTOR_TOKEN is not configured');
   }
   return token;
 }
@@ -139,11 +139,11 @@ export async function GET(
     };
 
     const upstream = await fetch(
-      `${schedulerBaseUrl()}/v1/pipeline-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/content`,
+      `${conductorBaseUrl()}/v1/pipeline-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/content`,
       {
         method: 'GET',
         headers: {
-          'X-Scheduler-Token': schedulerToken(),
+          'X-Conductor-Token': conductorToken(),
         },
       }
     );
@@ -157,14 +157,14 @@ export async function GET(
         artifactPath: eventContext.artifactPath,
         status: 'failed',
         errorCategory: classifyDownloadError(upstream.status),
-        errorMessage: text || `Scheduler download failed: ${upstream.status}`,
+        errorMessage: text || `Conductor download failed: ${upstream.status}`,
         durationMs: Date.now() - startedAt,
         requesterUserId: eventContext.userId,
         requesterIp: extractRequesterIp(request),
         requesterUserAgent: request.headers.get('user-agent'),
       });
       return NextResponse.json(
-        { error: text || `Scheduler download failed: ${upstream.status}` },
+        { error: text || `Conductor download failed: ${upstream.status}` },
         { status: upstream.status >= 400 ? upstream.status : 502 }
       );
     }

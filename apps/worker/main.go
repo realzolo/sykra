@@ -27,12 +27,12 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gorilla/websocket"
 
-	"spec-axis/scheduler/pkg/workerprotocol"
+	"spec-axis/conductor/pkg/workerprotocol"
 )
 
 type workerConfig struct {
-	SchedulerBaseURL string
-	SchedulerToken   string
+	ConductorBaseURL string
+	ConductorToken   string
 	WorkerID         string
 	Hostname         string
 	Version          string
@@ -59,7 +59,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("worker config error: %v", err)
 	}
-	log.Printf("worker starting: id=%s scheduler=%s", cfg.WorkerID, cfg.SchedulerBaseURL)
+	if hasCapability(cfg.Capabilities, "docker") {
+		checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := requireDockerAvailable(checkCtx); err != nil {
+			cancel()
+			log.Fatalf("docker availability check failed: %v", err)
+		}
+		cancel()
+	}
+	log.Printf("worker starting: role=deploy id=%s conductor=%s", cfg.WorkerID, cfg.ConductorBaseURL)
 
 	agent := &workerAgent{
 		cfg:     cfg,
@@ -76,13 +84,13 @@ func main() {
 }
 
 func (a *workerAgent) runSession() error {
-	wsURL, err := toWorkerWSURL(a.cfg.SchedulerBaseURL)
+	wsURL, err := toWorkerWSURL(a.cfg.ConductorBaseURL)
 	if err != nil {
 		return err
 	}
 	headers := http.Header{}
-	if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
-		headers.Set("X-Scheduler-Token", token)
+	if token := strings.TrimSpace(a.cfg.ConductorToken); token != "" {
+		headers.Set("X-Conductor-Token", token)
 	}
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
@@ -153,6 +161,20 @@ func (a *workerAgent) runSession() error {
 }
 
 func (a *workerAgent) executeJob(message workerprotocol.ExecuteJobMessage) {
+	expectedTarget := strings.TrimSpace(strings.ToLower(message.ExecutionTarget))
+	if expectedTarget == "" {
+		expectedTarget = "deploy"
+	}
+	if expectedTarget != "deploy" {
+		_ = a.send(workerprotocol.JobFinishedMessage{
+			Type:         workerprotocol.WorkerMessageTypeJobFinished,
+			RequestID:    message.RequestID,
+			Status:       "failed",
+			ErrorMessage: fmt.Sprintf("deploy worker cannot execute %s jobs", expectedTarget),
+		})
+		return
+	}
+
 	a.sem <- struct{}{}
 	a.busy.Add(1)
 	defer func() {
@@ -313,7 +335,7 @@ func (a *workerAgent) uploadSingleArtifact(
 	}
 	relativePath = filepath.ToSlash(relativePath)
 
-	httpBase, err := toSchedulerHTTPBase(a.cfg.SchedulerBaseURL)
+	httpBase, err := toConductorHTTPBase(a.cfg.ConductorBaseURL)
 	if err != nil {
 		return err
 	}
@@ -342,8 +364,8 @@ func (a *workerAgent) uploadSingleArtifact(
 		request.Header.Set("Content-Type", "application/octet-stream")
 		request.Header.Set("X-Artifact-Upload-Attempt", strconv.Itoa(attempt))
 		request.Header.Set("X-Artifact-Upload-Max-Attempts", strconv.Itoa(maxAttempts))
-		if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
-			request.Header.Set("X-Scheduler-Token", token)
+		if token := strings.TrimSpace(a.cfg.ConductorToken); token != "" {
+			request.Header.Set("X-Conductor-Token", token)
 		}
 
 		response, err := client.Do(request)
@@ -451,7 +473,7 @@ func (a *workerAgent) downloadRegistryArtifacts(
 }
 
 func (a *workerAgent) listRunArtifacts(ctx context.Context, runID string) ([]runArtifact, error) {
-	httpBase, err := toSchedulerHTTPBase(a.cfg.SchedulerBaseURL)
+	httpBase, err := toConductorHTTPBase(a.cfg.ConductorBaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -460,8 +482,8 @@ func (a *workerAgent) listRunArtifacts(ctx context.Context, runID string) ([]run
 	if err != nil {
 		return nil, err
 	}
-	if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
-		request.Header.Set("X-Scheduler-Token", token)
+	if token := strings.TrimSpace(a.cfg.ConductorToken); token != "" {
+		request.Header.Set("X-Conductor-Token", token)
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -541,7 +563,7 @@ func (a *workerAgent) downloadPublishedArtifactFileWithRetry(
 		return err
 	}
 
-	httpBase, err := toSchedulerHTTPBase(a.cfg.SchedulerBaseURL)
+	httpBase, err := toConductorHTTPBase(a.cfg.ConductorBaseURL)
 	if err != nil {
 		return err
 	}
@@ -569,8 +591,8 @@ func (a *workerAgent) downloadPublishedArtifactFileWithRetry(
 		if err != nil {
 			return err
 		}
-		if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
-			request.Header.Set("X-Scheduler-Token", token)
+		if token := strings.TrimSpace(a.cfg.ConductorToken); token != "" {
+			request.Header.Set("X-Conductor-Token", token)
 		}
 
 		client := &http.Client{Timeout: 15 * time.Minute}
@@ -786,7 +808,7 @@ func (a *workerAgent) downloadSingleArtifact(
 		return 0, err
 	}
 
-	httpBase, err := toSchedulerHTTPBase(a.cfg.SchedulerBaseURL)
+	httpBase, err := toConductorHTTPBase(a.cfg.ConductorBaseURL)
 	if err != nil {
 		return 0, err
 	}
@@ -795,8 +817,8 @@ func (a *workerAgent) downloadSingleArtifact(
 	if err != nil {
 		return 0, err
 	}
-	if token := strings.TrimSpace(a.cfg.SchedulerToken); token != "" {
-		request.Header.Set("X-Scheduler-Token", token)
+	if token := strings.TrimSpace(a.cfg.ConductorToken); token != "" {
+		request.Header.Set("X-Conductor-Token", token)
 	}
 
 	client := &http.Client{Timeout: 15 * time.Minute}
@@ -1037,7 +1059,7 @@ func runStep(
 		exitCode, err = runReviewGateStep(ctx, message, writer)
 	default:
 		if strings.EqualFold(step.Type, "docker") {
-			exitCode, err = runDockerStep(ctx, step, workingDir, writer)
+			exitCode, err = runDockerStep(ctx, message, step, workingDir, writer)
 		} else {
 			exitCode, err = runShellStep(ctx, step.Script, step.Env, workingDir, writer)
 		}
@@ -1078,15 +1100,15 @@ func runShellStep(ctx context.Context, script string, env map[string]string, wor
 	return 1, err
 }
 
-func runDockerStep(ctx context.Context, step workerprotocol.ExecuteStep, workingDir string, output io.Writer) (int, error) {
+func runDockerStep(ctx context.Context, message workerprotocol.ExecuteJobMessage, step workerprotocol.ExecuteStep, workingDir string, output io.Writer) (int, error) {
 	image := strings.TrimSpace(step.DockerImage)
 	if image == "" {
 		return 1, errors.New("dockerImage is required for docker step")
 	}
 
-	args := []string{"run", "--rm", "-w", "/workspace"}
+	args := []string{"run", "--rm", "--name", dockerStepContainerName(message, step), "-w", "/workspace"}
 	if workingDir != "" {
-		args = append(args, "-v", workingDir+":/workspace")
+		args = append(args, "--mount", fmt.Sprintf("type=bind,src=%s,dst=/workspace", workingDir))
 	}
 	envKeys := make([]string, 0, len(step.Env))
 	for key := range step.Env {
@@ -1115,6 +1137,28 @@ func runDockerStep(ctx context.Context, step workerprotocol.ExecuteStep, working
 		return exitErr.ExitCode(), err
 	}
 	return 1, err
+}
+
+func dockerStepContainerName(message workerprotocol.ExecuteJobMessage, step workerprotocol.ExecuteStep) string {
+	return strings.Join([]string{
+		"conductor-step",
+		shortDockerNameSegment(message.RunID),
+		shortDockerNameSegment(message.JobID),
+		shortDockerNameSegment(step.ID),
+		shortDockerNameSegment(message.RequestID),
+	}, "-")
+}
+
+func shortDockerNameSegment(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, "-", "")
+	if len(value) > 8 {
+		value = value[:8]
+	}
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }
 
 func runSourceCheckoutStep(
@@ -1209,7 +1253,7 @@ func fetchProjectRepo(ctx context.Context, studioURL string, studioToken string,
 		return "", err
 	}
 	if token := strings.TrimSpace(studioToken); token != "" {
-		request.Header.Set("X-Scheduler-Token", token)
+		request.Header.Set("X-Conductor-Token", token)
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -1242,7 +1286,7 @@ func fetchLatestScore(ctx context.Context, studioURL string, studioToken string,
 		return 0, err
 	}
 	if token := strings.TrimSpace(studioToken); token != "" {
-		request.Header.Set("X-Scheduler-Token", token)
+		request.Header.Set("X-Conductor-Token", token)
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -1347,9 +1391,9 @@ func (a *workerAgent) send(payload any) error {
 }
 
 func loadConfig() (workerConfig, error) {
-	baseURL := strings.TrimSpace(os.Getenv("SCHEDULER_BASE_URL"))
+	baseURL := strings.TrimSpace(os.Getenv("CONDUCTOR_BASE_URL"))
 	if baseURL == "" {
-		return workerConfig{}, errors.New("SCHEDULER_BASE_URL is required")
+		return workerConfig{}, errors.New("CONDUCTOR_BASE_URL is required")
 	}
 	workerID := strings.TrimSpace(os.Getenv("WORKER_ID"))
 	if workerID == "" {
@@ -1382,12 +1426,12 @@ func loadConfig() (workerConfig, error) {
 
 	capabilities := parseList(os.Getenv("WORKER_CAPABILITIES"))
 	if len(capabilities) == 0 {
-		capabilities = []string{"shell", "docker", "source_checkout", "review_gate", "artifact_download"}
+		capabilities = defaultCapabilities()
 	}
 
 	return workerConfig{
-		SchedulerBaseURL: baseURL,
-		SchedulerToken:   strings.TrimSpace(os.Getenv("SCHEDULER_TOKEN")),
+		ConductorBaseURL: baseURL,
+		ConductorToken:   strings.TrimSpace(os.Getenv("CONDUCTOR_TOKEN")),
 		WorkerID:         workerID,
 		Hostname:         hostname,
 		Version:          strings.TrimSpace(os.Getenv("WORKER_VERSION")),
@@ -1432,6 +1476,31 @@ func parseList(raw string) []string {
 	return out
 }
 
+func defaultCapabilities() []string {
+	return []string{"deploy", "shell", "docker", "artifact_download"}
+}
+
+func hasCapability(capabilities []string, target string) bool {
+	target = strings.TrimSpace(strings.ToLower(target))
+	if target == "" {
+		return false
+	}
+	for _, capability := range capabilities {
+		if strings.TrimSpace(strings.ToLower(capability)) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func requireDockerAvailable(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "docker", "info")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("docker daemon is not available or not reachable: %w", err)
+	}
+	return nil
+}
+
 func envInt(key string, fallback int) int {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
@@ -1468,7 +1537,7 @@ func toWorkerWSURL(baseURL string) (string, error) {
 		parsed.Scheme = "wss"
 	case "ws", "wss":
 	default:
-		return "", errors.New("SCHEDULER_BASE_URL must use http/https/ws/wss scheme")
+		return "", errors.New("CONDUCTOR_BASE_URL must use http/https/ws/wss scheme")
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/v1/workers/connect"
 	parsed.RawQuery = ""
@@ -1476,7 +1545,7 @@ func toWorkerWSURL(baseURL string) (string, error) {
 	return parsed.String(), nil
 }
 
-func toSchedulerHTTPBase(baseURL string) (string, error) {
+func toConductorHTTPBase(baseURL string) (string, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
 		return "", err
@@ -1488,7 +1557,7 @@ func toSchedulerHTTPBase(baseURL string) (string, error) {
 	case "wss":
 		parsed.Scheme = "https"
 	default:
-		return "", errors.New("SCHEDULER_BASE_URL must use http/https/ws/wss scheme")
+		return "", errors.New("CONDUCTOR_BASE_URL must use http/https/ws/wss scheme")
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	parsed.RawQuery = ""
