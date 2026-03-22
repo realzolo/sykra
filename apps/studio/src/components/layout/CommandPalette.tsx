@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   Shield,
+  User,
 } from 'lucide-react';
 import { useDashboardShell } from '@/components/layout/DashboardShellContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -53,6 +54,7 @@ function resolvePathIcon(basePath: string) {
   if (basePath.startsWith('/projects')) return FolderOpen;
   if (basePath.startsWith('/analytics')) return BarChart3;
   if (basePath.startsWith('/rules')) return Shield;
+  if (basePath.startsWith('/account')) return User;
   if (basePath.startsWith('/settings')) return Settings;
   return Home;
 }
@@ -100,7 +102,7 @@ export default function CommandPalette({ dict }: { dict: Dictionary }) {
       { id: 'projects', group: 'global', label: dict.nav.projects, hint: dict.nav.quickJumpGlobal, href: withOrgPrefix(pathname, '/projects'), searchText: `${dict.nav.projects} projects`, icon: FolderOpen },
       { id: 'analytics', group: 'global', label: dict.nav.analytics, hint: dict.nav.quickJumpGlobal, href: withOrgPrefix(pathname, '/analytics'), searchText: `${dict.nav.analytics} analytics`, icon: BarChart3 },
       { id: 'rules', group: 'global', label: dict.nav.rules, hint: dict.nav.quickJumpGlobal, href: withOrgPrefix(pathname, '/rules'), searchText: `${dict.nav.rules} rules`, icon: Shield },
-      { id: 'settings', group: 'global', label: dict.nav.settings, hint: dict.nav.quickJumpGlobal, href: withOrgPrefix(pathname, '/settings'), searchText: `${dict.nav.settings} settings`, icon: Settings },
+      { id: 'account', group: 'global', label: dict.nav.account, hint: dict.nav.quickJumpGlobal, href: withOrgPrefix(pathname, '/account'), searchText: `${dict.nav.account} account`, icon: User },
     ];
     if (!inProjectScope || !currentProjectId) return globalItems;
     const projectItems: CommandItem[] = [
@@ -135,6 +137,7 @@ export default function CommandPalette({ dict }: { dict: Dictionary }) {
         : (
           itemBasePath.startsWith('/analytics') ? dict.nav.analytics :
           itemBasePath.startsWith('/rules') ? dict.nav.rules :
+          itemBasePath.startsWith('/account') ? dict.nav.account :
           itemBasePath.startsWith('/settings') ? dict.nav.settings :
           itemBasePath.startsWith('/projects') ? dict.nav.projects :
           dict.nav.home

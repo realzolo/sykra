@@ -22,7 +22,6 @@ import {
   Shield,
   Sliders,
   Package,
-  User,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -34,6 +33,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { useDashboardShell } from '@/components/layout/DashboardShellContext';
+import UserAvatar from '@/components/common/UserAvatar';
 import type { Dictionary } from '@/i18n';
 import { recordRecentNavigation } from '@/lib/recentNavigation';
 import { extractOrgFromPath, replaceOrgInPath, stripOrgPrefix, withOrgPrefix } from '@/lib/orgPath';
@@ -95,7 +95,9 @@ function SidebarImpl({ dict, initialCollapsed }: SidebarProps & { initialCollaps
 
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
+  const [userDisplayName, setUserDisplayName] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
   const { projects, currentProject, currentProjectId, inProjectScope } = useDashboardShell();
   const [collapsed, setCollapsed] = useState(initialCollapsed);
 
@@ -108,26 +110,32 @@ function SidebarImpl({ dict, initialCollapsed }: SidebarProps & { initialCollaps
 
   useEffect(() => {
     let alive = true;
-    Promise.all([fetch('/api/orgs'), fetch('/api/orgs/active'), fetch('/api/auth/me')])
-      .then(([orgRes, activeRes, meRes]) =>
-        Promise.all([
-          orgRes.ok ? orgRes.json() : [],
-          activeRes.ok ? activeRes.json() : null,
-          meRes.ok ? meRes.json() : null,
-        ]),
-      )
-      .then(([orgData, activeData, meData]) => {
+    fetch('/api/dashboard/bootstrap')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: {
+        orgs?: Organization[];
+        activeOrgId?: string | null;
+        user?: {
+          displayName?: string | null;
+          email?: string | null;
+          avatarUrl?: string | null;
+        };
+      } | null) => {
         if (!alive) return;
-        const list = Array.isArray(orgData) ? orgData : [];
+        const list = Array.isArray(data?.orgs) ? data.orgs : [];
         setOrgs(list);
-        setActiveOrgId(activeData?.orgId ?? list[0]?.id ?? null);
-        setUserEmail(meData?.user?.email ?? null);
+        setActiveOrgId(data?.activeOrgId ?? list[0]?.id ?? null);
+        setUserDisplayName(data?.user?.displayName ?? null);
+        setUserEmail(data?.user?.email ?? null);
+        setUserAvatarUrl(data?.user?.avatarUrl ?? null);
       })
       .catch(() => {
         if (!alive) return;
         setOrgs([]);
         setActiveOrgId(null);
+        setUserDisplayName(null);
         setUserEmail(null);
+        setUserAvatarUrl(null);
       });
     return () => {
       alive = false;
@@ -379,22 +387,35 @@ function SidebarImpl({ dict, initialCollapsed }: SidebarProps & { initialCollaps
                 'w-full rounded-[7px] transition-colors duration-150 hover:bg-[hsl(var(--ds-surface-1))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ds-accent-7)/0.25)]',
                 collapsed ? 'flex h-10 items-center justify-center' : 'flex h-10 items-center gap-2.5 px-2.5',
               )}
-              title={userEmail ?? dict.nav.account}
+              title={userDisplayName ?? userEmail ?? dict.nav.account}
             >
-              <span className="flex h-[24px] w-[24px] items-center justify-center rounded-full bg-[hsl(var(--ds-surface-3))] shrink-0">
-                <User className="size-3 text-[hsl(var(--ds-text-2))]" />
-              </span>
+              <UserAvatar
+                src={userAvatarUrl}
+                name={userDisplayName}
+                email={userEmail}
+                size={24}
+                className="shrink-0"
+              />
               {!collapsed && (
                 <>
-                  <span className="flex-1 truncate text-left text-[14px] text-foreground">{userEmail ?? dict.nav.account}</span>
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate text-[14px] font-medium leading-none text-foreground">
+                      {userDisplayName ?? userEmail ?? dict.nav.account}
+                    </span>
+                    {userDisplayName && userEmail && (
+                      <span className="mt-0.5 block truncate text-[12px] leading-none text-[hsl(var(--ds-text-2))]">
+                        {userEmail}
+                      </span>
+                    )}
+                  </span>
                   <ChevronDown className="size-4 shrink-0 text-[hsl(var(--ds-text-2))]" />
                 </>
               )}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-[200px]">
-            <DropdownMenuItem onClick={() => router.push(orgHref('/settings'))}>
-              {dict.nav.settings}
+            <DropdownMenuItem onClick={() => router.push('/account')}>
+              {dict.nav.account}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut} className="gap-2 text-danger focus:text-danger">

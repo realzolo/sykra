@@ -12,6 +12,7 @@ create table auth_users (
   email citext not null unique,
   display_name text,
   avatar_url text,
+  avatar_checked_at timestamptz,
   status text not null default 'active' check (status in ('active','disabled','pending')),
   email_verified_at timestamptz,
   failed_login_count int not null default 0,

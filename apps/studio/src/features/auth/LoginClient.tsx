@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { Github } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -26,6 +27,7 @@ interface LoginClientProps {
 
 export default function LoginClient({ dict, locale, legalLinks }: LoginClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const emailRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
@@ -36,6 +38,14 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const currentYear = new Date().getFullYear();
+  const oauthError = searchParams.get('error');
+
+  useEffect(() => {
+    if (!oauthError) return;
+
+    toast.error(dict.auth.oauthFailed);
+    router.replace('/login');
+  }, [dict.auth.oauthFailed, oauthError, router]);
 
   async function resolveOrgRedirect(): Promise<string> {
     try {
@@ -197,6 +207,13 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
                   {mode === 'login' ? dict.auth.login : dict.auth.signUpTitle}
                 </div>
               </div>
+
+              <Button asChild variant="outline" className="h-11 w-full max-w-[320px] mx-auto shadow-sm border border-border">
+                <Link href="/auth/github" className="flex items-center justify-center gap-2">
+                  <Github className="size-4" />
+                  {dict.auth.continueWithGithub}
+                </Link>
+              </Button>
 
               <div className="flex w-full max-w-[320px] mx-auto items-center gap-3 text-label-11 uppercase tracking-wide text-muted-foreground">
                 <span className="auth-divider auth-divider--left" aria-hidden="true" />

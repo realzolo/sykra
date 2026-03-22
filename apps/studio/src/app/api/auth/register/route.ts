@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { formatErrorResponse } from '@/services/retry';
-import { createEmailVerification, createUser, isEmailVerificationRequired } from '@/services/auth';
-import { ensurePersonalOrg } from '@/services/orgs';
+import { createEmailVerification, createUser, deleteAuthUser, isEmailVerificationRequired, sendVerificationEmail } from '@/services/auth';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 
@@ -32,9 +31,14 @@ export async function POST(request: NextRequest) {
     if (verificationRequired) {
       const verification = await createEmailVerification(user.id);
       verificationToken = verification.token;
+      const baseUrl = process.env.STUDIO_BASE_URL?.trim() || new URL(request.url).origin;
+      try {
+        await sendVerificationEmail(user.email ?? email, verification.token, baseUrl);
+      } catch (error) {
+        await deleteAuthUser(user.id);
+        throw error;
+      }
     }
-
-    await ensurePersonalOrg(user.id, user.email ?? null);
 
     const clientInfo = extractClientInfo(request);
     await auditLogger.log({
@@ -46,7 +50,7 @@ export async function POST(request: NextRequest) {
     });
 
     const payload: Record<string, unknown> = {
-      user: { id: user.id, email: user.email },
+      user: { id: user.id, email: user.email, displayName },
       verificationRequired,
     };
 

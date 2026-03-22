@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { formatErrorResponse } from '@/services/retry';
 import { authenticateUser, createSession, setSessionCookie } from '@/services/auth';
 import { ensurePersonalOrg } from '@/services/orgs';
+import { syncUserAvatar } from '@/services/avatars';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 
@@ -58,9 +59,11 @@ export async function POST(request: NextRequest) {
       userAgent
     );
 
+    await syncUserAvatar(user.id).catch(() => undefined);
+
     await ensurePersonalOrg(user.id, user.email ?? null);
 
-    const response = NextResponse.json({ user: { id: user.id, email: user.email } });
+    const response = NextResponse.json({ user: { id: user.id, email: user.email, displayName: user.displayName } });
     setSessionCookie(response, token, expiresAt);
 
     const clientInfo = extractClientInfo(request);

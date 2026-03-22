@@ -88,7 +88,8 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Artifact deployment flow is pull-based for remote workers: workers should fetch immutable artifact versions from Conductor-backed artifact storage rather than receiving binary payloads over the WebSocket control channel; deployment/promotion provenance is recorded in `artifact_version_usages`.
 - Deploy steps can choose their artifact source explicitly: `run` consumes same-run outputs while `registry` consumes an immutable published repository version or deployment channel, and Conductor resolves the selected registry version before handing the step to Worker.
 - Notification settings UI at `/o/:orgId/settings/notifications` is delivery-aware and backed by `/api/notification-settings`; it exposes only shipped email preferences (`pipeline run results`, `analysis report ready`, optional report score threshold) and surfaces provider health (`live`, `development console`, `misconfigured`)
-- Global settings pages now share a common shell/section pattern via `SettingsPageShell` and `SettingsSection`; new settings surfaces should compose those primitives instead of introducing custom page chrome.
+- Global settings pages now share a common shell/section pattern via `SettingsPageShell` and `SettingsSection`; new org-scoped settings surfaces should compose those primitives instead of introducing custom page chrome.
+- Personal account surfaces live at `/account` and use the dedicated `AccountPageShell` + `AccountNav` layout. The sidebar footer avatar menu is the canonical entry point, and org/project primary navigation must not promote account as a top-level item. Account section navigation keeps the URL hash and scroll position in sync so refresh/back behavior lands on the same section.
 - Settings pages should also use `SettingsEmptyState` for no-data states so empty views stay visually consistent across integrations, organizations, security, and future settings surfaces.
 - Settings pages should use `SettingsNotice` for inline helper/success/warning messaging instead of ad hoc colored text blocks so feedback stays visually and semantically consistent.
 - Settings pages should use `SettingsRow` for repetitive label/control rows so toggles, inline inputs, and list rows stay compact and visually consistent.
@@ -117,11 +118,13 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 - Stored in `org_id` cookie
 - Resolved via `/api/orgs/active` (GET/POST)
 - Auth callback + invite accept also set the cookie
+- Personal orgs are auto-named from the user's email local-part as `xxx's Org` (for example `lixm@github.com` -> `lixm's Org`, `lixm.open@foxmail.com` -> `lixm's Org`).
 
 **URL routing:**
 - Dashboard URLs must include org prefix: `/o/:orgId/...`
 - `/o/:orgId/...` routes are real wrappers that mirror the dashboard pages
 - Org home page: `/o/:orgId` renders the dashboard overview (no longer auto-redirects to projects)
+- Personal account pages are canonical at `/account` and are intentionally outside the org-prefixed dashboard tree; account security, linked providers, sessions, and workspace tokens all live there, while `/settings` remains the org settings entry point.
 - `middleware.ts` keeps the `org_id` cookie in sync when an `/o/:orgId/...` path is requested
 - If a user hits `/projects` (or other dashboard path) and has `org_id`, middleware redirects to `/o/:orgId/...`
 
@@ -276,14 +279,15 @@ apps/
         (auth)/verify/          # Email verification
         (auth)/reset/           # Password reset
         (auth)/invite/[token]/  # Invite accept
-        auth/callback/          # OAuth callback
+        auth/github/            # GitHub OAuth start / account linking entry
+        auth/callback/          # GitHub OAuth callback + account linking
         (dashboard)/            # Protected pages + Sidebar
           layout.tsx
           rules/                # RulesClient (rule sets + template marketplace)
             [id]/               # RuleSetDetailClient
           settings/integrations/
-          settings/security/
           settings/notifications/ # Notification settings UI
+          account/              # AccountScreen (personal profile, connections, sessions, workspace tokens)
         o/[orgId]/              # Org-prefixed wrappers (all dashboard routes live here)
           page.tsx              # Org home: stats, quick actions, project scores, activity
           projects/
@@ -315,6 +319,8 @@ apps/
             templates/          # GET list of built-in templates
             templates/[id]/import/ # POST import template → new ruleset
           notification-settings/ # GET/PUT notification preferences
+          dashboard/bootstrap/    # GET consolidated sidebar bootstrap payload
+          auth/connections/      # GET linked auth providers for account settings
           conductor/events/        # POST (Conductor → Studio callbacks)
           commits/ projects/ stats/ github/ stream/ webhooks/
         layout.tsx providers.tsx globals.css
@@ -379,7 +385,9 @@ Bootstrap-first rule: `.env.example` and `apps/conductor/config.example.toml` in
 ```
 DATABASE_URL=               # Studio Postgres connection string
 ENCRYPTION_KEY=             # AES-256-GCM key for secrets
-EMAIL_VERIFICATION_REQUIRED= # Require email verification before login (true|false)
+GITHUB_CLIENT_ID=            # GitHub OAuth app client ID
+GITHUB_CLIENT_SECRET=        # GitHub OAuth app client secret
+GITHUB_CALLBACK_URL=         # Optional override for the GitHub OAuth callback URL
 CONDUCTOR_BASE_URL=            # Conductor base URL (e.g. http://localhost:8200)
 CONDUCTOR_TOKEN=               # Shared token for Conductor auth
 TASK_CONDUCTOR_TOKEN=          # Optional, protects internal task endpoints (e.g. /api/codebase/sync)
@@ -638,7 +646,10 @@ toast.success('...'); toast.error('...'); toast.warning('...');
 ## Runtime Contracts
 
 - All API routes require login; a small set of Studio endpoints accept `X-Conductor-Token` for Conductor-to-Studio calls (pipeline executors)
-- Auth uses the `session` HTTP-only cookie; email verification is controlled by `EMAIL_VERIFICATION_REQUIRED` (default true)
+- Auth uses the `session` HTTP-only cookie; email/password accounts are created pending and must verify email before login, while GitHub OAuth accounts are linked through `auth_identities`
+- GitHub OAuth sign-in starts at `/auth/github`; signed-in users can pass `mode=link` to bind GitHub to their existing account from the global account page, and the callback should return them to `/account`
+- User avatars are resolved automatically on the server with the order `Gravatar -> GitHub -> Google -> other linked provider profiles -> stored avatar fallback`, persisted into `auth_users.avatar_url`, and revalidated only through the cached `auth_users.avatar_checked_at` refresh window so session/account hot paths never probe remote services; there is no manual avatar upload flow
+- Dashboard shell bootstrap data is fetched through `/api/dashboard/bootstrap`, which consolidates orgs, active org, and the signed-in user profile for sidebar chrome.
 - `analysis_issues.status`: `open | fixed | ignored | false_positive | planned`
 - `/api/projects/[id]/trends` returns array directly (no `data` wrapper)
 - Rules learning endpoints are admin-only (org-scoped)
@@ -682,6 +693,7 @@ psql "$DATABASE_URL" -f docs/db/migrations/009_phased_analysis_sections.sql
 psql "$DATABASE_URL" -f docs/db/migrations/010_analysis_rate_buckets.sql
 psql "$DATABASE_URL" -f docs/db/migrations/018_drop_analysis_tasks.sql
 psql "$DATABASE_URL" -f docs/db/migrations/019_studio_callback_outbox.sql
+psql "$DATABASE_URL" -f docs/db/migrations/020_avatar_cache.sql
 ```
 
 | File | Description |
@@ -696,6 +708,7 @@ psql "$DATABASE_URL" -f docs/db/migrations/019_studio_callback_outbox.sql
 | `010_analysis_rate_buckets.sql` | Adds fixed-window analysis rate limit buckets backed by PostgreSQL |
 | `018_drop_analysis_tasks.sql` | Removes the obsolete analysis task queue table |
 | `019_studio_callback_outbox.sql` | Adds durable Conductor→Studio callback outbox storage |
+| `020_avatar_cache.sql` | Adds `auth_users.avatar_checked_at` for cached avatar revalidation |
 
 ## FAQ
 

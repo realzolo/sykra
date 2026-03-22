@@ -3,11 +3,14 @@ import { cookies, headers } from 'next/headers';
 import { createHash, randomBytes } from 'crypto';
 import { hash, verify } from '@node-rs/argon2';
 import { exec, query, queryOne, withTransaction } from '@/lib/db';
+import { sendEmail } from './email';
 import { logger } from './logger';
 
 export type AuthUser = {
   id: string;
   email?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
 };
 
 export type AuthSession = {
@@ -30,12 +33,6 @@ export type AuthErrorCode =
 export type AuthResult =
   | { user: AuthUser }
   | { error: AuthErrorCode; retryAfter?: number; lockedUntil?: string };
-
-const EMAIL_VERIFICATION_REQUIRED = (() => {
-  const raw = process.env.EMAIL_VERIFICATION_REQUIRED;
-  const normalized = (raw ?? 'true').trim().toLowerCase();
-  return !['0', 'false', 'no', 'off'].includes(normalized);
-})();
 
 const SESSION_COOKIE = 'session';
 const SESSION_TTL_DAYS = 14;
@@ -62,7 +59,7 @@ function hashToken(token: string) {
 }
 
 export function isEmailVerificationRequired() {
-  return EMAIL_VERIFICATION_REQUIRED;
+  return true;
 }
 
 export async function getSession(): Promise<{ user: AuthUser; session: AuthSession; token: string } | null> {
@@ -74,7 +71,9 @@ export async function getSession(): Promise<{ user: AuthUser; session: AuthSessi
   const row = await queryOne<{
     session_id: string;
     user_id: string;
+    display_name: string | null;
     email: string | null;
+    avatar_url: string | null;
     status: string;
     email_verified_at: string | null;
     created_at: string;
@@ -84,7 +83,7 @@ export async function getSession(): Promise<{ user: AuthUser; session: AuthSessi
     expires_at: string;
   }>(
     `select s.id as session_id, s.user_id, s.created_at, s.last_used_at, s.ip_address, s.user_agent, s.expires_at,
-            u.email, u.status, u.email_verified_at
+            u.display_name, u.email, u.avatar_url, u.status, u.email_verified_at
      from auth_sessions s
      join auth_users u on u.id = s.user_id
      where s.session_token_hash = $1
@@ -95,7 +94,7 @@ export async function getSession(): Promise<{ user: AuthUser; session: AuthSessi
 
   if (!row) return null;
   if (row.status === 'disabled') return null;
-  if (EMAIL_VERIFICATION_REQUIRED && (!row.email_verified_at || row.status !== 'active')) return null;
+  if (!row.email_verified_at || row.status !== 'active') return null;
 
   await exec(
     `update auth_sessions set last_used_at = now()
@@ -104,7 +103,12 @@ export async function getSession(): Promise<{ user: AuthUser; session: AuthSessi
   );
 
   return {
-    user: { id: row.user_id, email: row.email },
+    user: {
+      id: row.user_id,
+      email: row.email,
+      displayName: row.display_name,
+      avatarUrl: row.avatar_url,
+    },
     session: {
       id: row.session_id,
       userId: row.user_id,
@@ -142,14 +146,12 @@ export async function createUser(email: string, password: string, displayName?: 
     throw new Error('Email already in use');
   }
 
-  const status = EMAIL_VERIFICATION_REQUIRED ? 'pending' : 'active';
-  const emailVerifiedAt = EMAIL_VERIFICATION_REQUIRED ? null : new Date();
   const passwordHash = await hash(password);
   const user = await queryOne<UserRow>(
     `insert into auth_users (email, display_name, status, email_verified_at, created_at, updated_at)
      values ($1, $2, $3, $4, now(), now())
      returning id, email, status`,
-    [email, displayName ?? null, status, emailVerifiedAt]
+    [email, displayName ?? null, 'pending', null]
   );
 
   if (!user) {
@@ -163,6 +165,236 @@ export async function createUser(email: string, password: string, displayName?: 
   );
 
   return user;
+}
+
+export async function deleteAuthUser(userId: string) {
+  await exec(`delete from auth_users where id = $1`, [userId]);
+}
+
+export async function sendVerificationEmail(email: string, token: string, baseUrl: string) {
+  const verifyUrl = new URL('/verify', baseUrl);
+  verifyUrl.searchParams.set('token', token);
+
+  const text = [
+    'Verify your email address to complete registration.',
+    '',
+    `Open this link: ${verifyUrl.toString()}`,
+    '',
+    'This verification link expires in 24 hours.',
+    'If you did not create this account, you can ignore this email.',
+  ].join('\n');
+
+  await sendEmail({
+    to: email,
+    subject: '[Spec-Axis] Verify your email',
+    text,
+  });
+}
+
+export async function upsertOAuthUser(input: {
+  provider: string;
+  providerUserId: string;
+  email: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  profile: Record<string, unknown>;
+}): Promise<AuthUser> {
+  return withTransaction(async (client) => {
+    const identityRow = await client.query<{
+      user_id: string;
+      email: string | null;
+      status: string;
+      display_name: string | null;
+    }>(
+      `select i.user_id, u.email, u.display_name, u.status
+       from auth_identities i
+       join auth_users u on u.id = i.user_id
+       where i.provider = $1 and i.provider_user_id = $2`,
+      [input.provider, input.providerUserId]
+    );
+
+    const existingIdentity = identityRow.rows[0];
+    if (existingIdentity) {
+      if (existingIdentity.status === 'disabled') {
+        throw new Error('Account disabled');
+      }
+
+      await client.query(
+        `update auth_users
+         set display_name = coalesce(display_name, $2),
+             avatar_url = coalesce(avatar_url, $3),
+             email_verified_at = coalesce(email_verified_at, now()),
+             status = case when status = 'disabled' then status else 'active' end,
+             updated_at = now()
+         where id = $1`,
+        [existingIdentity.user_id, input.displayName ?? null, input.avatarUrl ?? null]
+      );
+      await client.query(
+        `update auth_identities
+         set email = $3,
+             profile = $4
+         where provider = $1 and provider_user_id = $2`,
+        [input.provider, input.providerUserId, input.email, JSON.stringify(input.profile ?? {})]
+      );
+
+      return {
+        id: existingIdentity.user_id,
+        email: existingIdentity.email,
+        displayName: existingIdentity.display_name,
+      };
+    }
+
+    const userRow = await client.query<{
+      id: string;
+      email: string | null;
+      display_name: string | null;
+      status: string;
+    }>(
+      `insert into auth_users (email, display_name, avatar_url, status, email_verified_at, created_at, updated_at)
+       values ($1, $2, $3, 'active', now(), now(), now())
+       on conflict (email) do update
+         set display_name = coalesce(auth_users.display_name, excluded.display_name),
+             avatar_url = coalesce(auth_users.avatar_url, excluded.avatar_url),
+             email_verified_at = coalesce(auth_users.email_verified_at, excluded.email_verified_at),
+             status = case when auth_users.status = 'disabled' then auth_users.status else 'active' end,
+             updated_at = now()
+       returning id, email, display_name, status`,
+      [input.email, input.displayName ?? null, input.avatarUrl ?? null]
+    );
+
+    const user = userRow.rows[0];
+    if (!user) {
+      throw new Error('Failed to create user');
+    }
+    if (user.status === 'disabled') {
+      throw new Error('Account disabled');
+    }
+
+    const profile = JSON.stringify(input.profile ?? {});
+    await client.query(
+      `insert into auth_identities (user_id, provider, provider_user_id, email, profile, created_at)
+       values ($1, $2, $3, $4, $5, now())
+       on conflict (provider, provider_user_id) do nothing`,
+      [user.id, input.provider, input.providerUserId, input.email, profile]
+    );
+
+    const linkedIdentity = await client.query<{
+      user_id: string;
+      email: string | null;
+    }>(
+      `select user_id, email
+       from auth_identities
+       where provider = $1 and provider_user_id = $2`,
+      [input.provider, input.providerUserId]
+    );
+    const linkedUserId = linkedIdentity.rows[0]?.user_id ?? user.id;
+    const linkedEmail = linkedIdentity.rows[0]?.email ?? user.email;
+    return { id: linkedUserId, email: linkedEmail, displayName: user.display_name ?? input.displayName ?? null };
+  });
+}
+
+export async function linkOAuthIdentityToUser(input: {
+  userId: string;
+  provider: string;
+  providerUserId: string;
+  email: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  profile: Record<string, unknown>;
+}): Promise<AuthUser> {
+  return withTransaction(async (client) => {
+    const targetUserRow = await client.query<{
+      id: string;
+      email: string | null;
+      display_name: string | null;
+      status: string;
+    }>(
+      `select id, email, display_name, status
+       from auth_users
+       where id = $1`,
+      [input.userId]
+    );
+    const targetUser = targetUserRow.rows[0];
+    if (!targetUser) {
+      throw new Error('User not found');
+    }
+    if (targetUser.status === 'disabled') {
+      throw new Error('Account disabled');
+    }
+
+    const identityRow = await client.query<{
+      user_id: string;
+      status: string;
+    }>(
+      `select i.user_id, u.status
+       from auth_identities i
+       join auth_users u on u.id = i.user_id
+       where i.provider = $1 and i.provider_user_id = $2`,
+      [input.provider, input.providerUserId]
+    );
+    const existingIdentity = identityRow.rows[0];
+    if (existingIdentity && existingIdentity.user_id !== input.userId) {
+      throw new Error('This GitHub account is already linked to another user');
+    }
+    if (existingIdentity?.status === 'disabled') {
+      throw new Error('Account disabled');
+    }
+
+    await client.query(
+      `update auth_users
+       set display_name = coalesce(display_name, $2),
+           avatar_url = coalesce(avatar_url, $3),
+           email_verified_at = coalesce(email_verified_at, now()),
+           status = case when status = 'disabled' then status else 'active' end,
+           updated_at = now()
+       where id = $1`,
+      [input.userId, input.displayName ?? null, input.avatarUrl ?? null]
+    );
+
+    const profile = JSON.stringify(input.profile ?? {});
+    const identityUpdate = await client.query(
+      `update auth_identities
+       set email = $3,
+           profile = $4
+       where provider = $1 and provider_user_id = $2`,
+      [input.provider, input.providerUserId, input.email, profile]
+    );
+
+    if (identityUpdate.rowCount === 0) {
+      await client.query(
+        `insert into auth_identities (user_id, provider, provider_user_id, email, profile, created_at)
+         values ($1, $2, $3, $4, $5, now())
+         on conflict (provider, provider_user_id) do nothing`,
+        [input.userId, input.provider, input.providerUserId, input.email, profile]
+      );
+    }
+
+    const linkedIdentity = await client.query<{
+      user_id: string;
+    }>(
+      `select user_id
+       from auth_identities
+       where provider = $1 and provider_user_id = $2`,
+      [input.provider, input.providerUserId]
+    );
+    const linkedUserId = linkedIdentity.rows[0]?.user_id;
+    if (linkedUserId && linkedUserId !== input.userId) {
+      throw new Error('This GitHub account is already linked to another user');
+    }
+
+    return { id: targetUser.id, email: targetUser.email, displayName: targetUser.display_name };
+  });
+}
+
+export async function listOAuthProviders(userId: string): Promise<string[]> {
+  const rows = await query<{ provider: string }>(
+    `select distinct provider
+     from auth_identities
+     where user_id = $1
+     order by provider asc`,
+    [userId]
+  );
+  return rows.map((row) => row.provider);
 }
 
 export async function authenticateUser(
@@ -183,13 +415,14 @@ export async function authenticateUser(
   const row = await queryOne<{
     id: string;
     email: string | null;
+    display_name: string | null;
     status: string;
     email_verified_at: string | null;
     password_hash: string;
     failed_login_count: number | null;
     locked_until: string | null;
   }>(
-    `select u.id, u.email, u.status, u.email_verified_at, u.failed_login_count, u.locked_until, c.password_hash
+    `select u.id, u.email, u.display_name, u.status, u.email_verified_at, u.failed_login_count, u.locked_until, c.password_hash
      from auth_users u
      join auth_credentials c on c.user_id = u.id
      where u.email = $1`,
@@ -211,7 +444,7 @@ export async function authenticateUser(
     return { error: 'ACCOUNT_LOCKED', lockedUntil: row.locked_until };
   }
 
-  if (EMAIL_VERIFICATION_REQUIRED && (!row.email_verified_at || row.status !== 'active')) {
+  if (!row.email_verified_at || row.status !== 'active') {
     await recordLoginAttempt(row.id, email, ip ?? null, userAgent ?? null, false, 'unverified');
     return { error: 'EMAIL_NOT_VERIFIED' };
   }
@@ -222,20 +455,9 @@ export async function authenticateUser(
     return { error: 'INVALID_CREDENTIALS' };
   }
 
-  if (!EMAIL_VERIFICATION_REQUIRED && (!row.email_verified_at || row.status !== 'active')) {
-    await exec(
-      `update auth_users
-       set email_verified_at = coalesce(email_verified_at, now()),
-           status = 'active',
-           updated_at = now()
-       where id = $1`,
-      [row.id]
-    );
-  }
-
   await handleSuccessfulLogin(row.id, email, ip ?? null, userAgent ?? null);
 
-  return { user: { id: row.id, email: row.email } };
+  return { user: { id: row.id, email: row.email, displayName: row.display_name } };
 }
 
 export async function createSession(userId: string, ip?: string | null, userAgent?: string | null) {
@@ -405,7 +627,7 @@ export async function createPasswordReset(email: string) {
   if (!user || user.status === 'disabled') {
     return null;
   }
-  if (EMAIL_VERIFICATION_REQUIRED && (!user.email_verified_at || user.status !== 'active')) {
+  if (!user.email_verified_at || user.status !== 'active') {
     return null;
   }
 
@@ -437,7 +659,11 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
 
   await withTransaction(async (client) => {
     await client.query(
-      `update auth_credentials set password_hash = $2, password_updated_at = now() where user_id = $1`,
+      `insert into auth_credentials (user_id, password_hash, password_updated_at)
+       values ($1, $2, now())
+       on conflict (user_id) do update
+         set password_hash = excluded.password_hash,
+             password_updated_at = now()`,
       [row.user_id, passwordHash]
     );
     await client.query(`update auth_password_resets set used_at = now() where id = $1`, [row.id]);

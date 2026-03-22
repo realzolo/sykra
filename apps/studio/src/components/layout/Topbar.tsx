@@ -35,6 +35,7 @@ export default function Topbar({ dict, locale }: { dict: Dictionary; locale: Loc
   if (basePath.startsWith('/projects')) primaryLabel = dict.nav.projects;
   else if (basePath.startsWith('/analytics')) primaryLabel = dict.nav.analytics;
   else if (basePath.startsWith('/rules')) primaryLabel = dict.nav.rules;
+  else if (basePath.startsWith('/account')) primaryLabel = dict.nav.account;
   else if (basePath.startsWith('/settings')) primaryLabel = dict.nav.settings;
 
   let secondaryLabel: string | null = null;

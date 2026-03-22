@@ -7,7 +7,7 @@ export type OrgRole = 'owner' | 'admin' | 'reviewer' | 'member';
 export type OrgStatus = 'active' | 'invited' | 'suspended';
 export const ORG_COOKIE = 'org_id';
 export const ORG_ADMIN_ROLES: OrgRole[] = ['owner', 'admin'];
-const DEFAULT_PERSONAL_ORG_NAME = 'Default';
+const DEFAULT_PERSONAL_ORG_FALLBACK = 'User';
 
 type ProjectAccessRecord = Record<string, unknown> & {
   id: string;
@@ -31,9 +31,20 @@ export interface Organization {
   created_at: string;
 }
 
-function personalOrgName(_email?: string | null) {
-  void _email;
-  return DEFAULT_PERSONAL_ORG_NAME;
+function extractPersonalOrgHandle(email?: string | null) {
+  const localPart = email?.trim().toLowerCase().split('@')[0]?.trim();
+  if (!localPart) return null;
+
+  const base = localPart.split('+')[0]?.split('.')[0]?.trim();
+  if (!base) return null;
+
+  const cleaned = base.replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '');
+  return cleaned || null;
+}
+
+function personalOrgName(email?: string | null) {
+  const handle = extractPersonalOrgHandle(email) ?? DEFAULT_PERSONAL_ORG_FALLBACK;
+  return `${handle}'s Org`;
 }
 
 export async function ensurePersonalOrg(userId: string, email?: string | null): Promise<Organization> {
@@ -43,7 +54,9 @@ export async function ensurePersonalOrg(userId: string, email?: string | null): 
     [userId]
   );
 
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
 
   const slug = `personal-${userId}`;
   const name = personalOrgName(email);

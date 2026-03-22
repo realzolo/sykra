@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createEmailVerification, isEmailVerificationRequired } from '@/services/auth';
+import { createEmailVerification, isEmailVerificationRequired, sendVerificationEmail } from '@/services/auth';
 import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { queryOne } from '@/lib/db';
 
@@ -34,6 +34,8 @@ export async function POST(request: NextRequest) {
   if (user && user.status !== 'disabled' && !user.email_verified_at) {
     const verification = await createEmailVerification(user.id);
     token = verification.token;
+    const baseUrl = process.env.STUDIO_BASE_URL?.trim() || new URL(request.url).origin;
+    await sendVerificationEmail(email, verification.token, baseUrl);
   }
 
   const payload: Record<string, unknown> = { success: true };
