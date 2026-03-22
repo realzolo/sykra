@@ -65,6 +65,9 @@ type PipelineRun struct {
 	TriggeredBy    *string         `json:"triggered_by,omitempty"`
 	IdempotencyKey *string         `json:"idempotency_key,omitempty"`
 	RollbackOf     *string         `json:"rollback_of,omitempty"`
+	CommitSHA      *string         `json:"commit_sha,omitempty"`
+	CommitMessage  *string         `json:"commit_message,omitempty"`
+	Branch         *string         `json:"branch,omitempty"`
 	Attempt        int             `json:"attempt"`
 	ErrorCode      *string         `json:"error_code,omitempty"`
 	ErrorMessage   *string         `json:"error_message,omitempty"`
@@ -177,6 +180,11 @@ type PipelineRunDetail struct {
 
 type PipelineDeletionRefs struct {
 	RunIDs    []string
+	Artifacts []PipelineArtifact
+}
+
+type PipelineJobRetryReset struct {
+	LogPaths  []string
 	Artifacts []PipelineArtifact
 }
 
@@ -668,6 +676,91 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 	return items, nil
 }
 
+func (s *Store) ListActivePipelines(ctx context.Context) ([]Pipeline, error) {
+	rows, err := s.pool.Query(
+		ctx,
+		`select p.id, p.org_id, p.project_id, p.name, p.description, p.is_active, p.current_version_id,
+		        p.concurrency_mode, p.trigger_schedule, p.last_scheduled_at, p.next_scheduled_at, p.created_by, p.created_at, p.updated_at,
+		        coalesce((select max(version) from pipeline_versions where pipeline_id=p.id), 0) as latest_version,
+		        coalesce(cp.default_branch, 'main') as project_default_branch,
+		        cv.config as current_config
+		 from pipelines p
+		 left join code_projects cp on cp.id = p.project_id
+		 left join pipeline_versions cv on cv.id = p.current_version_id
+		 where p.is_active = true
+		 order by p.updated_at desc`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []Pipeline
+	for rows.Next() {
+		var currentVersion pgtype.UUID
+		var createdBy pgtype.UUID
+		var desc pgtype.Text
+		var pID pgtype.UUID
+		var triggerSchedule pgtype.Text
+		var lastScheduledAt pgtype.Timestamptz
+		var nextScheduledAt pgtype.Timestamptz
+		var projectDefaultBranch string
+		var currentConfig json.RawMessage
+		var item Pipeline
+		if err := rows.Scan(
+			&item.ID,
+			&item.OrgID,
+			&pID,
+			&item.Name,
+			&desc,
+			&item.IsActive,
+			&currentVersion,
+			&item.ConcurrencyMode,
+			&triggerSchedule,
+			&lastScheduledAt,
+			&nextScheduledAt,
+			&createdBy,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+			&item.LatestVersion,
+			&projectDefaultBranch,
+			&currentConfig,
+		); err != nil {
+			return nil, err
+		}
+		if pID.Valid {
+			val := pID.String()
+			item.ProjectID = &val
+		}
+		if desc.Valid {
+			item.Description = desc.String
+		}
+		if currentVersion.Valid {
+			val := currentVersion.String()
+			item.CurrentVersionID = &val
+		}
+		if createdBy.Valid {
+			val := createdBy.String()
+			item.CreatedBy = &val
+		}
+		if triggerSchedule.Valid {
+			val := triggerSchedule.String
+			item.TriggerSchedule = &val
+		}
+		if lastScheduledAt.Valid {
+			item.LastScheduledAt = &lastScheduledAt.Time
+		}
+		if nextScheduledAt.Valid {
+			item.NextScheduledAt = &nextScheduledAt.Time
+		}
+		branch, origin := deriveSourceBranch(currentConfig, projectDefaultBranch)
+		item.SourceBranch = branch
+		item.SourceBranchSource = origin
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) DeletePipeline(ctx context.Context, pipelineID string) (*PipelineDeletionRefs, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -861,20 +954,23 @@ func deriveSourceBranch(config json.RawMessage, projectDefaultBranch string) (st
 }
 
 func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*PipelineRun, error) {
+	if run.Attempt <= 0 {
+		run.Attempt = 1
+	}
 	meta := run.Metadata
 	row := s.pool.QueryRow(
 		ctx,
 		`with inserted as (
 		  insert into pipeline_runs
-		   (pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, updated_at)
-		   values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())
+		   (pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, commit_sha, commit_message, branch, attempt, error_code, error_message, metadata, created_at, updated_at)
+		   values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now(),now())
 		   on conflict (pipeline_id, idempotency_key) where idempotency_key is not null do nothing
-		   returning id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
+		   returning id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, commit_sha, commit_message, branch, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
 		)
-		select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
+		select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, commit_sha, commit_message, branch, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
 		  from inserted
 		union all
-		select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
+		select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, commit_sha, commit_message, branch, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
 		  from pipeline_runs
 		 where $8 is not null
 		   and pipeline_id = $1
@@ -890,6 +986,9 @@ func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*Pipeli
 		nullIfEmptyPtr(run.TriggeredBy),
 		nullIfEmptyPtr(run.IdempotencyKey),
 		nullIfEmptyPtr(run.RollbackOf),
+		nullIfEmptyPtr(run.CommitSHA),
+		nullIfEmptyPtr(run.CommitMessage),
+		nullIfEmptyPtr(run.Branch),
 		run.Attempt,
 		nullIfEmptyPtr(run.ErrorCode),
 		nullIfEmptyPtr(run.ErrorMessage),
@@ -900,6 +999,9 @@ func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*Pipeli
 	var triggeredBy pgtype.UUID
 	var idempotency pgtype.Text
 	var rollbackOf pgtype.UUID
+	var commitSHA pgtype.Text
+	var commitMessage pgtype.Text
+	var branch pgtype.Text
 	var errorCode pgtype.Text
 	var errorMessage pgtype.Text
 	var startedAt pgtype.Timestamptz
@@ -916,6 +1018,9 @@ func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*Pipeli
 		&triggeredBy,
 		&idempotency,
 		&rollbackOf,
+		&commitSHA,
+		&commitMessage,
+		&branch,
 		&out.Attempt,
 		&errorCode,
 		&errorMessage,
@@ -943,6 +1048,18 @@ func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*Pipeli
 		val := rollbackOf.String()
 		out.RollbackOf = &val
 	}
+	if commitSHA.Valid {
+		val := commitSHA.String
+		out.CommitSHA = &val
+	}
+	if commitMessage.Valid {
+		val := commitMessage.String
+		out.CommitMessage = &val
+	}
+	if branch.Valid {
+		val := branch.String
+		out.Branch = &val
+	}
 	if errorCode.Valid {
 		val := errorCode.String
 		out.ErrorCode = &val
@@ -963,8 +1080,8 @@ func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*Pipeli
 func (s *Store) GetPipelineRunWithVersion(ctx context.Context, runID string) (*PipelineRun, *PipelineVersion, error) {
 	row := s.pool.QueryRow(
 		ctx,
-		`select r.id, r.pipeline_id, r.version_id, r.org_id, r.project_id, r.status, r.trigger_type, r.triggered_by, r.idempotency_key, r.attempt,
-		        r.error_code, r.error_message, r.metadata, r.created_at, r.started_at, r.finished_at, r.updated_at,
+		`select r.id, r.pipeline_id, r.version_id, r.org_id, r.project_id, r.status, r.trigger_type, r.triggered_by, r.idempotency_key, r.rollback_of,
+		        r.commit_sha, r.commit_message, r.branch, r.attempt, r.error_code, r.error_message, r.metadata, r.created_at, r.started_at, r.finished_at, r.updated_at,
 		        v.id, v.pipeline_id, v.version, v.config, v.created_by, v.created_at
 		 from pipeline_runs r
 		 join pipeline_versions v on v.id = r.version_id
@@ -975,6 +1092,10 @@ func (s *Store) GetPipelineRunWithVersion(ctx context.Context, runID string) (*P
 	var projectID pgtype.UUID
 	var triggeredBy pgtype.UUID
 	var idempotency pgtype.Text
+	var rollbackOf pgtype.UUID
+	var commitSHA pgtype.Text
+	var commitMessage pgtype.Text
+	var branch pgtype.Text
 	var errorCode pgtype.Text
 	var errorMessage pgtype.Text
 	var startedAt pgtype.Timestamptz
@@ -993,6 +1114,10 @@ func (s *Store) GetPipelineRunWithVersion(ctx context.Context, runID string) (*P
 		&run.TriggerType,
 		&triggeredBy,
 		&idempotency,
+		&rollbackOf,
+		&commitSHA,
+		&commitMessage,
+		&branch,
 		&run.Attempt,
 		&errorCode,
 		&errorMessage,
@@ -1021,6 +1146,22 @@ func (s *Store) GetPipelineRunWithVersion(ctx context.Context, runID string) (*P
 	if idempotency.Valid {
 		val := idempotency.String
 		run.IdempotencyKey = &val
+	}
+	if rollbackOf.Valid {
+		val := rollbackOf.String()
+		run.RollbackOf = &val
+	}
+	if commitSHA.Valid {
+		val := commitSHA.String
+		run.CommitSHA = &val
+	}
+	if commitMessage.Valid {
+		val := commitMessage.String
+		run.CommitMessage = &val
+	}
+	if branch.Valid {
+		val := branch.String
+		run.Branch = &val
 	}
 	if errorCode.Valid {
 		val := errorCode.String
@@ -1160,7 +1301,7 @@ func (s *Store) ClaimQueuedPipelineRuns(ctx context.Context, limit int) ([]Pipel
 func (s *Store) GetPipelineRun(ctx context.Context, runID string) (*PipelineRun, error) {
 	row := s.pool.QueryRow(
 		ctx,
-		`select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, attempt,
+		`select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, commit_sha, commit_message, branch, attempt,
 		        error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
 		 from pipeline_runs
 		 where id=$1`,
@@ -1172,6 +1313,9 @@ func (s *Store) GetPipelineRun(ctx context.Context, runID string) (*PipelineRun,
 	var triggeredBy pgtype.UUID
 	var idempotency pgtype.Text
 	var rollbackOf pgtype.UUID
+	var commitSHA pgtype.Text
+	var commitMessage pgtype.Text
+	var branch pgtype.Text
 	var errorCode pgtype.Text
 	var errorMessage pgtype.Text
 	var metadata []byte
@@ -1186,6 +1330,9 @@ func (s *Store) GetPipelineRun(ctx context.Context, runID string) (*PipelineRun,
 		&triggeredBy,
 		&idempotency,
 		&rollbackOf,
+		&commitSHA,
+		&commitMessage,
+		&branch,
 		&run.Attempt,
 		&errorCode,
 		&errorMessage,
@@ -1213,6 +1360,18 @@ func (s *Store) GetPipelineRun(ctx context.Context, runID string) (*PipelineRun,
 		value := rollbackOf.String()
 		run.RollbackOf = &value
 	}
+	if commitSHA.Valid {
+		value := commitSHA.String
+		run.CommitSHA = &value
+	}
+	if commitMessage.Valid {
+		value := commitMessage.String
+		run.CommitMessage = &value
+	}
+	if branch.Valid {
+		value := branch.String
+		run.Branch = &value
+	}
 	if errorCode.Valid {
 		value := errorCode.String
 		run.ErrorCode = &value
@@ -1233,8 +1392,8 @@ func (s *Store) ListPipelineRuns(ctx context.Context, pipelineID string, limit i
 	}
 	rows, err := s.pool.Query(
 		ctx,
-		`select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, attempt,
-		        error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
+		`select id, pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of,
+		        commit_sha, commit_message, branch, attempt, error_code, error_message, metadata, created_at, started_at, finished_at, updated_at
 		 from pipeline_runs
 		 where pipeline_id=$1
 		 order by created_at desc
@@ -1252,6 +1411,10 @@ func (s *Store) ListPipelineRuns(ctx context.Context, pipelineID string, limit i
 		var projectID pgtype.UUID
 		var triggeredBy pgtype.UUID
 		var idempotency pgtype.Text
+		var rollbackOf pgtype.UUID
+		var commitSHA pgtype.Text
+		var commitMessage pgtype.Text
+		var branch pgtype.Text
 		var errorCode pgtype.Text
 		var errorMessage pgtype.Text
 		var startedAt pgtype.Timestamptz
@@ -1268,6 +1431,10 @@ func (s *Store) ListPipelineRuns(ctx context.Context, pipelineID string, limit i
 			&run.TriggerType,
 			&triggeredBy,
 			&idempotency,
+			&rollbackOf,
+			&commitSHA,
+			&commitMessage,
+			&branch,
 			&run.Attempt,
 			&errorCode,
 			&errorMessage,
@@ -1291,6 +1458,22 @@ func (s *Store) ListPipelineRuns(ctx context.Context, pipelineID string, limit i
 			val := idempotency.String
 			run.IdempotencyKey = &val
 		}
+		if rollbackOf.Valid {
+			val := rollbackOf.String()
+			run.RollbackOf = &val
+		}
+		if commitSHA.Valid {
+			val := commitSHA.String
+			run.CommitSHA = &val
+		}
+		if commitMessage.Valid {
+			val := commitMessage.String
+			run.CommitMessage = &val
+		}
+		if branch.Valid {
+			val := branch.String
+			run.Branch = &val
+		}
 		if errorCode.Valid {
 			val := errorCode.String
 			run.ErrorCode = &val
@@ -1308,6 +1491,29 @@ func (s *Store) ListPipelineRuns(ctx context.Context, pipelineID string, limit i
 		items = append(items, run)
 	}
 	return items, nil
+}
+
+func (s *Store) UpdatePipelineRunSourceSnapshot(
+	ctx context.Context,
+	runID string,
+	branch string,
+	commitSHA string,
+	commitMessage string,
+) error {
+	_, err := s.pool.Exec(
+		ctx,
+		`update pipeline_runs
+		 set branch=$2,
+		     commit_sha=$3,
+		     commit_message=$4,
+		     updated_at=now()
+		 where id=$1`,
+		runID,
+		nullIfEmpty(strings.TrimSpace(branch)),
+		nullIfEmpty(strings.TrimSpace(commitSHA)),
+		nullIfEmpty(strings.TrimSpace(commitMessage)),
+	)
+	return err
 }
 
 func (s *Store) GetPipelineRunDetail(ctx context.Context, runID string) (*PipelineRunDetail, error) {
@@ -1330,11 +1536,78 @@ func (s *Store) GetPipelineRunDetail(ctx context.Context, runID string) (*Pipeli
 		steps = append(steps, jobSteps...)
 	}
 
+	projectPipelineRunJobStatuses(jobs, steps)
+
 	return &PipelineRunDetail{
 		Run:   *run,
 		Jobs:  jobs,
 		Steps: steps,
 	}, nil
+}
+
+func projectPipelineRunJobStatuses(jobs []PipelineJob, steps []PipelineStep) {
+	stepsByJobID := make(map[string][]PipelineStep, len(jobs))
+	for _, step := range steps {
+		stepsByJobID[step.JobID] = append(stepsByJobID[step.JobID], step)
+	}
+	for i := range jobs {
+		jobs[i].Status = derivePipelineRunJobStatus(jobs[i].Status, stepsByJobID[jobs[i].ID])
+	}
+}
+
+func derivePipelineRunJobStatus(jobStatus string, steps []PipelineStep) string {
+	if jobStatus != "queued" {
+		return jobStatus
+	}
+
+	hasWaitingManual := false
+	hasFailed := false
+	hasCanceled := false
+	hasTimedOut := false
+	hasSuccess := false
+
+	for _, step := range steps {
+		switch step.Status {
+		case "running":
+			return "running"
+		case "waiting_manual":
+			hasWaitingManual = true
+		case "timed_out":
+			hasTimedOut = true
+		case "canceled":
+			hasCanceled = true
+		case "failed":
+			hasFailed = true
+		case "success":
+			hasSuccess = true
+		}
+	}
+
+	if hasTimedOut {
+		return "timed_out"
+	}
+	if hasCanceled {
+		return "canceled"
+	}
+	if hasFailed {
+		return "failed"
+	}
+	if hasSuccess && len(steps) > 0 {
+		allSuccess := true
+		for _, step := range steps {
+			if step.Status != "success" {
+				allSuccess = false
+				break
+			}
+		}
+		if allSuccess {
+			return "success"
+		}
+	}
+	if hasWaitingManual {
+		return "waiting_manual"
+	}
+	return jobStatus
 }
 
 func (s *Store) ListPipelineJobs(ctx context.Context, runID string) ([]PipelineJob, error) {
@@ -2026,6 +2299,228 @@ func (s *Store) TriggerPipelineJob(ctx context.Context, runID string, jobKey str
 		return nil, false, err
 	}
 	return &job, true, nil
+}
+
+func (s *Store) RetryPipelineJobTree(ctx context.Context, runID string, targetJobKey string, affectedJobKeys []string) (*PipelineJobRetryReset, error) {
+	if strings.TrimSpace(runID) == "" {
+		return nil, fmt.Errorf("runId is required")
+	}
+	if strings.TrimSpace(targetJobKey) == "" {
+		return nil, fmt.Errorf("jobKey is required")
+	}
+	if len(affectedJobKeys) == 0 {
+		return nil, fmt.Errorf("affected job keys are required")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var runStatus string
+	if err := tx.QueryRow(
+		ctx,
+		`select status
+		 from pipeline_runs
+		 where id = $1
+		 for update`,
+		runID,
+	).Scan(&runStatus); err != nil {
+		return nil, err
+	}
+	if runStatus != "failed" && runStatus != "canceled" && runStatus != "timed_out" {
+		return nil, fmt.Errorf("run cannot be retried from node state %s", runStatus)
+	}
+
+	var targetStatus string
+	if err := tx.QueryRow(
+		ctx,
+		`select status
+		 from pipeline_jobs
+		 where run_id = $1 and job_key = $2
+		 for update`,
+		runID,
+		targetJobKey,
+	).Scan(&targetStatus); err != nil {
+		return nil, err
+	}
+	if targetStatus != "failed" && targetStatus != "canceled" && targetStatus != "timed_out" {
+		return nil, fmt.Errorf("job %s cannot be retried from state %s", targetJobKey, targetStatus)
+	}
+
+	logRows, err := tx.Query(
+		ctx,
+		`select s.log_path
+		 from pipeline_steps s
+		 join pipeline_jobs j on j.id = s.job_id
+		 where j.run_id = $1
+		   and j.job_key = any($2::text[])
+		   and s.log_path is not null`,
+		runID,
+		affectedJobKeys,
+	)
+	if err != nil {
+		return nil, err
+	}
+	logPaths := make([]string, 0)
+	for logRows.Next() {
+		var logPath string
+		if err := logRows.Scan(&logPath); err != nil {
+			logRows.Close()
+			return nil, err
+		}
+		logPaths = append(logPaths, logPath)
+	}
+	if err := logRows.Err(); err != nil {
+		logRows.Close()
+		return nil, err
+	}
+	logRows.Close()
+
+	artifactRows, err := tx.Query(
+		ctx,
+		`select a.id, r.org_id, a.run_id, a.job_id, a.step_id, a.path, a.storage_path, a.size_bytes, a.sha256, a.created_at, a.expires_at
+		 from pipeline_artifacts a
+		 join pipeline_runs r on r.id = a.run_id
+		 join pipeline_jobs j on j.id = a.job_id
+		 where a.run_id = $1
+		   and j.job_key = any($2::text[])`,
+		runID,
+		affectedJobKeys,
+	)
+	if err != nil {
+		return nil, err
+	}
+	artifacts := make([]PipelineArtifact, 0)
+	artifactIDs := make([]string, 0)
+	for artifactRows.Next() {
+		var artifact PipelineArtifact
+		var jobID pgtype.UUID
+		var stepID pgtype.UUID
+		var sha pgtype.Text
+		var createdAt pgtype.Timestamptz
+		var expiresAt pgtype.Timestamptz
+		if err := artifactRows.Scan(
+			&artifact.ID,
+			&artifact.OrgID,
+			&artifact.RunID,
+			&jobID,
+			&stepID,
+			&artifact.Path,
+			&artifact.StoragePath,
+			&artifact.SizeBytes,
+			&sha,
+			&createdAt,
+			&expiresAt,
+		); err != nil {
+			artifactRows.Close()
+			return nil, err
+		}
+		if jobID.Valid {
+			artifact.JobID = jobID.String()
+		}
+		if stepID.Valid {
+			artifact.StepID = stepID.String()
+		}
+		if sha.Valid {
+			artifact.Sha256 = sha.String
+		}
+		if createdAt.Valid {
+			value := createdAt.Time
+			artifact.CreatedAt = &value
+		}
+		if expiresAt.Valid {
+			value := expiresAt.Time
+			artifact.ExpiresAt = &value
+		}
+		artifacts = append(artifacts, artifact)
+		artifactIDs = append(artifactIDs, artifact.ID)
+	}
+	if err := artifactRows.Err(); err != nil {
+		artifactRows.Close()
+		return nil, err
+	}
+	artifactRows.Close()
+
+	if len(artifactIDs) > 0 {
+		if _, err := tx.Exec(
+			ctx,
+			`delete from pipeline_artifacts where id = any($1::uuid[])`,
+			artifactIDs,
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := tx.Exec(
+		ctx,
+		`update pipeline_steps
+		 set status='queued',
+		     exit_code=null,
+		     error_message=null,
+		     log_path=null,
+		     started_at=null,
+		     finished_at=null,
+		     duration_ms=null,
+		     updated_at=now()
+		 where job_id in (
+		   select id
+		   from pipeline_jobs
+		   where run_id = $1
+		     and job_key = any($2::text[])
+		 )`,
+		runID,
+		affectedJobKeys,
+	); err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.Exec(
+		ctx,
+		`update pipeline_jobs
+		 set status='queued',
+		     worker_id=null,
+		     error_message=null,
+		     started_at=null,
+		     finished_at=null,
+		     duration_ms=null,
+		     attempt=attempt + 1,
+		     updated_at=now()
+		 where run_id = $1
+		   and job_key = any($2::text[])`,
+		runID,
+		affectedJobKeys,
+	); err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.Exec(
+		ctx,
+		`update pipeline_runs
+		 set status='queued',
+		     attempt=attempt + 1,
+		     error_code=null,
+		     error_message=null,
+		     started_at=null,
+		     finished_at=null,
+		     updated_at=now()
+		 where id = $1`,
+		runID,
+	); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &PipelineJobRetryReset{
+		LogPaths:  logPaths,
+		Artifacts: artifacts,
+	}, nil
 }
 
 func (s *Store) MarkPipelineStepRunning(ctx context.Context, stepID string) error {

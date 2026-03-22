@@ -913,6 +913,18 @@ create table pipeline_run_events (
   occurred_at timestamptz not null default now()
 );
 
+create table studio_callback_outbox (
+  id uuid primary key default gen_random_uuid(),
+  payload jsonb not null,
+  status text not null default 'pending' check (status in ('pending', 'sending', 'sent', 'failed')),
+  attempt_count int not null default 0 check (attempt_count >= 0),
+  next_attempt_at timestamptz not null default now(),
+  last_error text,
+  sent_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table pipeline_artifacts (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references pipeline_runs(id) on delete cascade,
@@ -1031,6 +1043,7 @@ create index pipeline_runs_org_project_idx on pipeline_runs (org_id, project_id,
 create index pipeline_jobs_run_idx on pipeline_jobs (run_id);
 create index pipeline_steps_job_idx on pipeline_steps (job_id);
 create index pipeline_run_events_run_idx on pipeline_run_events (run_id, seq);
+create index studio_callback_outbox_pending_idx on studio_callback_outbox (status, next_attempt_at, created_at);
 create index pipeline_artifacts_run_idx on pipeline_artifacts (run_id);
 create index artifact_blobs_org_sha_idx on artifact_blobs (org_id, sha256);
 create index artifact_blobs_org_storage_idx on artifact_blobs (org_id, storage_path);

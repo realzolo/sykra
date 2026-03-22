@@ -31,10 +31,11 @@ func (e *Engine) runJobLocally(
 	workspaceRoot string,
 	cfg PipelineConfig,
 	secrets map[string]string,
+	source *ResolvedSource,
 	job PipelineJob,
 	jobRecord store.PipelineJob,
 ) error {
-	jobWorkspaceRoot, err := prepareLocalJobWorkspace(workspaceRoot, job)
+	jobWorkspaceRoot, err := prepareLocalJobWorkspace(ctx, e.SourceManager, source, workspaceRoot, job)
 	if err != nil {
 		e.failJobWithoutStartedStep(ctx, runID, job, jobRecord, err.Error())
 		_ = e.Store.MarkPipelineJobFailed(ctx, jobRecord.ID, err.Error())
@@ -75,7 +76,7 @@ func (e *Engine) runJobLocally(
 			return fmt.Errorf("step record missing for %s", step.ID)
 		}
 
-		_, err = e.runStep(ctx, sandbox, run, runID, jobWorkspaceRoot, cfg, secrets, job, jobRecord, step, stepRecord)
+		_, err = e.runStep(ctx, sandbox, run, runID, jobWorkspaceRoot, cfg, secrets, source, job, jobRecord, step, stepRecord)
 		if err != nil && !step.ContinueOnError {
 			_ = e.Store.MarkPipelineJobFailed(ctx, jobRecord.ID, err.Error())
 			_ = e.Store.AppendRunEvent(ctx, runID, "job.failed", map[string]any{
@@ -115,37 +116,27 @@ func (e *Engine) executeLocalStep(
 		if sandbox == nil {
 			return 1, errors.New("sandbox is required for source checkout")
 		}
-		executor := &SourceCheckoutExecutor{
-			Store:     e.Store,
-			ProjectID: job.ProjectID,
-			Branch:    job.Branch,
+		if strings.TrimSpace(env["PIPELINE_REPOSITORY"]) == "" {
+			return 1, errors.New("source repository is not resolved")
 		}
-		spec, err := executor.resolveCheckoutSpec(ctx)
-		if err != nil {
-			return 1, err
+		if strings.TrimSpace(env["PIPELINE_SOURCE_BRANCH"]) == "" {
+			return 1, errors.New("source branch is not resolved")
 		}
-		env["PIPELINE_REPOSITORY"] = spec.Repository
-		env["PIPELINE_REPO_URL"] = spec.RemoteURL
-		for key, value := range spec.Env {
-			env[key] = value
-		}
-		env["PIPELINE_SOURCE_BRANCH"] = strings.TrimSpace(job.Branch)
-		if env["PIPELINE_SOURCE_BRANCH"] == "" {
-			env["PIPELINE_SOURCE_BRANCH"] = "main"
+		if strings.TrimSpace(env["PIPELINE_SOURCE_COMMIT"]) == "" {
+			return 1, errors.New("source commit is not resolved")
 		}
 		script := `
 set -eu
 echo "[source] Repository: ${PIPELINE_REPOSITORY}"
-echo "[source] Remote URL: ${PIPELINE_REPO_URL}"
 echo "[source] Branch: ${PIPELINE_SOURCE_BRANCH}"
-if [ -d .git ]; then
-  echo "[source] Pulling latest changes..."
-  git pull --ff-only origin "${PIPELINE_SOURCE_BRANCH}"
-else
-  echo "[source] Cloning repository..."
-  git clone --depth=1 --branch "${PIPELINE_SOURCE_BRANCH}" "${PIPELINE_REPO_URL}" .
+echo "[source] Commit: ${PIPELINE_SOURCE_COMMIT}"
+if [ -n "${PIPELINE_SOURCE_COMMIT_MESSAGE:-}" ]; then
+  echo "[source] Subject: ${PIPELINE_SOURCE_COMMIT_MESSAGE}"
 fi
-echo "[source] Source checkout complete."
+if [ -n "${PIPELINE_SOURCE_MIRROR:-}" ]; then
+  echo "[source] Mirror cache: ${PIPELINE_SOURCE_MIRROR}"
+fi
+echo "[source] Local workspace snapshot is ready."
 `
 		return sandbox.ExecScript(ctx, script, env, workingDir, logWriter)
 	case "review_gate":

@@ -9,6 +9,7 @@ import {
   conductorListRunEventsResponseSchema,
   conductorListPipelinesResponseSchema,
   conductorPipelineRunDetailSchema,
+  conductorRetryPipelineRunJobResponseSchema,
   conductorTriggerPipelineRunJobResponseSchema,
   conductorUpdatePipelineRequestSchema,
   conductorUpdatePipelineResponseSchema,
@@ -19,6 +20,7 @@ import {
   type ConductorDeletePipelineResponse,
   type ConductorPipelineRun,
   type ConductorGetPipelineResponse,
+  type ConductorRetryPipelineRunJobResponse,
   type ConductorUpdatePipelineRequest,
   type ConductorUpdatePipelineResponse,
   type ConductorPipeline,
@@ -149,6 +151,39 @@ export async function getPipelineStepLog(runId: string, stepId: string, offset =
   return { data, nextOffset };
 }
 
+export async function openPipelineStepLogStream(
+  runId: string,
+  stepId: string,
+  signal?: AbortSignal,
+  offset = 0,
+  limit = 200000
+): Promise<Response> {
+  const init: RequestInit = {
+    method: 'GET',
+    headers: conductorHeaders(),
+  };
+  if (signal) {
+    init.signal = signal;
+  }
+  const params = new URLSearchParams();
+  if (offset > 0) {
+    params.set('offset', String(offset));
+  }
+  if (limit > 0) {
+    params.set('limit', String(limit));
+  }
+  const query = params.toString();
+  const res = await fetch(
+    `${conductorBaseUrl()}/v1/pipeline-runs/${runId}/logs/${stepId}/stream${query ? `?${query}` : ''}`,
+    init
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Conductor log stream failed: ${res.status} ${text}`);
+  }
+  return res;
+}
+
 export async function cancelPipelineRun(runId: string) {
   return fetchConductor(
     `/v1/pipeline-runs/${runId}/cancel`,
@@ -162,5 +197,13 @@ export async function triggerPipelineRunJob(runId: string, jobKey: string) {
     `/v1/pipeline-runs/${runId}/jobs/${encodeURIComponent(jobKey)}/trigger`,
     { method: 'POST', headers: conductorHeaders() },
     conductorTriggerPipelineRunJobResponseSchema
+  );
+}
+
+export async function retryPipelineRunJob(runId: string, jobKey: string): Promise<ConductorRetryPipelineRunJobResponse> {
+  return fetchConductor(
+    `/v1/pipeline-runs/${runId}/jobs/${encodeURIComponent(jobKey)}/retry`,
+    { method: 'POST', headers: conductorHeaders() },
+    conductorRetryPipelineRunJobResponseSchema
   );
 }

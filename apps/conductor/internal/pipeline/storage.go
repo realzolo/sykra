@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -131,6 +132,21 @@ func (s *LocalStorage) DeleteRunLogs(runIDs []string) error {
 		}
 		runLogDir := filepath.Join(s.baseDir, "logs", trimmed)
 		err := os.RemoveAll(runLogDir)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *LocalStorage) DeleteLogPaths(paths []string) error {
+	for _, relPath := range paths {
+		trimmed := strings.TrimSpace(relPath)
+		if trimmed == "" {
+			continue
+		}
+		absPath := filepath.Join(s.baseDir, filepath.FromSlash(trimmed))
+		err := os.Remove(absPath)
 		if err != nil && !os.IsNotExist(err) {
 			return err
 		}

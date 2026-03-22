@@ -2,15 +2,16 @@
   "name": "spec-axis",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.13.1",
   "scripts": {
-    "dev": "pnpm -C apps/studio dev",
-    "build": "pnpm -C apps/studio build",
-    "start": "pnpm -C apps/studio start",
-    "lint": "pnpm -C apps/studio lint",
-    "dev:studio": "pnpm -C apps/studio dev",
-    "build:studio": "pnpm -C apps/studio build",
-    "start:studio": "pnpm -C apps/studio start",
-    "lint:studio": "pnpm -C apps/studio lint",
+    "dev": "node ./scripts/run-pnpm.mjs -C apps/studio dev",
+    "build": "node ./scripts/run-pnpm.mjs -C apps/studio build",
+    "start": "node ./scripts/run-pnpm.mjs -C apps/studio start",
+    "lint": "node ./scripts/run-pnpm.mjs -C apps/studio lint",
+    "dev:studio": "node ./scripts/run-pnpm.mjs -C apps/studio dev",
+    "build:studio": "node ./scripts/run-pnpm.mjs -C apps/studio build",
+    "start:studio": "node ./scripts/run-pnpm.mjs -C apps/studio start",
+    "lint:studio": "node ./scripts/run-pnpm.mjs -C apps/studio lint",
     "codebase:cleanup": "node apps/studio/src/scripts/codebase-cleanup.mjs"
   }
 }

@@ -72,6 +72,9 @@ export const conductorPipelineRunSchema = z.object({
   triggered_by: z.string().uuid().nullable().optional(),
   idempotency_key: z.string().nullable().optional(),
   rollback_of: z.string().uuid().nullable().optional(),
+  branch: z.string().nullable().optional(),
+  commit_sha: z.string().nullable().optional(),
+  commit_message: z.string().nullable().optional(),
   attempt: z.number().int(),
   error_code: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
@@ -137,6 +140,7 @@ export const conductorListRunEventsResponseSchema = z.array(conductorRunEventSch
 export const conductorCancelPipelineRunResponseSchema = z.object({ ok: z.literal(true) });
 export const conductorDeletePipelineResponseSchema = z.object({ ok: z.literal(true) });
 export const conductorTriggerPipelineRunJobResponseSchema = z.object({ ok: z.literal(true) });
+export const conductorRetryPipelineRunJobResponseSchema = z.object({ ok: z.literal(true) });
 
 export type ConductorPipeline = z.infer<typeof conductorPipelineSchema>;
 export type ConductorPipelineVersion = z.infer<typeof conductorPipelineVersionSchema>;
@@ -149,3 +153,4 @@ export type ConductorPipelineRun = z.infer<typeof conductorPipelineRunSchema>;
 export type ConductorPipelineRunDetail = z.infer<typeof conductorPipelineRunDetailSchema>;
 export type ConductorRunEvent = z.infer<typeof conductorRunEventSchema>;
 export type ConductorDeletePipelineResponse = z.infer<typeof conductorDeletePipelineResponseSchema>;
+export type ConductorRetryPipelineRunJobResponse = z.infer<typeof conductorRetryPipelineRunJobResponseSchema>;

@@ -1,14 +1,12 @@
 package pipeline
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -27,9 +25,10 @@ type Engine struct {
 	Executors             *ExecutorRegistry
 	Storage               *LocalStorage
 	Artifacts             *artifacts.Manager
+	SourceManager         *SourceManager
 	Concurrency           int
 	ArtifactRetentionDays int
-	// Studio integration for source_checkout and review_gate
+	// Studio integration for pipeline result notifications
 	StudioURL   string
 	StudioToken string
 	WorkerHub   *workerhub.Hub
@@ -39,7 +38,6 @@ func (e *Engine) postStudioEvent(ctx context.Context, typ string, payload map[st
 	if strings.TrimSpace(e.StudioURL) == "" || strings.TrimSpace(e.StudioToken) == "" {
 		return
 	}
-	url := strings.TrimRight(e.StudioURL, "/") + "/api/conductor/events"
 	body := map[string]any{
 		"type": typ,
 	}
@@ -50,26 +48,17 @@ func (e *Engine) postStudioEvent(ctx context.Context, typ string, payload map[st
 	if err != nil {
 		return
 	}
-
+	if e.Store == nil {
+		return
+	}
 	requestCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, url, bytes.NewReader(raw))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Conductor-Token", e.StudioToken)
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	res, err := client.Do(req)
-	if err != nil {
-		log.Printf("studio event post failed: %v", err)
-		return
-	}
-	_ = res.Body.Close()
-	if res.StatusCode >= 300 {
-		log.Printf("studio event post failed: status=%d", res.StatusCode)
+	if err := e.Store.EnqueueStudioCallback(requestCtx, raw); err != nil {
+		log.Printf("studio event enqueue failed: %v", err)
+		if directErr := deliverStudioCallback(requestCtx, e.StudioURL, e.StudioToken, raw); directErr != nil {
+			log.Printf("studio event direct delivery failed: %v", directErr)
+		}
 	}
 }
 
@@ -132,6 +121,7 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 	for _, job := range plan.Jobs {
 		jobIndex[job.ID] = job
 	}
+	sourceJob, hasSourceJob := findSourceJob(plan.Jobs)
 
 	// Ensure job/step records exist in DB
 	jobRecords, err := e.Store.ListPipelineJobs(ctx, runID)
@@ -153,16 +143,61 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 		jobMap[job.JobKey] = job
 	}
 
-	if err := e.Store.MarkPipelineRunRunning(ctx, runID); err != nil {
-		return err
+	var sourceSnapshot *ResolvedSource
+	if hasSourceJob {
+		if jobRecord, ok := jobMap[sourceJob.ID]; ok && len(sourceJob.Steps) > 0 {
+			if err := e.Store.MarkPipelineRunRunning(ctx, runID); err != nil {
+				return err
+			}
+			_ = e.Store.AppendRunEvent(ctx, runID, "run.started", map[string]any{
+				"runId":      runID,
+				"pipelineId": run.PipelineID,
+				"versionId":  run.VersionID,
+				"status":     StatusRunning,
+				"startedAt":  time.Now().UTC().Format(time.RFC3339),
+			})
+			_ = e.Store.MarkPipelineJobRunning(ctx, jobRecord.ID)
+			jobRecord.Status = string(StatusRunning)
+			jobMap[sourceJob.ID] = jobRecord
+			sourceStep := sourceJob.Steps[0]
+			if stepRecord, err := e.Store.GetPipelineStepByKey(ctx, jobRecord.ID, sourceStep.ID); err == nil && stepRecord.ID != "" {
+				_ = e.Store.MarkPipelineStepRunning(ctx, stepRecord.ID)
+				_ = e.Store.AppendRunEvent(ctx, runID, "step.started", map[string]any{
+					"runId":     runID,
+					"jobId":     jobRecord.ID,
+					"jobKey":    sourceJob.ID,
+					"stepId":    stepRecord.ID,
+					"stepKey":   sourceStep.ID,
+					"status":    StatusRunning,
+					"startedAt": time.Now().UTC().Format(time.RFC3339),
+				})
+			}
+			e.initializeJobStepLog(
+				ctx,
+				runID,
+				sourceJob,
+				jobRecord,
+				sourceStep.ID,
+				"[system] Resolving source snapshot from the local mirror cache.",
+			)
+		}
+		sourceSnapshot, err = e.resolveRunSourceSnapshot(ctx, run, sourceJob)
+		if err != nil {
+			if jobRecord, ok := jobMap[sourceJob.ID]; ok {
+				e.failJobWithoutStartedStep(ctx, runID, sourceJob, jobRecord, err.Error())
+				_ = e.Store.MarkPipelineJobFailed(ctx, jobRecord.ID, err.Error())
+			}
+			_ = e.Store.MarkPipelineRunFailed(ctx, runID, err.Error())
+			_ = e.Store.AppendRunEvent(ctx, runID, "run.failed", map[string]any{
+				"runId":      runID,
+				"status":     StatusFailed,
+				"error":      err.Error(),
+				"finishedAt": time.Now().UTC().Format(time.RFC3339),
+			})
+			e.postStudioEvent(ctx, "pipeline.run.failed", map[string]any{"runId": runID})
+			return err
+		}
 	}
-	_ = e.Store.AppendRunEvent(ctx, runID, "run.started", map[string]any{
-		"runId":      runID,
-		"pipelineId": run.PipelineID,
-		"versionId":  run.VersionID,
-		"status":     StatusRunning,
-		"startedAt":  time.Now().UTC().Format(time.RFC3339),
-	})
 
 	concurrency := e.Concurrency
 	if concurrency <= 0 {
@@ -259,7 +294,7 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 	startJob := func(jobID string) {
 		inFlight++
 		go func(id string) {
-			err := e.runJob(ctx, run, runID, workspaceRoot, cfg, secrets, jobIndex[id], jobMap[id])
+			err := e.runJob(ctx, run, runID, workspaceRoot, cfg, secrets, sourceSnapshot, jobIndex[id], jobMap[id])
 			jobDone <- jobResult{jobKey: id, err: err}
 		}(jobID)
 	}
@@ -397,6 +432,41 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 	return nil
 }
 
+func (e *Engine) initializeJobStepLog(
+	ctx context.Context,
+	runID string,
+	job PipelineJob,
+	jobRecord store.PipelineJob,
+	stepID string,
+	lines ...string,
+) {
+	if e.Storage == nil || len(lines) == 0 || strings.TrimSpace(stepID) == "" {
+		return
+	}
+	stepRecord, err := e.Store.GetPipelineStepByKey(ctx, jobRecord.ID, stepID)
+	if err != nil || stepRecord.ID == "" {
+		return
+	}
+	logPath, writer, err := e.Storage.OpenStepLog(runID, job.ID, stepID)
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = writer.Close()
+	}()
+
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.HasSuffix(line, "\n") {
+			line += "\n"
+		}
+		_, _ = io.WriteString(writer, line)
+	}
+	_ = e.Store.UpdatePipelineStepLogPath(ctx, stepRecord.ID, logPath)
+}
+
 type runControlMetadata struct {
 	ApprovedJobs []string `json:"approvedJobs,omitempty"`
 }
@@ -498,6 +568,7 @@ func (e *Engine) runJob(
 	workspaceRoot string,
 	cfg PipelineConfig,
 	secrets map[string]string,
+	source *ResolvedSource,
 	job PipelineJob,
 	record store.PipelineJob,
 ) error {
@@ -519,7 +590,7 @@ func (e *Engine) runJob(
 
 	target := jobExecutionTarget(job)
 	if target != "deploy" {
-		return e.runJobLocally(ctx, run, runID, workspaceRoot, cfg, secrets, job, record)
+		return e.runJobLocally(ctx, run, runID, workspaceRoot, cfg, secrets, source, job, record)
 	}
 	if e.WorkerHub == nil || !e.WorkerHub.HasWorkers() {
 		err := fmt.Errorf("no deploy worker node available for pipeline execution")
@@ -527,7 +598,7 @@ func (e *Engine) runJob(
 		_ = e.Store.MarkPipelineJobFailed(ctx, record.ID, err.Error())
 		return err
 	}
-	return e.runJobOnWorker(ctx, runID, cfg, secrets, job, record, target)
+	return e.runJobOnWorker(ctx, run, runID, cfg, secrets, source, job, record, target)
 }
 
 func (e *Engine) failJobWithoutStartedStep(
@@ -576,9 +647,11 @@ func (e *Engine) failJobWithoutStartedStep(
 
 func (e *Engine) runJobOnWorker(
 	ctx context.Context,
+	run *store.PipelineRun,
 	runID string,
 	cfg PipelineConfig,
 	secrets map[string]string,
+	source *ResolvedSource,
 	job PipelineJob,
 	jobRecord store.PipelineJob,
 	executionTarget string,
@@ -602,7 +675,7 @@ func (e *Engine) runJobOnWorker(
 			return fmt.Errorf("step record missing for %s", step.ID)
 		}
 		stepRecords[step.ID] = stepRecord
-		stepEnv := buildEnv(runID, cfg, secrets, job, step)
+		stepEnv := buildEnv(run, source, runID, cfg, secrets, job, step)
 		registryFiles := []workerprotocol.RegistryArtifactFile{}
 		registryVersion := strings.TrimSpace(step.RegistryVersion)
 		registryChannel := strings.TrimSpace(step.RegistryChannel)
@@ -907,26 +980,32 @@ func (e *Engine) runStep(
 	workspaceRoot string,
 	cfg PipelineConfig,
 	secrets map[string]string,
+	source *ResolvedSource,
 	job PipelineJob,
 	jobRecord store.PipelineJob,
 	step PipelineStep,
 	stepRecord store.PipelineStep,
 ) (RunStatus, error) {
 	status := StatusRunning
-	if err := e.Store.MarkPipelineStepRunning(ctx, stepRecord.ID); err != nil {
-		return StatusFailed, err
+	if stepRecord.Status != string(StatusRunning) {
+		if err := e.Store.MarkPipelineStepRunning(ctx, stepRecord.ID); err != nil {
+			return StatusFailed, err
+		}
+		_ = e.Store.AppendRunEvent(ctx, runID, "step.started", map[string]any{
+			"runId":     runID,
+			"jobId":     jobRecord.ID,
+			"jobKey":    job.ID,
+			"stepId":    stepRecord.ID,
+			"stepKey":   step.ID,
+			"status":    StatusRunning,
+			"startedAt": time.Now().UTC().Format(time.RFC3339),
+		})
 	}
-	_ = e.Store.AppendRunEvent(ctx, runID, "step.started", map[string]any{
-		"runId":     runID,
-		"jobId":     jobRecord.ID,
-		"jobKey":    job.ID,
-		"stepId":    stepRecord.ID,
-		"stepKey":   step.ID,
-		"status":    StatusRunning,
-		"startedAt": time.Now().UTC().Format(time.RFC3339),
-	})
 
-	env := buildEnv(runID, cfg, secrets, job, step)
+	env := buildEnv(run, source, runID, cfg, secrets, job, step)
+	if source != nil && strings.EqualFold(strings.TrimSpace(job.Type), "source_checkout") && strings.TrimSpace(source.MirrorPath) != "" {
+		env["PIPELINE_SOURCE_MIRROR"] = source.MirrorPath
+	}
 	workingDir := resolvePipelineWorkingDir(workspaceRoot, job.WorkingDir, step.WorkingDir)
 	if err := os.MkdirAll(workingDir, 0o755); err != nil {
 		_ = e.Store.MarkPipelineStepFailed(ctx, stepRecord.ID, string(StatusFailed), 1, err.Error())
@@ -1027,6 +1106,62 @@ func firstStepKey(job PipelineJob) string {
 	return job.Steps[0].ID
 }
 
+func findSourceJob(jobs []PipelineJob) (PipelineJob, bool) {
+	for _, job := range jobs {
+		if strings.EqualFold(strings.TrimSpace(job.Type), "source_checkout") {
+			return job, true
+		}
+	}
+	return PipelineJob{}, false
+}
+
+func (e *Engine) resolveRunSourceSnapshot(
+	ctx context.Context,
+	run *store.PipelineRun,
+	sourceJob PipelineJob,
+) (*ResolvedSource, error) {
+	if e.SourceManager == nil {
+		return nil, fmt.Errorf("source manager is not configured")
+	}
+	if run == nil {
+		return nil, fmt.Errorf("pipeline run is required")
+	}
+	if run.ProjectID == nil || strings.TrimSpace(*run.ProjectID) == "" {
+		return nil, fmt.Errorf("source checkout requires a project-scoped pipeline run")
+	}
+
+	project, err := e.Store.GetProject(ctx, *run.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+
+	branch := strings.TrimSpace(sourceJob.Branch)
+	if run.Branch != nil && strings.TrimSpace(*run.Branch) != "" {
+		branch = strings.TrimSpace(*run.Branch)
+	}
+	if branch == "" {
+		branch = "main"
+	}
+
+	pinnedCommit := ""
+	if run.CommitSHA != nil {
+		pinnedCommit = strings.TrimSpace(*run.CommitSHA)
+	}
+
+	source, err := e.SourceManager.ResolveSnapshot(ctx, e.Store, project, branch, pinnedCommit)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.Store.UpdatePipelineRunSourceSnapshot(ctx, run.ID, source.Branch, source.CommitSHA, source.CommitMessage); err != nil {
+		return nil, err
+	}
+
+	run.Branch = stringPointer(source.Branch)
+	run.CommitSHA = stringPointer(source.CommitSHA)
+	run.CommitMessage = stringPointer(source.CommitMessage)
+	return source, nil
+}
+
 func (e *Engine) cancelPendingJobs(ctx context.Context, runID string, jobIndex map[string]PipelineJob, jobMap map[string]store.PipelineJob) error {
 	for jobID, job := range jobIndex {
 		record, ok := jobMap[jobID]
@@ -1056,7 +1191,15 @@ func (e *Engine) cancelPendingJobs(ctx context.Context, runID string, jobIndex m
 	return nil
 }
 
-func buildEnv(runID string, cfg PipelineConfig, secrets map[string]string, job PipelineJob, step PipelineStep) map[string]string {
+func buildEnv(
+	run *store.PipelineRun,
+	source *ResolvedSource,
+	runID string,
+	cfg PipelineConfig,
+	secrets map[string]string,
+	job PipelineJob,
+	step PipelineStep,
+) map[string]string {
 	env := map[string]string{}
 	for k, v := range cfg.Variables {
 		env[k] = v
@@ -1077,7 +1220,40 @@ func buildEnv(runID string, cfg PipelineConfig, secrets map[string]string, job P
 	if strings.TrimSpace(cfg.Environment) != "" {
 		env["PIPELINE_ENVIRONMENT"] = strings.TrimSpace(cfg.Environment)
 	}
+	if source != nil {
+		if strings.TrimSpace(source.Repository) != "" {
+			env["PIPELINE_REPOSITORY"] = strings.TrimSpace(source.Repository)
+		}
+		if strings.TrimSpace(source.Branch) != "" {
+			env["PIPELINE_SOURCE_BRANCH"] = strings.TrimSpace(source.Branch)
+		}
+		if strings.TrimSpace(source.CommitSHA) != "" {
+			env["PIPELINE_SOURCE_COMMIT"] = strings.TrimSpace(source.CommitSHA)
+		}
+		if strings.TrimSpace(source.CommitMessage) != "" {
+			env["PIPELINE_SOURCE_COMMIT_MESSAGE"] = strings.TrimSpace(source.CommitMessage)
+		}
+	}
+	if run != nil {
+		if run.Branch != nil && strings.TrimSpace(*run.Branch) != "" {
+			env["PIPELINE_SOURCE_BRANCH"] = strings.TrimSpace(*run.Branch)
+		}
+		if run.CommitSHA != nil && strings.TrimSpace(*run.CommitSHA) != "" {
+			env["PIPELINE_SOURCE_COMMIT"] = strings.TrimSpace(*run.CommitSHA)
+		}
+		if run.CommitMessage != nil && strings.TrimSpace(*run.CommitMessage) != "" {
+			env["PIPELINE_SOURCE_COMMIT_MESSAGE"] = strings.TrimSpace(*run.CommitMessage)
+		}
+	}
 	return env
+}
+
+func stringPointer(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func requiredCapabilities(job PipelineJob, steps []workerprotocol.ExecuteStep) []string {

@@ -61,6 +61,7 @@ func main() {
 
 	storage := pipeline.NewLocalStorage(cfg.DataDir)
 	artifactManager := &artifacts.Manager{Store: st, LocalDataDir: cfg.DataDir}
+	sourceManager := pipeline.NewSourceManager(cfg.DataDir)
 	executors := pipeline.NewExecutorRegistry()
 	executors.Register("shell", &pipeline.ShellExecutor{})
 	engine := &pipeline.Engine{
@@ -68,6 +69,7 @@ func main() {
 		Executors:             executors,
 		Storage:               storage,
 		Artifacts:             artifactManager,
+		SourceManager:         sourceManager,
 		Concurrency:           cfg.PipelineConcurrency,
 		ArtifactRetentionDays: cfg.ArtifactRetentionDays,
 		StudioURL:             cfg.StudioURL,
@@ -87,6 +89,8 @@ func main() {
 	go pipelineService.RunScheduleLoop(ctx, 30*time.Second)
 	go dispatch.RunAnalysisLoop(ctx, st, publisher, cfg.AnalyzeTimeout, cfg.Concurrency, 2*time.Second)
 	go dispatch.RunPipelineLoop(ctx, st, engine, 1, 2*time.Second)
+	go pipeline.RunStudioCallbackLoop(ctx, st, cfg.StudioURL, cfg.StudioToken, 2*time.Second)
+	go sourceManager.RunWarmupLoop(ctx, st, 30*time.Minute)
 
 	httpServer := &http.Server{
 		Addr:    ":" + cfg.Port,

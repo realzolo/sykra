@@ -54,6 +54,11 @@ type TriggerRunJobInput struct {
 	JobKey string
 }
 
+type RetryRunJobInput struct {
+	RunID  string
+	JobKey string
+}
+
 func (s *Service) DeletePipeline(ctx context.Context, pipelineID string) error {
 	if strings.TrimSpace(pipelineID) == "" {
 		return errors.New("pipelineId is required")
@@ -414,6 +419,114 @@ func (s *Service) ReadLog(ctx context.Context, stepID string, offset int64, limi
 	return nil, 0, err
 }
 
+func (s *Service) StreamLog(
+	ctx context.Context,
+	stepID string,
+	offset int64,
+	limit int64,
+	emit func([]byte) error,
+) error {
+	if s == nil || s.Store == nil {
+		return errors.New("store is required")
+	}
+	if s.Storage == nil {
+		return errors.New("storage is required")
+	}
+	if strings.TrimSpace(stepID) == "" {
+		return errors.New("stepId is required")
+	}
+	if emit == nil {
+		return errors.New("emit callback is required")
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 200000
+	}
+
+	terminalGrace := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		step, err := s.Store.GetPipelineStep(ctx, stepID)
+		if err != nil {
+			return err
+		}
+		if step == nil {
+			return fmt.Errorf("log not found")
+		}
+
+		active := step.Status == string(StatusQueued) ||
+			step.Status == string(StatusRunning) ||
+			step.Status == string(StatusWaitingManual)
+
+		if step.LogPath == nil || strings.TrimSpace(*step.LogPath) == "" {
+			if step.ErrorMessage != nil && strings.TrimSpace(*step.ErrorMessage) != "" {
+				synthetic := []byte(fmt.Sprintf("[system] No persisted step log is available.\n[system] %s\n", *step.ErrorMessage))
+				if offset < int64(len(synthetic)) {
+					if err := emit(synthetic[offset:]); err != nil {
+						return err
+					}
+				}
+			}
+			if active {
+				if err := sleepContext(ctx, time.Second); err != nil {
+					return err
+				}
+				continue
+			}
+			return nil
+		}
+
+		data, next, err := s.Storage.ReadLog(*step.LogPath, offset, limit)
+		if err != nil {
+			if active {
+				if err := sleepContext(ctx, time.Second); err != nil {
+					return err
+				}
+				continue
+			}
+			if step.ErrorMessage != nil && strings.TrimSpace(*step.ErrorMessage) != "" {
+				synthetic := []byte(fmt.Sprintf("[system] Persisted step log could not be read.\n[system] %s\n", *step.ErrorMessage))
+				if offset < int64(len(synthetic)) {
+					if err := emit(synthetic[offset:]); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			return err
+		}
+
+		if len(data) > 0 {
+			if err := emit(data); err != nil {
+				return err
+			}
+			offset = next
+		}
+
+		if active {
+			terminalGrace = 0
+		} else if len(data) == 0 {
+			terminalGrace++
+			if terminalGrace >= 2 {
+				return nil
+			}
+		}
+
+		if len(data) >= int(limit) {
+			continue
+		}
+
+		if err := sleepContext(ctx, time.Second); err != nil {
+			return err
+		}
+	}
+}
+
 func (s *Service) CancelRun(ctx context.Context, runID string) error {
 	if strings.TrimSpace(runID) == "" {
 		return errors.New("runId is required")
@@ -431,6 +544,18 @@ func (s *Service) CancelRun(ctx context.Context, runID string) error {
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	})
 	return nil
+}
+
+func sleepContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s *Service) TriggerRunJob(ctx context.Context, input TriggerRunJobInput) error {
@@ -473,6 +598,97 @@ func (s *Service) TriggerRunJob(ctx context.Context, input TriggerRunJobInput) e
 		"jobKey":    job.JobKey,
 		"status":    StatusQueued,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	})
+
+	return nil
+}
+
+func (s *Service) RetryRunJob(ctx context.Context, input RetryRunJobInput) error {
+	if strings.TrimSpace(input.RunID) == "" {
+		return errors.New("runId is required")
+	}
+	if strings.TrimSpace(input.JobKey) == "" {
+		return errors.New("jobKey is required")
+	}
+
+	run, version, err := s.Store.GetPipelineRunWithVersion(ctx, input.RunID)
+	if err != nil {
+		return err
+	}
+	if run == nil || version == nil {
+		return errors.New("run not found")
+	}
+
+	var cfg PipelineConfig
+	if err := version.DecodeConfig(&cfg); err != nil {
+		return err
+	}
+	if err := ValidateConfig(cfg); err != nil {
+		return err
+	}
+
+	projectID := ""
+	if run.ProjectID != nil {
+		projectID = *run.ProjectID
+	}
+	plan := BuildInternalPlan(cfg, projectID)
+	jobIndex := make(map[string]PipelineJob, len(plan.Jobs))
+	for _, job := range plan.Jobs {
+		jobIndex[job.ID] = job
+	}
+	if _, ok := jobIndex[input.JobKey]; !ok {
+		return fmt.Errorf("job %s not found in pipeline plan", input.JobKey)
+	}
+
+	dependents := map[string][]string{}
+	for _, job := range plan.Jobs {
+		for _, need := range job.Needs {
+			dependents[need] = append(dependents[need], job.ID)
+		}
+	}
+	affectedSet := map[string]bool{input.JobKey: true}
+	queue := []string{input.JobKey}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, dependent := range dependents[current] {
+			if affectedSet[dependent] {
+				continue
+			}
+			affectedSet[dependent] = true
+			queue = append(queue, dependent)
+		}
+	}
+	affectedJobKeys := make([]string, 0, len(affectedSet))
+	for _, job := range plan.Jobs {
+		if affectedSet[job.ID] {
+			affectedJobKeys = append(affectedJobKeys, job.ID)
+		}
+	}
+
+	reset, err := s.Store.RetryPipelineJobTree(ctx, input.RunID, input.JobKey, affectedJobKeys)
+	if err != nil {
+		return err
+	}
+
+	if s.Storage != nil && reset != nil && len(reset.LogPaths) > 0 {
+		_ = s.Storage.DeleteLogPaths(reset.LogPaths)
+	}
+	if s.Artifacts != nil && reset != nil {
+		for _, artifact := range reset.Artifacts {
+			if strings.TrimSpace(artifact.OrgID) == "" || strings.TrimSpace(artifact.StoragePath) == "" {
+				continue
+			}
+			_ = s.Artifacts.DeleteStoredArtifact(ctx, artifact.OrgID, artifact.StoragePath)
+		}
+	}
+
+	_ = s.Store.AppendRunEvent(ctx, input.RunID, "run.retried", map[string]any{
+		"runId":           input.RunID,
+		"targetJobKey":    input.JobKey,
+		"affectedJobKeys": affectedJobKeys,
+		"status":          StatusQueued,
+		"retriedAt":       time.Now().UTC().Format(time.RFC3339),
 	})
 
 	return nil

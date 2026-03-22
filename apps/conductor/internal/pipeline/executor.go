@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	"spec-axis/conductor/internal/integrations"
 	"spec-axis/conductor/internal/store"
 )
 
@@ -141,92 +140,6 @@ func (e *DockerExecutor) Execute(ctx context.Context, step PipelineStep, env map
 		return exitErr.ExitCode(), err
 	}
 	return 1, err
-}
-
-// ── Source checkout executor ───────────────────────────────────────────────
-// Runs git clone/pull for the project's repository using Conductor's own
-// project + VCS integration resolution.
-
-type SourceCheckoutExecutor struct {
-	Store     *store.Store
-	ProjectID string
-	Branch    string
-}
-
-func (e *SourceCheckoutExecutor) Execute(ctx context.Context, step PipelineStep, env map[string]string, workingDir string, log io.Writer) (int, error) {
-	fmt.Fprintf(log, "[source] Fetching project info for %s\n", e.ProjectID)
-
-	spec, err := e.resolveCheckoutSpec(ctx)
-	if err != nil {
-		fmt.Fprintf(log, "[source] ERROR: %v\n", err)
-		return 1, err
-	}
-	commandEnv := cloneMap(env)
-	if commandEnv == nil {
-		commandEnv = map[string]string{}
-	}
-	for key, value := range spec.Env {
-		commandEnv[key] = value
-	}
-
-	branch := e.Branch
-	if branch == "" {
-		branch = "main"
-	}
-
-	fmt.Fprintf(log, "[source] Repository: %s\n", spec.Repository)
-	fmt.Fprintf(log, "[source] Remote URL: %s\n", spec.RemoteURL)
-	fmt.Fprintf(log, "[source] Branch: %s\n", branch)
-
-	// Determine checkout dir
-	checkoutDir := workingDir
-	if checkoutDir == "" {
-		checkoutDir = "/tmp/pipeline-source"
-	}
-
-	// Clone or pull
-	if _, err := os.Stat(checkoutDir + "/.git"); os.IsNotExist(err) {
-		fmt.Fprintf(log, "[source] Cloning repository...\n")
-		cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", branch, spec.RemoteURL, checkoutDir)
-		cmd.Stdout = log
-		cmd.Stderr = log
-		cmd.Env = mergeEnv(commandEnv)
-		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(log, "[source] Clone failed: %v\n", err)
-			return 1, err
-		}
-	} else {
-		fmt.Fprintf(log, "[source] Pulling latest changes...\n")
-		cmd := exec.CommandContext(ctx, "git", "-C", checkoutDir, "pull", "--ff-only", "origin", branch)
-		cmd.Stdout = log
-		cmd.Stderr = log
-		cmd.Env = mergeEnv(commandEnv)
-		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(log, "[source] Pull failed: %v\n", err)
-			return 1, err
-		}
-	}
-
-	fmt.Fprintf(log, "[source] Source checkout complete.\n")
-	return 0, nil
-}
-
-func (e *SourceCheckoutExecutor) resolveCheckoutSpec(ctx context.Context) (*integrations.CheckoutSpec, error) {
-	if e.Store == nil {
-		return nil, fmt.Errorf("store is required for source checkout")
-	}
-	if strings.TrimSpace(e.ProjectID) == "" {
-		return nil, fmt.Errorf("projectId is required for source checkout")
-	}
-	project, err := e.Store.GetProject(ctx, e.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load project: %w", err)
-	}
-	spec, err := integrations.ResolveCheckoutSpec(ctx, e.Store, project)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve repository checkout: %w", err)
-	}
-	return spec, nil
 }
 
 // ── Review gate executor ───────────────────────────────────────────────────

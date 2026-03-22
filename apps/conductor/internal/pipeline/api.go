@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"spec-axis/conductor/internal/httpx"
+	"spec-axis/conductor/internal/store"
 )
 
 type API struct {
@@ -45,6 +47,9 @@ func (a *API) handlePipelines(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if items == nil {
+			items = []store.Pipeline{}
 		}
 		httpx.WriteJSON(w, http.StatusOK, items)
 	case http.MethodPost:
@@ -167,6 +172,9 @@ func (a *API) handlePipelineByID(w http.ResponseWriter, r *http.Request) {
 				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
+			if items == nil {
+				items = []store.PipelineRun{}
+			}
 			httpx.WriteJSON(w, http.StatusOK, items)
 		case http.MethodPost:
 			var payload struct {
@@ -253,6 +261,26 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parts) == 4 && parts[1] == "jobs" && parts[3] == "retry" {
+		if r.Method != http.MethodPost {
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if strings.TrimSpace(parts[2]) == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "job key is required")
+			return
+		}
+		if err := a.service.RetryRunJob(r.Context(), RetryRunJobInput{
+			RunID:  runID,
+			JobKey: parts[2],
+		}); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+
 	if len(parts) == 1 {
 		if r.Method != http.MethodGet {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -293,6 +321,9 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if events == nil {
+			events = []store.RunEvent{}
+		}
 		httpx.WriteJSON(w, http.StatusOK, events)
 		return
 	}
@@ -306,6 +337,9 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			httpx.WriteError(w, http.StatusBadRequest, err.Error())
 			return
+		}
+		if artifacts == nil {
+			artifacts = []store.PipelineArtifact{}
 		}
 		httpx.WriteJSON(w, http.StatusOK, artifacts)
 		return
@@ -343,6 +377,51 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.Copy(w, content.Reader)
+		return
+	}
+
+	if len(parts) >= 4 && parts[1] == "logs" && parts[3] == "stream" {
+		if r.Method != http.MethodGet {
+			httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		stepID := parts[2]
+		offset := int64(0)
+		if raw := r.URL.Query().Get("offset"); raw != "" {
+			if value, err := strconv.ParseInt(raw, 10, 64); err == nil {
+				offset = value
+			}
+		}
+		limit := int64(200000)
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			if value, err := strconv.ParseInt(raw, 10, 64); err == nil {
+				limit = value
+			}
+		}
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			httpx.WriteError(w, http.StatusInternalServerError, "streaming is not supported")
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-transform")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+		write := func(data []byte) error {
+			if len(data) == 0 {
+				return nil
+			}
+			if _, err := w.Write(data); err != nil {
+				return err
+			}
+			flusher.Flush()
+			return nil
+		}
+		if err := a.service.StreamLog(r.Context(), stepID, offset, limit, write); err != nil {
+			_, _ = io.WriteString(w, fmt.Sprintf("[system] Log stream failed: %s\n", err.Error()))
+			flusher.Flush()
+		}
 		return
 	}
 

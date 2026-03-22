@@ -31,7 +31,7 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 
 AI code review + CI/CD platform: Next.js 16 + React 19 + TypeScript + Tailwind CSS v4.
 Multi-GitHub project management, commit selection, Claude AI analysis, configurable rule sets, quality report scoring, and a stage-based pipeline builder.
-Backend: PostgreSQL for core data, Go Conductor executes analysis jobs, evaluates cron-based pipeline schedules, and orchestrates analysis/pipeline execution with Postgres-backed polling; pipeline `source/review/build` execution runs inside Conductor-managed per-job runner containers while remote Worker agents remain deploy-only executors connected over WebSocket control channels; status updates stream via SSE with polling fallback.
+Backend: PostgreSQL for core data, Go Conductor executes analysis jobs, evaluates cron-based pipeline schedules, and orchestrates analysis/pipeline execution with Postgres-backed polling; pipeline `source/review/build` execution runs inside Conductor-managed per-job runner containers while remote Worker agents remain deploy-only executors connected over WebSocket control channels; status updates stream via SSE with polling fallback. Conductor→Studio pipeline notifications use a persistent outbox with background delivery retries.
 Monorepo layout: `apps/studio` (Next.js), `apps/conductor` (Go Conductor service), `apps/worker` (Go execution agent), `packages/*` (shared contracts).
 Deployment model: Studio and Conductor are self-hosted services deployed with the same container-first workflow; Studio is built as a Next.js server image, Conductor as a Go service image, and both are run behind a reverse proxy on the same platform or cluster. Conductor is also the CI sandbox manager for pipeline `source/review/build` stages and must have access to the host Docker daemon (for example via `/var/run/docker.sock`) so it can create per-job runner containers from the pipeline `buildImage`; remote Workers are deploy-only nodes that pull prepared artifacts for deployment.
 Unless stated otherwise, paths in this guide are relative to `apps/studio`.
@@ -51,11 +51,33 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Pipeline environment is execution-semantic, not decorative: `config.environment` is sent through Conductor dispatch for worker selection and exposed to steps as `PIPELINE_ENVIRONMENT`.
 - Pipeline trigger scheduling is first-class: `config.trigger.schedule` stores a UTC cron expression, Conductor persists `pipelines.trigger_schedule` / `last_scheduled_at` / `next_scheduled_at`, and the schedule loop owns due-run enqueueing.
 - Pipeline runtime UX is separate from authoring: runs render as stage columns with per-node status, logs, artifacts, and node-level manual trigger actions for jobs that enter a manual stage
+- Pipeline runtime views must keep the selected run summary synchronized with the latest run detail response so status badges and retry/manual actions update without a page refresh after background state changes.
+- Pipeline run creation and rollback flows should switch the detail view to the exact run id returned by Conductor, rather than inferring the target from list ordering.
+- Pipeline runtime views should subscribe to `/api/pipeline-runs/[runId]/stream` for live run snapshot updates driven by Conductor run events; client-side polling is only a fallback when the stream cannot be established.
+- The runtime board horizontal scrollbar is rendered as a dedicated bottom rail, while the main runtime viewport keeps only vertical scrolling; the board itself should also support drag-to-pan for horizontal navigation.
+- Pipeline runtime and settings loading states should render skeleton placeholders instead of inline "Loading..." text so the page keeps a uniform loading language.
+- While dragging the runtime board to pan horizontally, text selection must be suppressed so node cards and log content do not get highlighted.
+- Runtime board node clicks must only clear selection when the viewport background itself is clicked; child node clicks should open the node dialog without being canceled by the board-level click handler.
+- Runtime board drag-to-pan must only start from blank canvas regions; pointer interaction that begins on a node card must never move the board.
+- Node detail logs should use a terminal-style pane with line numbers and a full-height scroll region so the log viewport always fills the dialog height instead of shrinking to content; line numbers should render as plain integers without zero padding and terminal text should use a neutral foreground instead of a green default.
+- Node detail dialog bodies and loading skeletons should explicitly stretch to full available width so the terminal pane does not shrink during initial render.
+- Node detail dialog content grids inside flex containers must use `flex-1 w-full min-w-0` so the right-side log pane fills the dialog width instead of shrink-wrapping to content.
+- Pipeline runtime cards should project job status from step state when the job row lags behind the latest step progress, so `queued` does not mask active or terminal step states in the UI.
+- Conductor run detail responses should already project job status from step state before Studio renders them, so the API contract itself remains the source of truth for the visible runtime state.
+- Source resolution is part of the Source job lifecycle: Conductor should mark the Source run/job/first step as running before writing source snapshot logs, so log output never appears while the UI still shows `queued`.
 - Manual execution semantics are node-based, not stage-resume based: when a manual stage becomes ready, each ready job is marked `waiting_manual`; Studio triggers a specific `job_key`, Conductor requeues the run, and only that approved node proceeds
 - Pipeline run lifecycle control is explicit: active runs can be canceled from Studio through the local `/api/pipeline-runs/:runId/cancel` route before pipeline deletion can succeed, and run-history node details should open in a dialog instead of a persistent right-side inspector panel.
+- Pipeline node recovery is explicit: failed nodes can be retried from the node dialog, and Conductor re-queues the target job plus downstream affected jobs in the same pipeline run while clearing old logs/artifacts for the retried subtree. Retries emit a dedicated `run.retried` event and normalize retry attempts across the retried subtree.
+- Node retry semantics are sandbox-based: a retry always creates a fresh execution sandbox for the retried job, restarts that job from its first step, and preserves upstream successful jobs as immutable inputs.
+- When a node is retried or re-triggered, Studio must clear the visible log pane immediately and only reopen the stream after the step has a fresh non-empty `log_path`, so a queued node never shows stale logs from a previous attempt.
+- Run-history logs should stream through a Conductor-native long-lived text stream endpoint that Studio proxies directly, instead of repeated client-side polling; do not require the user to wait for the entire step to finish before any log content becomes visible. Source-stage diagnostics should initialize a log entry as soon as source resolution begins so setup failures still surface immediately.
+- Run-history node logs should be cached per step in Studio and resumed from byte offsets when revisiting a step, so switching steps does not force a full reload. Step rows should present human-readable outcomes such as Succeeded, Failed, Timed out, or Canceled instead of raw `exit 0` / `exit xxx` codes.
+- Terminal-style pipeline logs should colorize warning/error lines in-place using severity-aware styling so console output reads like a real shell session, while neutral and system lines stay muted.
+- Node detail dialogs should follow the currently active step within the selected job when the previously viewed step becomes terminal, so live log viewing automatically advances to the next running step.
 - Pipeline artifact observability: project pipelines page includes artifact download health cards (total, success rate, p95 latency, failures) powered by `GET /api/projects/:id/artifact-download-stats`
 - Pipeline artifact retention supports project-level override via `code_projects.artifact_retention_days`; Conductor uses project override first, then global Conductor default
 - Worker artifact handoff: deploy steps can declare `artifactInputs` patterns; Worker downloads matched artifacts from earlier steps in the same run before step execution, with checksum validation + retry and run events (`step.artifact.pull_*`)
+- Studio callback delivery uses a durable `studio_callback_outbox` table plus a background Conductor delivery loop; direct HTTP fallback is only used if enqueueing fails.
 - Artifact registry is project-scoped and separate from run outputs: Studio exposes `/o/:orgId/projects/:id/artifacts`, published versions live in `artifact_repositories` / `artifact_versions` / `artifact_files` / `artifact_channels`, and pipeline runs can promote selected run outputs into immutable release versions.
 - Artifact blob storage is deduplicated by `(org_id, sha256)` in `artifact_blobs`; Conductor cleanup must not delete storage objects that are referenced by published registry versions.
 - Artifact deployment flow is pull-based for remote workers: workers should fetch immutable artifact versions from Conductor-backed artifact storage rather than receiving binary payloads over the WebSocket control channel; deployment/promotion provenance is recorded in `artifact_version_usages`.
@@ -133,6 +155,7 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 - **No compatibility design/code paths**: Do not add dual-field parsing (`foo ?? Foo`), legacy aliases, or fallback branches for stale response shapes.
 - **No compatibility naming**: Do not introduce `legacy*`, `compat*`, `polyfill*`, or similar identifiers.
 - **Single contract source**: Conductor HTTP contracts are defined in `packages/contracts/src/conductor.ts` and consumed by Studio.
+- **Array response contract**: Conductor list endpoints must serialize empty collections as `[]`, not `null`, so Studio Zod array schemas always receive an array shape.
 - **Conductor timestamp contract**: Conductor API datetime fields must be validated as ISO8601/RFC3339 with timezone offsets allowed (`datetime({ offset: true })`), not `Z`-only.
 - **Server-enforced project scope**: Project-scoped list APIs (for example `/api/reports` and `/api/pipelines`) must validate `projectId` access and enforce filtering on the server side; never rely on client-side filtering for tenant boundaries.
 - **Type safety baseline**: `apps/studio/tsconfig.json` enforces strict type checks (`allowJs: false`, `skipLibCheck: false`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true`).
@@ -142,6 +165,7 @@ Multi-tenant org system (Vercel-like UI). Each user has a **personal org** on si
 - **Unified AI transport**: Studio AI integrations must use the shared fetch-based adapter path; do not add provider-specific SDK dependencies in feature/business routes.
 - **Capability-driven AI params**: AI integration forms must render advanced parameters (for example `temperature`, `reasoningEffort`) from model/baseUrl/apiStyle capability rules, and unsupported parameters must not be sent in runtime requests.
 - **Git hygiene**: Runtime and build outputs must stay untracked (`apps/conductor/data/`, `apps/conductor/conductor`, `apps/worker/worker`), and local environment files should use `*.env` patterns while keeping `*.env.example` tracked. Conductor local config lives at `apps/conductor/config.toml` and must remain untracked.
+- **Package manager bootstrap**: repository-level scripts must invoke Corepack-managed pnpm through `scripts/run-pnpm.mjs` instead of a bare global `pnpm` binary so CI sandbox images only need Node/corepack, not a preinstalled package-manager binary. The root `packageManager` field is pinned to the repository pnpm version, and the wrapper keeps `COREPACK_HOME` under the repo-local `.cache/corepack` directory so Corepack state stays writable on Windows hosts and in CI.
 
 ## Naming & Design Rules
 
@@ -320,8 +344,9 @@ apps/
     internal/workerhub/         # Conductor-side worker connection/session hub + dispatch
     pkg/workerprotocol/         # Conductor↔Worker control-plane message contract (shared)
     internal/pipeline/
-      executor.go               # ShellExecutor, DockerExecutor, SourceCheckoutExecutor, ReviewGateExecutor
+      executor.go               # ShellExecutor, DockerExecutor, ReviewGateExecutor
       engine.go                 # Conductor-local build execution + deploy-worker dispatch
+      source_manager.go         # Local mirror cache + pinned source snapshot materialization
       types.go                  # Pipeline config + step/job contracts
       storage.go, api.go, graph.go, service.go
   apps/worker/
@@ -516,9 +541,10 @@ If new install warnings appear, approve the dependency and update the allowlist.
 - **Pipeline secrets** are stored in `pipeline_secrets` encrypted at rest (AES-256-GCM, `ENCRYPTION_KEY`) and injected into every step as environment variables (write-only in UI). Secret keys are canonical uppercase env names, may be multiline, are limited to 100 per pipeline, and cannot use the reserved `PIPELINE_` namespace.
 - **Authoring model**: users edit stage settings plus stage-local jobs; `source` is fixed single-entry, automation slots are fixed `auto + parallel`, and runtime `needs` edges are derived from stage order and stage `dispatchMode`.
 - **Execution model**: jobs still execute as a DAG after derivation, and steps run sequentially inside a job.
-- **CI sandbox image**: every pipeline must define a top-level `buildImage`. Conductor creates a fresh runner container from that image for each `source/review/build` job, mounts an isolated workspace snapshot into `/workspace`, and runs all job steps via `docker exec` inside the same container so step state persists across the job.
-- **Built-in CI stages**: `source_checkout` and `review_gate` are Conductor-native built-ins. Conductor resolves repository clone settings from `code_projects.repo` plus the project's VCS integration, injects Git HTTP auth via environment-based Git config (never by embedding tokens in clone URLs), and reads the latest completed review score directly from PostgreSQL instead of round-tripping through Studio HTTP.
-- **CI build image authoring**: Studio may offer curated build-image presets for common runtimes, but persisted pipeline config must remain explicit `buildImage` only. Presets are UI affordances derived from the current image value; do not persist preset identifiers into pipeline versions or execution-facing runtime config.
+- **CI sandbox image**: every pipeline must define a top-level `buildImage`. Conductor creates a fresh runner container from that image for each `source/review/build` job, mounts an isolated self-contained workspace snapshot into `/workspace`, and runs all job steps via `docker exec` inside the same container so step state persists across the job. Build images should start from official runtime base images; Conductor bootstraps missing secondary tools at runtime instead of requiring a bespoke all-in-one image for every stack.
+- **Pipeline source snapshots**: Conductor owns CI source resolution. Before any CI job starts, it resolves the configured source branch to a pinned commit, stores that `branch + commit_sha + commit_message` on `pipeline_runs`, updates a local bare mirror cache under `apps/conductor/data/git/mirrors/.../mirror.git`, and materializes each CI job workspace as a self-contained local clone from that mirror. Runner containers must consume only these local workspaces; CI step execution must not fetch from external Git remotes directly.
+- **Built-in CI stages**: `source_checkout` and `review_gate` are Conductor-native built-ins. `source_checkout` only verifies and reports the pinned local workspace snapshot that Conductor already prepared; it must not perform network clone/pull work. `review_gate` reads the latest completed review score directly from PostgreSQL instead of round-tripping through Studio HTTP.
+- **CI build image authoring**: Studio may offer curated build-image presets for common runtimes, but persisted pipeline config must remain explicit `buildImage` only. Presets are UI affordances derived from the current image value; do not persist preset identifiers into pipeline versions or execution-facing runtime config. Conductor bootstraps missing secondary tools such as `git` and Corepack/Pnpm in runner containers when the chosen official base image provides a package manager, and it fails fast with an explicit image-scoped error if the selected image cannot support the required bootstrap.
 - **Step types**: in CI stages, steps run as `shell` inside the job sandbox created from `buildImage`; step-level `docker` is not allowed there. In deploy stages, `shell` runs on the remote worker host and `docker` runs `docker run --rm -w /workspace --mount type=bind,src={workingDir},dst=/workspace {envFlags} {image} /bin/sh -c "{script}"`. Docker env values are inherited from the executor process environment instead of being embedded into CLI args, so injected secrets are not exposed in the host process list.
 - **Step artifacts**: each user-defined step can declare `artifactPaths` (glob/file list, one per line in UI). Conductor resolves and uploads artifacts after CI sandbox steps complete; deploy workers download required inputs from Conductor-backed artifact storage before deployment steps execute.
 - **Artifact upload reliability**: worker uploads each artifact with bounded retry (`maxAttempts=3`) and emits attempt metadata; Conductor records observability events (`step.artifact.uploaded`, `step.artifact.upload_failed`, `step.artifact.upload_observed`) for timing/error-category analysis.
@@ -550,8 +576,9 @@ If new install warnings appear, approve the dependency and update the allowlist.
 
 ## Codebase Cache (Backend)
 
-`CodebaseService` manages per-project local Git mirrors and per-job workspaces for AI analysis and pipeline tasks.
-Mirrors are cache-only (not a source of truth) and are synced on demand or on a schedule; workspaces are isolated and must be cleaned after each job.
+`CodebaseService` manages per-project local Git mirrors and per-job workspaces for AI analysis tasks.
+Mirrors are cache-only (not a source of truth) and are synced on demand or on a schedule; analysis workspaces are isolated and must be cleaned after each job.
+Pipeline CI source snapshots use a separate Conductor-local mirror cache under `apps/conductor/data/git/` because Conductor, not Studio, owns pipeline execution.
 Codebase browsing uses the same mirror cache and enforces a max preview size for files.
 Code comments are modeled as threads:
 - `codebase_comment_threads` stores thread-level anchor + lifecycle (`open` / `resolved`) at file/line scope.
@@ -647,6 +674,7 @@ psql "$DATABASE_URL" -f docs/db/migrations/008_codebase_thread_projections.sql
 psql "$DATABASE_URL" -f docs/db/migrations/009_phased_analysis_sections.sql
 psql "$DATABASE_URL" -f docs/db/migrations/010_analysis_rate_buckets.sql
 psql "$DATABASE_URL" -f docs/db/migrations/018_drop_analysis_tasks.sql
+psql "$DATABASE_URL" -f docs/db/migrations/019_studio_callback_outbox.sql
 ```
 
 | File | Description |
@@ -660,6 +688,7 @@ psql "$DATABASE_URL" -f docs/db/migrations/018_drop_analysis_tasks.sql
 | `009_phased_analysis_sections.sql` | Adds phased analysis sections, `analysis_snapshot`, `sse_seq`, and canonical report running status constraint |
 | `010_analysis_rate_buckets.sql` | Adds fixed-window analysis rate limit buckets backed by PostgreSQL |
 | `018_drop_analysis_tasks.sql` | Removes the obsolete analysis task queue table |
+| `019_studio_callback_outbox.sql` | Adds durable Conductor→Studio callback outbox storage |
 
 ## FAQ
 

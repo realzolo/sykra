@@ -1,11 +1,22 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -120,6 +131,14 @@ const STATUS_ICON_SM: Record<PipelineRunStatus, React.ReactNode> = {
 };
 
 type PipelineRun = PipelineRunDetail["run"];
+type PipelineRunStep = PipelineRunDetail["steps"][number];
+type StepLogCacheEntry = {
+  logPath: string;
+  text: string;
+  nextOffset: number;
+  complete: boolean;
+};
+type TerminalLineTone = "default" | "system" | "warning" | "error";
 
 function normalizeArtifactRepositorySlug(value: string) {
   return value
@@ -129,6 +148,107 @@ function normalizeArtifactRepositorySlug(value: string) {
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
+}
+
+function deriveRuntimeJobStatus(jobStatus: string | null | undefined, steps: PipelineRunStep[]): PipelineRunStatus {
+  if (isPipelineRunStatus(jobStatus) && jobStatus !== "queued") {
+    return jobStatus;
+  }
+
+  const stepStatuses = steps.map((step) => step.status);
+  if (stepStatuses.some((status) => status === "running")) {
+    return "running";
+  }
+  if (stepStatuses.some((status) => status === "timed_out")) {
+    return "timed_out";
+  }
+  if (stepStatuses.some((status) => status === "canceled")) {
+    return "canceled";
+  }
+  if (stepStatuses.some((status) => status === "failed")) {
+    return "failed";
+  }
+  if (stepStatuses.length > 0 && stepStatuses.every((status) => status === "success")) {
+    return "success";
+  }
+  if (stepStatuses.some((status) => status === "waiting_manual")) {
+    return "waiting_manual";
+  }
+  return isPipelineRunStatus(jobStatus) ? jobStatus : "queued";
+}
+
+const PIPELINE_RUN_STATUS_VALUES: PipelineRunStatus[] = [
+  "queued",
+  "running",
+  "waiting_manual",
+  "success",
+  "failed",
+  "canceled",
+  "timed_out",
+  "skipped",
+];
+
+function isPipelineRunStatus(value: string | null | undefined): value is PipelineRunStatus {
+  return typeof value === "string" && PIPELINE_RUN_STATUS_VALUES.includes(value as PipelineRunStatus);
+}
+
+function getStepOutcomeLabel(step: PipelineRunStep, dict: Dictionary["pipelines"]["detail"]) {
+  switch (step.status) {
+    case "success":
+      return dict.stepOutcome.succeeded;
+    case "failed":
+      return dict.stepOutcome.failed;
+    case "timed_out":
+      return dict.stepOutcome.timedOut;
+    case "canceled":
+      return dict.stepOutcome.canceled;
+    case "skipped":
+      return dict.stepOutcome.skipped;
+    case "running":
+      return dict.stepOutcome.running;
+    case "waiting_manual":
+      return dict.stepOutcome.waitingManual;
+    case "queued":
+    default:
+      return dict.stepOutcome.queued;
+  }
+}
+
+function getTerminalLineTone(line: string): TerminalLineTone {
+  const trimmed = line.trim();
+  if (!trimmed) return "default";
+
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith("[system]")) {
+    const systemBody = trimmed.replace(/^\[system\]\s*/i, "");
+    if (/^(warn|warning)\b[:\s]/i.test(systemBody) || /\bwarning\b/i.test(systemBody)) return "warning";
+    if (/^(err|error|fatal|panic)\b[:\s]/i.test(systemBody) || /\berror\b/i.test(systemBody)) return "error";
+    if (/permission denied|refused|exit status \d+|failed to|not found/i.test(systemBody)) return "error";
+    return "system";
+  }
+  if (/^\[(warn|warning)\]/i.test(trimmed)) return "warning";
+  if (/^\[(err|error)\]/i.test(trimmed)) return "error";
+  if (/^(warn|warning)\b[:\s]/i.test(trimmed)) return "warning";
+  if (/^(err|error|fatal|panic)\b[:\s]/i.test(trimmed)) return "error";
+  if (/^npm err!/i.test(trimmed)) return "error";
+  if (/^sh:\s.*not found$/i.test(trimmed)) return "error";
+  if (/permission denied|refused|exit status \d+|failed to/i.test(trimmed)) return "error";
+  if (/\bwarning\b/i.test(trimmed)) return "warning";
+  if (/\berror\b/i.test(trimmed)) return "error";
+  return "default";
+}
+
+function getTerminalLineClassName(tone: TerminalLineTone) {
+  switch (tone) {
+    case "system":
+      return "text-terminal-muted";
+    case "warning":
+      return "text-warning";
+    case "error":
+      return "text-danger";
+    default:
+      return "text-terminal";
+  }
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
@@ -156,6 +276,8 @@ export default function PipelineDetailClient({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
   const [runDetail, setRunDetail] = useState<PipelineRunDetail | null>(null);
   const [logText, setLogText] = useState("");
+  const [logLoading, setLogLoading] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [selectedRunJobKey, setSelectedRunJobKey] = useState<string | null>(null);
   const [nodeDialogOpen, setNodeDialogOpen] = useState(false);
@@ -168,6 +290,12 @@ export default function PipelineDetailClient({
   const [cancelingRunId, setCancelingRunId] = useState<string | null>(null);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
   const [triggeringJobKey, setTriggeringJobKey] = useState<string | null>(null);
+  const [retryingJobKey, setRetryingJobKey] = useState<string | null>(null);
+  const [retryDialogTarget, setRetryDialogTarget] = useState<{
+    jobKey: string;
+    jobName: string;
+    stepCount: number;
+  } | null>(null);
   const [configSection, setConfigSection] = useState<ConfigureSection>("jobs");
   const [selectedConfigJobId, setSelectedConfigJobId] = useState<string | null>(null);
   const [newVarKey, setNewVarKey] = useState("");
@@ -188,6 +316,20 @@ export default function PipelineDetailClient({
   const [publishVersion, setPublishVersion] = useState("");
   const [publishChannels, setPublishChannels] = useState("");
 
+  const selectedRunIdRef = useRef<string | null>(initialRunId);
+  const runtimeBoardViewportRef = useRef<HTMLDivElement>(null);
+  const runtimeBoardContentRef = useRef<HTMLDivElement>(null);
+  const runtimeBoardRailRef = useRef<HTMLDivElement>(null);
+  const runtimeBoardDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startScrollLeft: number;
+    dragging: boolean;
+  } | null>(null);
+  const runtimeBoardSuppressClickRef = useRef(false);
+  const runtimeBoardDragThreshold = 6;
+  const stepLogCacheRef = useRef<Map<string, StepLogCacheEntry>>(new Map());
   const normalizedSecretName = normalizePipelineSecretName(secretName);
   const secretNameError = validatePipelineSecretName(normalizedSecretName);
   const secretValueError = validatePipelineSecretValue(secretValue);
@@ -196,6 +338,9 @@ export default function PipelineDetailClient({
     secrets.length >= PIPELINE_SECRET_MAX_COUNT &&
     !secrets.some((item) => item.name === normalizedSecretName);
   const logRef = useRef<HTMLDivElement>(null);
+  const [runtimeBoardContentWidth, setRuntimeBoardContentWidth] = useState(0);
+  const [runtimeBoardScrollLeft, setRuntimeBoardScrollLeft] = useState(0);
+  const [runtimeBoardDragging, setRuntimeBoardDragging] = useState(false);
   const schedulePreset = detectPipelineSchedulePreset(pipeline?.trigger_schedule);
   const scheduleLabel = schedulePreset
     ? schedulePreset === "custom"
@@ -244,11 +389,15 @@ export default function PipelineDetailClient({
     }
   }, [pipelineId, p.loadFailed, project.default_branch]);
 
-  const loadRuns = useCallback(async () => {
+  const loadRuns = useCallback(async (selectLatest = false) => {
     try {
       const res = await fetch(`/api/pipelines/${pipelineId}/runs`);
       const data = res.ok ? await res.json() : [];
-      setRuns(Array.isArray(data) ? data : []);
+      const loadedRuns = Array.isArray(data) ? (data as PipelineRun[]) : [];
+      setRuns(loadedRuns);
+      if (selectLatest && loadedRuns[0]) {
+        setSelectedRunId(loadedRuns[0].id);
+      }
     } catch {
       setRuns([]);
     }
@@ -279,21 +428,37 @@ export default function PipelineDetailClient({
     } catch {/* ignore */}
   }, []);
 
+  const applyRunDetail = useCallback((runId: string, detail: PipelineRunDetail) => {
+    if (selectedRunIdRef.current === runId) {
+      setRunDetail(detail);
+    }
+    const latestRun = detail.run;
+    if (!latestRun) {
+      return;
+    }
+    setRuns((currentRuns) =>
+      currentRuns.map((run) => (run.id === latestRun.id ? { ...run, ...latestRun } : run))
+    );
+  }, []);
+
   const loadRunDetail = useCallback(async (runId: string) => {
     try {
       const res = await fetch(`/api/pipeline-runs/${runId}`);
       if (!res.ok) return;
       const data = await res.json();
-      setRunDetail(data);
+      applyRunDetail(runId, data);
     } catch {
       // ignore
     }
-  }, []);
+  }, [applyRunDetail]);
 
   useEffect(() => {
     loadPipeline();
     loadRuns();
   }, [loadPipeline, loadRuns]);
+  useEffect(() => {
+    selectedRunIdRef.current = selectedRunId;
+  }, [selectedRunId]);
   useEffect(() => {
     if (tab !== "configure") return;
     if (configSection !== "settings") return;
@@ -319,31 +484,86 @@ export default function PipelineDetailClient({
   // Load artifacts when run changes
   useEffect(() => {
     if (!selectedRunId) return;
+    stepLogCacheRef.current.clear();
     setRunDetail(null);
     setSelectedRunJobKey(null);
     setSelectedStepId(null);
     setLogText("");
+    setLogLoading(false);
+    setLogError(null);
     setArtifacts([]);
     void loadArtifacts(selectedRunId);
   }, [selectedRunId, loadArtifacts]);
 
-  // Poll run detail while running
+  // Keep run detail synchronized through SSE, with polling fallback if the stream fails.
   useEffect(() => {
     if (!selectedRunId) return;
-    void loadRunDetail(selectedRunId);
-    const isActive =
-      runs.find((r) => r.id === selectedRunId)?.status === "running" ||
-      runs.find((r) => r.id === selectedRunId)?.status === "queued" ||
-      runs.find((r) => r.id === selectedRunId)?.status === "waiting_manual";
-    if (!isActive) return;
 
-    const interval = setInterval(() => {
-      void loadRunDetail(selectedRunId);
-    }, 2500);
-    return () => {
-      clearInterval(interval);
+    let active = true;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let eventSource: EventSource | null = null;
+
+    const stopFallback = () => {
+      if (!fallbackInterval) return;
+      clearInterval(fallbackInterval);
+      fallbackInterval = null;
     };
-  }, [selectedRunId, runs, loadRunDetail]);
+
+    const startFallback = () => {
+      if (fallbackInterval) return;
+      fallbackInterval = setInterval(() => {
+        void loadRunDetail(selectedRunId);
+      }, 1000);
+    };
+
+    void loadRunDetail(selectedRunId);
+
+    try {
+      eventSource = new EventSource(`/api/pipeline-runs/${selectedRunId}/stream`);
+      eventSource.onmessage = (event) => {
+        if (!event.data) return;
+        try {
+          const payload = JSON.parse(event.data) as {
+            type?: string;
+            runDetail?: PipelineRunDetail;
+          };
+          if (payload.type !== "run_update" || !payload.runDetail) {
+            return;
+          }
+
+          const nextDetail = payload.runDetail;
+          applyRunDetail(selectedRunId, nextDetail);
+
+          if (
+            nextDetail.run.status === "success" ||
+            nextDetail.run.status === "failed" ||
+            nextDetail.run.status === "canceled" ||
+            nextDetail.run.status === "timed_out"
+          ) {
+            eventSource?.close();
+            eventSource = null;
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      };
+      eventSource.onerror = () => {
+        if (!active) return;
+        eventSource?.close();
+        eventSource = null;
+        stopFallback();
+        startFallback();
+      };
+    } catch {
+      startFallback();
+    }
+
+    return () => {
+      active = false;
+      stopFallback();
+      eventSource?.close();
+    };
+  }, [selectedRunId, loadRunDetail, applyRunDetail]);
 
   // Auto-scroll log to bottom
   useEffect(() => {
@@ -351,6 +571,150 @@ export default function PipelineDetailClient({
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [logText]);
+
+  useEffect(() => {
+    setRuntimeBoardScrollLeft(0);
+  }, [selectedRunId]);
+
+  useEffect(() => {
+    if (!runtimeBoardDragging) return;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    return () => {
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [runtimeBoardDragging]);
+
+  useLayoutEffect(() => {
+    const viewportEl = runtimeBoardViewportRef.current;
+    const contentEl = runtimeBoardContentRef.current;
+    if (!viewportEl || !contentEl) {
+      return;
+    }
+
+    const measure = () => {
+      const nextContentWidth = contentEl.scrollWidth;
+      const nextViewportWidth = viewportEl.clientWidth;
+      setRuntimeBoardContentWidth((current) => (current === nextContentWidth ? current : nextContentWidth));
+      setRuntimeBoardScrollLeft((current) => {
+        const maxScrollLeft = Math.max(0, nextContentWidth - nextViewportWidth);
+        return Math.min(current, maxScrollLeft);
+      });
+    };
+
+    measure();
+
+    const observer = new ResizeObserver(() => {
+      measure();
+    });
+
+    observer.observe(viewportEl);
+    observer.observe(contentEl);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [selectedRunId, runDetail?.jobs.length, runDetail?.steps.length]);
+
+  useEffect(() => {
+    const railEl = runtimeBoardRailRef.current;
+    if (!railEl) return;
+    if (Math.abs(railEl.scrollLeft - runtimeBoardScrollLeft) < 1) return;
+    railEl.scrollLeft = runtimeBoardScrollLeft;
+  }, [runtimeBoardScrollLeft]);
+
+  const handleRuntimeBoardWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
+    const railEl = runtimeBoardRailRef.current;
+    if (!railEl) return;
+    const horizontalDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.shiftKey ? event.deltaY : 0;
+    if (!horizontalDelta) return;
+    event.preventDefault();
+    const nextScrollLeft = Math.max(0, railEl.scrollLeft + horizontalDelta);
+    railEl.scrollLeft = nextScrollLeft;
+    setRuntimeBoardScrollLeft(nextScrollLeft);
+  }, []);
+
+  const updateRuntimeBoardScroll = useCallback((nextScrollLeft: number) => {
+    const viewportEl = runtimeBoardViewportRef.current;
+    const maxScrollLeft = Math.max(0, runtimeBoardContentWidth - (viewportEl?.clientWidth ?? 0));
+    const clamped = Math.min(Math.max(0, nextScrollLeft), maxScrollLeft);
+    setRuntimeBoardScrollLeft(clamped);
+  }, [runtimeBoardContentWidth]);
+
+  const handleRuntimeBoardPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest("[data-runtime-node='true']")) {
+      return;
+    }
+    const viewportEl = runtimeBoardViewportRef.current;
+    if (!viewportEl) return;
+    runtimeBoardDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: runtimeBoardScrollLeft,
+      dragging: false,
+    };
+    runtimeBoardSuppressClickRef.current = false;
+    viewportEl.setPointerCapture(event.pointerId);
+  }, [runtimeBoardScrollLeft]);
+
+  const handleRuntimeBoardPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = runtimeBoardDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+    if (!dragState.dragging) {
+      if (Math.abs(deltaX) < runtimeBoardDragThreshold && Math.abs(deltaY) < runtimeBoardDragThreshold) {
+        return;
+      }
+      if (Math.abs(deltaX) < Math.abs(deltaY)) {
+        return;
+      }
+      dragState.dragging = true;
+      setRuntimeBoardDragging(true);
+    }
+
+    event.preventDefault();
+    updateRuntimeBoardScroll(dragState.startScrollLeft - deltaX);
+  }, [updateRuntimeBoardScroll]);
+
+  const finishRuntimeBoardDrag = useCallback((pointerId: number) => {
+    const dragState = runtimeBoardDragRef.current;
+    if (!dragState || dragState.pointerId !== pointerId) return;
+    runtimeBoardSuppressClickRef.current = dragState.dragging;
+    runtimeBoardDragRef.current = null;
+    setRuntimeBoardDragging(false);
+  }, []);
+
+  const handleRuntimeBoardPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const viewportEl = runtimeBoardViewportRef.current;
+    if (viewportEl?.hasPointerCapture(event.pointerId)) {
+      viewportEl.releasePointerCapture(event.pointerId);
+    }
+    finishRuntimeBoardDrag(event.pointerId);
+  }, [finishRuntimeBoardDrag]);
+
+  const handleRuntimeBoardPointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const viewportEl = runtimeBoardViewportRef.current;
+    if (viewportEl?.hasPointerCapture(event.pointerId)) {
+      viewportEl.releasePointerCapture(event.pointerId);
+    }
+    finishRuntimeBoardDrag(event.pointerId);
+  }, [finishRuntimeBoardDrag]);
+
+  const openRuntimeNode = useCallback((jobKey: string) => {
+    if (runtimeBoardSuppressClickRef.current) {
+      runtimeBoardSuppressClickRef.current = false;
+      return;
+    }
+    setSelectedRunJobKey(jobKey);
+    setNodeDialogOpen(true);
+    setSelectedStepId(null);
+    setLogText("");
+  }, []);
 
   function secretErrorMessage(code: string | null) {
     switch (code) {
@@ -388,8 +752,12 @@ export default function PipelineDetailClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ triggerType: "manual" }),
       });
-      if (!res.ok) throw new Error("failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "failed");
       toast.success(p.runQueued);
+      if (typeof data?.id === "string") {
+        setSelectedRunId(data.id);
+      }
       await loadRuns();
       setTab("runs");
     } catch {
@@ -407,8 +775,12 @@ export default function PipelineDetailClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ triggerType: "rollback", rollbackOf: runId }),
       });
-      if (!res.ok) throw new Error("failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "failed");
       toast.success(p.rollbackSuccess);
+      if (typeof data?.id === "string") {
+        setSelectedRunId(data.id);
+      }
       await loadRuns();
     } catch {
       toast.error(p.rollbackFailed);
@@ -644,11 +1016,50 @@ export default function PipelineDetailClient({
       );
       if (!res.ok) throw new Error("failed");
       toast.success(p.detail.manualTriggerSuccess);
-      await Promise.all([loadRuns(), loadRunDetail(selectedRunId)]);
+      setLogText("");
+      setLogLoading(false);
+      setLogError(null);
+      const job = runJobsByKey.get(jobKey);
+      if (job) {
+        for (const step of runStepsByJobId.get(job.id) ?? []) {
+          stepLogCacheRef.current.delete(step.id);
+        }
+      }
+      await Promise.all([loadRuns(true), loadRunDetail(selectedRunId)]);
     } catch {
       toast.error(p.detail.manualTriggerFailed);
     } finally {
       setTriggeringJobKey(null);
+    }
+  }
+
+  async function handleRetryJob(jobKey: string) {
+    if (!selectedRunId) return;
+    setRetryingJobKey(jobKey);
+    try {
+      const res = await fetch(
+        `/api/pipeline-runs/${selectedRunId}/jobs/${encodeURIComponent(jobKey)}/retry`,
+        { method: "POST" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data?.error === "string" ? data.error : p.detail.retryFailed);
+      }
+      toast.success(p.detail.retrySuccess);
+      setLogText("");
+      setLogLoading(false);
+      setLogError(null);
+      const job = runJobsByKey.get(jobKey);
+      if (job) {
+        for (const step of runStepsByJobId.get(job.id) ?? []) {
+          stepLogCacheRef.current.delete(step.id);
+        }
+      }
+      await Promise.all([loadRuns(true), loadRunDetail(selectedRunId), loadArtifacts(selectedRunId)]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : p.detail.retryFailed);
+    } finally {
+      setRetryingJobKey(null);
     }
   }
 
@@ -691,22 +1102,176 @@ export default function PipelineDetailClient({
     () => (selectedRuntimeJob ? runStepsByJobId.get(selectedRuntimeJob.id) ?? [] : []),
     [selectedRuntimeJob, runStepsByJobId]
   );
+  const selectedRuntimeJobStatus = useMemo(
+    () => deriveRuntimeJobStatus(selectedRuntimeJob?.status, selectedRuntimeSteps),
+    [selectedRuntimeJob?.status, selectedRuntimeSteps]
+  );
   const selectedRuntimeStep = useMemo(
     () => selectedRuntimeSteps.find((step) => step.id === selectedStepId) ?? null,
     [selectedRuntimeSteps, selectedStepId]
   );
+  const selectedRuntimeStepIndex = useMemo(
+    () => selectedRuntimeSteps.findIndex((step) => step.id === selectedStepId),
+    [selectedRuntimeSteps, selectedStepId]
+  );
+  const activeRuntimeStep = useMemo(
+    () =>
+      selectedRuntimeSteps.find((step) => step.status === "running") ??
+      selectedRuntimeSteps.find((step) => step.status === "waiting_manual") ??
+      null,
+    [selectedRuntimeSteps]
+  );
+  const terminalLogLines = useMemo(
+    () => (logText ? logText.replace(/\r\n/g, "\n").split("\n") : []),
+    [logText]
+  );
+  const terminalLogEntries = useMemo(
+    () => terminalLogLines.map((line) => ({
+      line,
+      tone: getTerminalLineTone(line),
+    })),
+    [terminalLogLines]
+  );
+
+  useEffect(() => {
+    if (!selectedRunId || !selectedStepId) {
+      setLogText("");
+      setLogLoading(false);
+      setLogError(null);
+      return;
+    }
+
+    const logPath = selectedRuntimeStep?.log_path?.trim() ?? "";
+    if (!logPath) {
+      setLogText("");
+      setLogLoading(false);
+      setLogError(null);
+      return;
+    }
+
+    const existingCache = stepLogCacheRef.current.get(selectedStepId);
+    const logCache =
+      existingCache && existingCache.logPath === logPath
+        ? existingCache
+        : { logPath, text: "", nextOffset: 0, complete: false };
+    if (!existingCache || existingCache.logPath !== logPath) {
+      stepLogCacheRef.current.set(selectedStepId, logCache);
+    }
+
+    setLogText(logCache.text);
+    setLogLoading(!logCache.complete);
+    setLogError(null);
+
+    if (logCache.complete) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+    let accumulatedText = logCache.text;
+    let nextOffset = logCache.nextOffset;
+
+    const loadLogs = async () => {
+      try {
+        const res = await fetch(
+          `/api/pipeline-runs/${selectedRunId}/logs/${selectedStepId}/stream?offset=${nextOffset}&limit=200000`,
+          { signal: controller.signal }
+        );
+        if (!res.ok || !res.body) {
+          throw new Error("load failed");
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (active) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+          if (!value || value.length === 0) {
+            continue;
+          }
+          const text = decoder.decode(value, { stream: true });
+          nextOffset += value.byteLength;
+          if (text) {
+            accumulatedText += text;
+            stepLogCacheRef.current.set(selectedStepId, {
+              logPath,
+              text: accumulatedText,
+              nextOffset,
+              complete: false,
+            });
+            setLogText(accumulatedText);
+          }
+        }
+        const tail = decoder.decode();
+        if (tail && active) {
+          accumulatedText += tail;
+          stepLogCacheRef.current.set(selectedStepId, {
+            logPath,
+            text: accumulatedText,
+            nextOffset,
+            complete: false,
+          });
+          setLogText(accumulatedText);
+        }
+        if (active) {
+          stepLogCacheRef.current.set(selectedStepId, {
+            logPath,
+            text: accumulatedText,
+            nextOffset,
+            complete: true,
+          });
+        }
+      } catch {
+        if (active) {
+          stepLogCacheRef.current.set(selectedStepId, {
+            logPath,
+            text: accumulatedText,
+            nextOffset,
+            complete: false,
+          });
+          setLogError(p.log.loadFailed);
+        }
+      } finally {
+        if (active) {
+          setLogLoading(false);
+        }
+      }
+    };
+
+    void loadLogs();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [selectedRunId, selectedStepId, selectedRuntimeStep?.log_path, p.log.loadFailed]);
+
   const runStatusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const job of runDetail?.jobs ?? []) {
-      counts[job.status] = (counts[job.status] ?? 0) + 1;
+      const steps = runStepsByJobId.get(job.id) ?? [];
+      const displayStatus = deriveRuntimeJobStatus(job.status, steps);
+      counts[displayStatus] = (counts[displayStatus] ?? 0) + 1;
     }
     return counts;
-  }, [runDetail?.jobs]);
-  const runtimeStageCardWidth = runtimeStages.length >= 5 ? 252 : 288;
-  const runtimeConnectorWidth = runtimeStages.length >= 5 ? 48 : 72;
+  }, [runDetail?.jobs, runStepsByJobId]);
+  const runtimeStageCount = runtimeStages.length;
+  const runtimeStageCardWidth = runtimeStageCount >= 5 ? 252 : 288;
+  const runtimeConnectorWidth = runtimeStageCount >= 5 ? 48 : 72;
   const sourceBranch = useMemo(() => getSourceBranch(config?.jobs ?? []), [config?.jobs]);
   const sourceBranchSource =
     pipeline?.source_branch_source ?? (sourceBranch === project.default_branch ? "project_default" : "custom");
+  const currentRun =
+    selectedRunId && runDetail?.run.id === selectedRunId
+      ? runDetail.run
+      : runs.find((r) => r.id === selectedRunId);
+  const currentRunLabel = currentRun
+    ? p.detail.runId.replace(
+        "{{num}}",
+        String(runs.length - runs.findIndex((r) => r.id === selectedRunId))
+      )
+    : "";
 
   useEffect(() => {
     const jobs = runDetail?.jobs ?? [];
@@ -738,31 +1303,38 @@ export default function PipelineDetailClient({
   }, [selectedRuntimeSteps, selectedStepId]);
 
   useEffect(() => {
-    if (!selectedRunId || !selectedStepId) {
-      setLogText("");
-      return;
-    }
-    let active = true;
-    setLogText("");
-    void (async () => {
-      try {
-        const res = await fetch(
-          `/api/pipeline-runs/${selectedRunId}/logs/${selectedStepId}?offset=0&limit=500000`
-        );
-        const text = res.ok ? await res.text() : "";
-        if (active) {
-          setLogText(text);
-        }
-      } catch {
-        if (active) {
-          setLogText("");
-        }
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [selectedRunId, selectedStepId]);
+    if (!selectedStepId || !activeRuntimeStep || !selectedRuntimeStep) return;
+    if (activeRuntimeStep.id === selectedStepId) return;
+
+    const selectedIsTerminal =
+      selectedRuntimeStep.status === "success" ||
+      selectedRuntimeStep.status === "failed" ||
+      selectedRuntimeStep.status === "canceled" ||
+      selectedRuntimeStep.status === "timed_out" ||
+      selectedRuntimeStep.status === "skipped";
+    if (!selectedIsTerminal) return;
+
+    const activeIndex = selectedRuntimeSteps.findIndex((step) => step.id === activeRuntimeStep.id);
+    if (activeIndex === -1) return;
+    if (selectedRuntimeStepIndex !== -1 && activeIndex <= selectedRuntimeStepIndex) return;
+
+    setSelectedStepId(activeRuntimeStep.id);
+  }, [
+    activeRuntimeStep,
+    selectedRuntimeStep,
+    selectedRuntimeStepIndex,
+    selectedRuntimeSteps,
+    selectedStepId,
+  ]);
+
+  const canRetrySelectedJob =
+    isAdmin &&
+    !!selectedRuntimeJob &&
+    !!currentRun &&
+    (currentRun.status === "failed" || currentRun.status === "canceled" || currentRun.status === "timed_out") &&
+    (selectedRuntimeJobStatus === "failed" ||
+      selectedRuntimeJobStatus === "canceled" ||
+      selectedRuntimeJobStatus === "timed_out");
 
   function stageLabel(stage: (typeof PIPELINE_STAGE_SEQUENCE)[number]) {
     switch (stage) {
@@ -856,14 +1428,6 @@ export default function PipelineDetailClient({
       </TooltipProvider>
     );
   }
-
-  const currentRun = runs.find((r) => r.id === selectedRunId);
-  const currentRunLabel = currentRun
-    ? p.detail.runId.replace(
-        "{{num}}",
-        String(runs.length - runs.findIndex((r) => r.id === selectedRunId))
-      )
-    : "";
   const selectedArtifacts = selectedRuntimeJob
     ? artifacts.filter((artifact) => artifact.job_id === selectedRuntimeJob.id)
     : artifacts;
@@ -1014,7 +1578,9 @@ export default function PipelineDetailClient({
                 </span>
                 <button
                   type="button"
-                  onClick={loadRuns}
+                  onClick={() => {
+                    void loadRuns();
+                  }}
                   className="text-[hsl(var(--ds-text-2))] hover:text-foreground transition-colors"
                 >
                   <RefreshCw className="size-3.5" />
@@ -1189,109 +1755,175 @@ export default function PipelineDetailClient({
 
                   {/* Runtime board */}
                   <div className="flex-1 min-h-0 overflow-hidden">
-                    <div
-                      className="min-h-0 overflow-auto bg-[hsl(var(--ds-surface-1))]/30"
-                      onClick={() => {
-                        setSelectedRunJobKey(null);
-                        setSelectedStepId(null);
-                      }}
-                    >
-                      {!runDetail && (
-                        <div className="px-6 py-6 text-[12px] text-[hsl(var(--ds-text-2))]">
-                          {dict.common.loading}
-                        </div>
-                      )}
-                      {runDetail && (
-                        <div className="flex min-w-max snap-x snap-mandatory gap-3 px-5 py-4">
-                          {runtimeStages.map((stage, stageIndex) => (
-                            <div key={stage.key} className="contents">
+                    <div className="flex h-full min-h-0 flex-col">
+                      <div
+                        ref={runtimeBoardViewportRef}
+                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden touch-pan-y select-none bg-[hsl(var(--ds-surface-1))]/30 ${
+                          runtimeBoardDragging ? "cursor-grabbing" : "cursor-grab"
+                        }`}
+                        style={{ userSelect: "none" }}
+                        onClick={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          setSelectedRunJobKey(null);
+                          setSelectedStepId(null);
+                        }}
+                        onPointerDown={handleRuntimeBoardPointerDown}
+                        onPointerMove={handleRuntimeBoardPointerMove}
+                        onPointerUp={handleRuntimeBoardPointerUp}
+                        onPointerCancel={handleRuntimeBoardPointerCancel}
+                        onWheel={handleRuntimeBoardWheel}
+                      >
+                        {!runDetail && (
+                          <div className="flex gap-3 px-5 py-4">
+                            {Array.from({ length: Math.max(runtimeStageCount || 3, 3) }).map((_, index) => (
                               <div
-                                className="flex shrink-0 snap-start flex-col rounded-[14px] border border-[hsl(var(--ds-border-1))] bg-background"
+                                key={`runtime-loading-${index}`}
+                                className="flex shrink-0 flex-col rounded-[14px] border border-[hsl(var(--ds-border-1))] bg-background"
                                 style={{ width: runtimeStageCardWidth }}
                               >
-                                <div className="border-b border-[hsl(var(--ds-border-1))] px-4 py-3">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <div>
-                                      <div className="text-sm font-semibold text-foreground">
-                                        {stageLabel(stage.key)}
-                                      </div>
-                                      <div className="mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
-                                        {p.detail.nodesCount.replace("{{count}}", String(stage.jobs.length))}
-                                      </div>
-                                    </div>
-                                    <ModeBadgeGroup
-                                      entryMode={getStageConfig(runtimeStageSettings, stage.key).entryMode ?? "auto"}
-                                      dispatchMode={getStageConfig(runtimeStageSettings, stage.key).dispatchMode ?? "parallel"}
-                                    />
-                                  </div>
+                                <div className="border-b border-[hsl(var(--ds-border-1))] px-4 py-3 space-y-2">
+                                  <Skeleton className="h-4 w-28 bg-[hsl(var(--ds-border-1))]" />
+                                  <Skeleton className="h-3 w-16 bg-[hsl(var(--ds-border-1))]" />
                                 </div>
-                                <div className="flex flex-1 flex-col gap-3 p-3">
-                                  {stage.jobs.map((job, index) => {
-                                    const runtimeJob = runJobsByKey.get(job.id);
-                                    const runtimeStatus =
-                                      (runtimeJob?.status as PipelineRunStatus | undefined) ?? "queued";
-                                    const runtimeSteps = runtimeJob ? runStepsByJobId.get(runtimeJob.id) ?? [] : [];
-                                    const selected = selectedRunJobKey === job.id;
-                                    return (
-                                      <div key={job.id} className="space-y-3">
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            setSelectedRunJobKey(job.id);
-                                            setNodeDialogOpen(true);
-                                          }}
-                                          className={`w-full rounded-[12px] border p-3 text-left transition-all ${
-                                            selected
-                                              ? selectedStatusTone(runtimeStatus)
-                                              : statusTone(runtimeStatus)
-                                          }`}
-                                        >
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                              <div className="flex items-center gap-2">
-                                                {STATUS_ICON_SM[runtimeStatus]}
-                                                <span className="truncate text-sm font-medium text-foreground">
-                                                  {job.name}
-                                                </span>
+                                <div className="space-y-3 p-3">
+                                  <Skeleton className="h-24 w-full rounded-[12px] bg-[hsl(var(--ds-border-1))]" />
+                                  <Skeleton className="h-24 w-full rounded-[12px] bg-[hsl(var(--ds-border-1))]" />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {runDetail && (
+                          <div
+                            ref={runtimeBoardContentRef}
+                            className="flex min-w-max snap-x snap-mandatory gap-3 px-5 py-4 will-change-transform select-none"
+                            style={{
+                              transform: runtimeBoardScrollLeft > 0 ? `translate3d(-${runtimeBoardScrollLeft}px, 0, 0)` : undefined,
+                            }}
+                          >
+                            {runtimeStages.map((stage, stageIndex) => (
+                              <div key={stage.key} className="contents">
+                                <div
+                                  className="flex shrink-0 snap-start flex-col rounded-[14px] border border-[hsl(var(--ds-border-1))] bg-background"
+                                  style={{ width: runtimeStageCardWidth }}
+                                >
+                                  <div className="border-b border-[hsl(var(--ds-border-1))] px-4 py-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div>
+                                        <div className="text-sm font-semibold text-foreground">
+                                          {stageLabel(stage.key)}
+                                        </div>
+                                        <div className="mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
+                                          {p.detail.nodesCount.replace("{{count}}", String(stage.jobs.length))}
+                                        </div>
+                                      </div>
+                                      <ModeBadgeGroup
+                                        entryMode={getStageConfig(runtimeStageSettings, stage.key).entryMode ?? "auto"}
+                                        dispatchMode={getStageConfig(runtimeStageSettings, stage.key).dispatchMode ?? "parallel"}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-1 flex-col gap-3 p-3">
+                                    {stage.jobs.map((job, index) => {
+                                      const runtimeJob = runJobsByKey.get(job.id);
+                                      const runtimeSteps = runtimeJob ? runStepsByJobId.get(runtimeJob.id) ?? [] : [];
+                                      const runtimeStatus = deriveRuntimeJobStatus(runtimeJob?.status, runtimeSteps);
+                                      const selected = selectedRunJobKey === job.id;
+                                      return (
+                                        <div key={job.id} className="space-y-3">
+                                          <div
+                                            role="button"
+                                            tabIndex={0}
+                                            data-runtime-node="true"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              openRuntimeNode(job.id);
+                                            }}
+                                            onKeyDown={(event) => {
+                                              if (event.key !== "Enter" && event.key !== " ") return;
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                              openRuntimeNode(job.id);
+                                            }}
+                                            className={`w-full rounded-[12px] border p-3 text-left transition-all ${
+                                              selected
+                                                ? selectedStatusTone(runtimeStatus)
+                                                : statusTone(runtimeStatus)
+                                            }`}
+                                          >
+                                            <div className="flex items-start justify-between gap-3">
+                                              <div className="min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                  {STATUS_ICON_SM[runtimeStatus]}
+                                                  <span className="truncate text-sm font-medium text-foreground">
+                                                    {job.name}
+                                                  </span>
+                                                </div>
+                                                <div className="mt-1 truncate text-[12px] text-[hsl(var(--ds-text-2))]">
+                                                  {job.id}
+                                                </div>
                                               </div>
-                                              <div className="mt-1 truncate text-[12px] text-[hsl(var(--ds-text-2))]">
-                                                {job.id}
+                                              <Badge variant={STATUS_VARIANTS[runtimeStatus]} size="sm">
+                                                {p.status[runtimeStatus]}
+                                              </Badge>
+                                            </div>
+                                            <div className="mt-3 flex items-center justify-between gap-3 text-[12px] text-[hsl(var(--ds-text-2))]">
+                                              <span>{p.detail.stepsCount.replace("{{count}}", String(runtimeSteps.length))}</span>
+                                              <span>
+                                                {runtimeJob?.started_at
+                                                  ? durationLabel(runtimeJob.started_at, runtimeJob.finished_at ?? undefined)
+                                                  : p.detail.notStarted}
+                                              </span>
+                                            </div>
+                                            {runtimeStatus === "waiting_manual" && isAdmin && (
+                                              <div className="mt-3">
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  className="w-full"
+                                                  onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    void handleTriggerJob(job.id);
+                                                  }}
+                                                  disabled={triggeringJobKey === job.id}
+                                                >
+                                                  <Play className="mr-1 size-3.5" />
+                                                  {triggeringJobKey === job.id
+                                                    ? dict.common.loading
+                                                    : p.detail.manualTrigger}
+                                                </Button>
                                               </div>
-                                            </div>
-                                            <Badge variant={STATUS_VARIANTS[runtimeStatus]} size="sm">
-                                              {p.status[runtimeStatus]}
-                                            </Badge>
-                                          </div>
-                                          <div className="mt-3 flex items-center justify-between gap-3 text-[12px] text-[hsl(var(--ds-text-2))]">
-                                            <span>{p.detail.stepsCount.replace("{{count}}", String(runtimeSteps.length))}</span>
-                                            <span>
-                                              {runtimeJob?.started_at
-                                                ? durationLabel(runtimeJob.started_at, runtimeJob.finished_at ?? undefined)
-                                                : p.detail.notStarted}
-                                            </span>
-                                          </div>
-                                          {runtimeStatus === "waiting_manual" && isAdmin && (
-                                            <div className="mt-3">
-                                              <Button
-                                                type="button"
-                                                size="sm"
-                                                className="w-full"
-                                              onClick={(event) => {
-                                                event.stopPropagation();
-                                                void handleTriggerJob(job.id);
-                                              }}
-                                                disabled={triggeringJobKey === job.id}
-                                              >
-                                                <Play className="mr-1 size-3.5" />
-                                                {triggeringJobKey === job.id
-                                                  ? dict.common.loading
-                                                  : p.detail.manualTrigger}
-                                              </Button>
-                                            </div>
-                                        )}
-                                      </button>
-                                      {index < stage.jobs.length - 1 && (
+                                            )}
+                                            {(currentRun?.status === "failed" ||
+                                              currentRun?.status === "canceled" ||
+                                              currentRun?.status === "timed_out") &&
+                                              isAdmin &&
+                                              (runtimeStatus === "failed" ||
+                                                runtimeStatus === "canceled" ||
+                                                runtimeStatus === "timed_out") && (
+                                                <div className="mt-3">
+                                                  <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="w-full"
+                                                    onClick={(event) => {
+                                                      event.stopPropagation();
+                                                      setRetryDialogTarget({
+                                                        jobKey: job.id,
+                                                        jobName: job.name,
+                                                        stepCount: (runStepsByJobId.get(job.id) ?? []).length,
+                                                      });
+                                                    }}
+                                                    disabled={retryingJobKey === job.id}
+                                                  >
+                                                    <RotateCcw className="mr-1 size-3.5" />
+                                                    {retryingJobKey === job.id ? dict.common.loading : p.retry}
+                                                  </Button>
+                                                </div>
+                                              )}
+                                        </div>
+                                        {index < stage.jobs.length - 1 && (
                                           <div className="flex items-center justify-center py-0.5 text-[hsl(var(--ds-border-2)/0.82)]">
                                             <ArrowDown className="size-3.5" />
                                           </div>
@@ -1299,23 +1931,41 @@ export default function PipelineDetailClient({
                                       </div>
                                     );
                                   })}
-                                </div>
-                              </div>
-                              {stageIndex < runtimeStages.length - 1 && (
-                                <div
-                                  className="flex shrink-0 items-center justify-center"
-                                  style={{ width: runtimeConnectorWidth }}
-                                >
-                                  <div className="relative h-10 w-full text-[hsl(var(--ds-border-2)/0.82)]">
-                                    <span className="absolute left-0 right-[15px] top-1/2 h-px -translate-y-1/2 bg-[hsl(var(--ds-border-2)/0.82)] mr-[-3px]" />
-                                    <ArrowRight className="absolute right-0 top-1/2 size-4 -translate-y-1/2" />
                                   </div>
                                 </div>
-                              )}
-                            </div>
-                          ))}
+                                {stageIndex < runtimeStages.length - 1 && (
+                                  <div
+                                    className="flex shrink-0 items-center justify-center"
+                                    style={{ width: runtimeConnectorWidth }}
+                                  >
+                                    <div className="relative h-10 w-full text-[hsl(var(--ds-border-2)/0.82)]">
+                                      <span className="absolute left-0 right-[15px] top-1/2 h-px -translate-y-1/2 bg-[hsl(var(--ds-border-2)/0.82)] mr-[-3px]" />
+                                      <ArrowRight className="absolute right-0 top-1/2 size-4 -translate-y-1/2" />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="shrink-0 border-t border-[hsl(var(--ds-border-1))] bg-background px-5 py-2">
+                        <div
+                          ref={runtimeBoardRailRef}
+                          className="overflow-x-auto overflow-y-hidden pb-1"
+                          onScroll={(event) => {
+                            const nextScrollLeft = event.currentTarget.scrollLeft;
+                            setRuntimeBoardScrollLeft(nextScrollLeft);
+                          }}
+                        >
+                          <div
+                            aria-hidden="true"
+                            className="h-px"
+                            style={{ width: runtimeBoardContentWidth > 0 ? runtimeBoardContentWidth : "100%" }}
+                          />
                         </div>
-                      )}
+                      </div>
                     </div>
 
                     <Dialog
@@ -1328,7 +1978,7 @@ export default function PipelineDetailClient({
                         }
                       }}
                     >
-                      <DialogContent className="max-w-6xl">
+                      <DialogContent className="max-w-6xl h-[min(88vh,880px)]">
                         <DialogHeader>
                           <DialogTitle>{selectedRuntimeJobConfig?.name ?? p.detail.nodeDialogTitle}</DialogTitle>
                           <DialogDescription>
@@ -1337,15 +1987,15 @@ export default function PipelineDetailClient({
                               : p.detail.nodeDialogDescription}
                           </DialogDescription>
                         </DialogHeader>
-                        <DialogBody className="overflow-hidden p-0">
+                        <DialogBody className="flex min-h-0 flex-1 w-full overflow-hidden p-0">
                           {selectedRuntimeJobConfig && selectedRuntimeJob ? (
-                            <div className="grid min-h-[min(72vh,760px)] lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+                            <div className="grid flex-1 h-full w-full min-h-0 min-w-0 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
                               <div className="flex min-h-0 flex-col border-b border-[hsl(var(--ds-border-1))] lg:border-b-0 lg:border-r">
                                 <div className="border-b border-[hsl(var(--ds-border-1))] px-5 py-4">
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                       <div className="flex items-center gap-2">
-                                        {STATUS_ICON[selectedRuntimeJob.status as PipelineRunStatus]}
+                                        {STATUS_ICON[selectedRuntimeJobStatus as PipelineRunStatus]}
                                         <span className="truncate text-sm font-semibold text-foreground">
                                           {selectedRuntimeJobConfig.name}
                                         </span>
@@ -1354,8 +2004,8 @@ export default function PipelineDetailClient({
                                         {currentRunLabel} · {selectedRuntimeJob.job_key}
                                       </div>
                                     </div>
-                                    <Badge variant={STATUS_VARIANTS[selectedRuntimeJob.status as PipelineRunStatus]} size="sm">
-                                      {p.status[selectedRuntimeJob.status as PipelineRunStatus]}
+                                    <Badge variant={STATUS_VARIANTS[selectedRuntimeJobStatus as PipelineRunStatus]} size="sm">
+                                      {p.status[selectedRuntimeJobStatus as PipelineRunStatus]}
                                     </Badge>
                                   </div>
                                 </div>
@@ -1386,11 +2036,9 @@ export default function PipelineDetailClient({
                                             <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
                                               {step.name}
                                             </span>
-                                            {step.exit_code !== null && step.exit_code !== undefined && (
-                                              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                                                {p.detail.exitCode.replace("{{code}}", String(step.exit_code))}
-                                              </span>
-                                            )}
+                                            <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                                              {getStepOutcomeLabel(step, p.detail)}
+                                            </span>
                                           </button>
                                         ))}
                                       </div>
@@ -1408,7 +2056,7 @@ export default function PipelineDetailClient({
                                             <div>{p.detail.duration}: {durationLabel(currentRun.started_at, currentRun.finished_at ?? undefined)}</div>
                                           )}
                                         </div>
-                                        {selectedRuntimeJob.status === "waiting_manual" && isAdmin && (
+                                        {selectedRuntimeJobStatus === "waiting_manual" && isAdmin && (
                                           <div className="mt-3">
                                             <Button
                                               type="button"
@@ -1424,104 +2072,196 @@ export default function PipelineDetailClient({
                                             </Button>
                                           </div>
                                         )}
+                                {canRetrySelectedJob && (
+                                  <div className="mt-3">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="w-full"
+                                      onClick={() =>
+                                        setRetryDialogTarget({
+                                          jobKey: selectedRuntimeJob.job_key,
+                                          jobName: selectedRuntimeJobConfig?.name ?? selectedRuntimeJob.name,
+                                          stepCount: selectedRuntimeSteps.length,
+                                        })
+                                      }
+                                      disabled={retryingJobKey === selectedRuntimeJob.job_key}
+                                    >
+                                      <RotateCcw className="mr-1 size-3.5" />
+                                      {retryingJobKey === selectedRuntimeJob.job_key
+                                        ? dict.common.loading
+                                                : p.retry}
+                                            </Button>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>
                                 </div>
                               </div>
 
-                              <div className="flex min-h-0 flex-col">
-                                <div className="flex-1 min-h-0 overflow-auto">
-                                  <div className="space-y-4 px-5 py-4">
-                                    <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] overflow-hidden bg-terminal">
-                                      <div className="border-b border-[hsl(var(--ds-border-1))] px-4 py-2.5 text-[12px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
-                                        {selectedRuntimeStep ? selectedRuntimeStep.name : p.log.title}
+                              <div className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden">
+                              <div className="flex h-full min-h-0 w-full min-w-0 flex-col gap-4 px-5 py-4">
+                                  <div className="flex min-h-0 w-full flex-1 self-stretch flex-col overflow-hidden rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--terminal-background))] shadow-[0_0_0_1px_hsl(var(--ds-border-1))]">
+                                    <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--ds-border-1))] px-4 py-2.5">
+                                      <div className="flex items-center gap-2">
+                                        <span className="inline-flex size-2 rounded-full bg-success/80" />
+                                        <span className="text-[12px] uppercase tracking-wide text-terminal-muted">
+                                          {selectedRuntimeStep ? selectedRuntimeStep.name : p.log.title}
+                                        </span>
                                       </div>
-                                      {!selectedStepId && (
-                                        <div className="px-4 py-10 text-[12px] text-terminal-muted">
+                                      <div className="text-[11px] uppercase tracking-wide text-terminal-muted">
+                                        {selectedStepId ? `${terminalLogLines.length || 0} lines` : p.log.selectStep}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                                      {!selectedStepId ? (
+                                        <div className="flex flex-1 items-center justify-center px-4 py-10 text-[12px] text-terminal-muted">
                                           {p.log.selectStep}
                                         </div>
-                                      )}
-                                      {selectedStepId && (
+                                      ) : (
                                         <div
                                           ref={logRef}
-                                          className="max-h-[320px] overflow-y-auto whitespace-pre-wrap p-4 font-mono text-[12px] leading-relaxed text-terminal"
+                                          className="flex-1 min-h-0 w-full overflow-auto px-4 py-4 font-mono text-[12px] leading-6 text-terminal"
                                         >
-                                          {logText || (
-                                            <span className="text-terminal-muted">
+                                          {logError && !logText ? (
+                                            <div className="rounded-[8px] border border-danger/30 bg-danger/10 px-3 py-2 text-danger">
+                                              {logError}
+                                            </div>
+                                          ) : logLoading && logText.length === 0 ? (
+                                            <div className="space-y-2 py-1">
+                                              <Skeleton className="h-3 w-3/5 bg-white/10" />
+                                              <Skeleton className="h-3 w-4/5 bg-white/10" />
+                                              <Skeleton className="h-3 w-2/3 bg-white/10" />
+                                              <Skeleton className="h-3 w-5/6 bg-white/10" />
+                                            </div>
+                                          ) : logText ? (
+                                            <div className="space-y-3">
+                                              {logError && (
+                                                <div className="rounded-[8px] border border-danger/30 bg-danger/10 px-3 py-2 text-danger">
+                                                  {logError}
+                                                </div>
+                                              )}
+                                              <div className="space-y-0.5">
+                                                {terminalLogEntries.map(({ line, tone }, index) => (
+                                                  <div
+                                                    key={`${selectedStepId}-${index}`}
+                                                    className={[
+                                                      "grid grid-cols-[4rem_minmax(0,1fr)] gap-3 rounded-[6px] px-2 py-0.5",
+                                                      tone === "warning"
+                                                        ? "border-l-2 border-warning/70 bg-warning/10"
+                                                        : tone === "error"
+                                                          ? "border-l-2 border-danger/70 bg-danger/10"
+                                                          : tone === "system"
+                                                            ? "bg-white/[0.02]"
+                                                            : "",
+                                                    ]
+                                                      .filter(Boolean)
+                                                      .join(" ")}
+                                                  >
+                                                    <div className="select-none border-r border-white/6 pr-3 text-right tabular-nums text-terminal-muted/70">
+                                                      {String(index + 1)}
+                                                    </div>
+                                                    <div
+                                                      className={[
+                                                        "min-w-0 whitespace-pre-wrap break-words",
+                                                        getTerminalLineClassName(tone),
+                                                      ].join(" ")}
+                                                    >
+                                                      {line.length > 0 ? line : "\u00a0"}
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div className="rounded-[8px] border border-dashed border-white/10 bg-white/[0.03] px-3 py-2 text-terminal-muted">
                                               {p.log.noLogs}
-                                            </span>
+                                            </div>
                                           )}
                                         </div>
                                       )}
                                     </div>
-
-                                    {selectedArtifacts.length > 0 && (
-                                      <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-background">
-                                        <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--ds-border-1))] px-4 py-2.5">
-                                          <div className="flex items-center gap-2">
-                                            <Package className="size-3.5 text-[hsl(var(--ds-text-2))]" />
-                                            <span className="text-[12px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
-                                              {p.artifactsLabel.replace("{{count}}", String(selectedArtifacts.length))}
-                                            </span>
-                                          </div>
-                                          {isAdmin && (
-                                            <Button
-                                              type="button"
-                                              variant="secondary"
-                                              size="sm"
-                                              onClick={() => setPublishDialogOpen(true)}
-                                            >
-                                              {p.publishArtifacts}
-                                            </Button>
-                                          )}
-                                        </div>
-                                        <div className="divide-y divide-[hsl(var(--ds-border-1))]">
-                                          {selectedArtifacts.map((artifact) => {
-                                            const sizeKb = Math.round(Number(artifact.size_bytes) / 1024);
-                                            const sizeLabel =
-                                              sizeKb >= 1024
-                                                ? `${(sizeKb / 1024).toFixed(1)} MB`
-                                                : `${sizeKb} KB`;
-                                            const filename = artifact.path.split("/").pop() ?? artifact.path;
-                                            return (
-                                              <div key={artifact.id} className="flex items-center gap-3 px-4 py-3">
-                                                <Package className="size-3.5 shrink-0 text-[hsl(var(--ds-text-2))]" />
-                                                <div className="min-w-0 flex-1">
-                                                  <div className="truncate text-[12px] font-medium text-foreground">
-                                                    {filename}
-                                                  </div>
-                                                  <div className="truncate text-[12px] text-[hsl(var(--ds-text-2))]">
-                                                    {artifact.path}
-                                                  </div>
-                                                </div>
-                                                <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                                                  {sizeLabel}
-                                                </span>
-                                                <Button
-                                                  type="button"
-                                                  variant="outline"
-                                                  size="sm"
-                                                  onClick={() => downloadArtifact(artifact.id)}
-                                                  disabled={downloadingArtifactId === artifact.id}
-                                                >
-                                                  {downloadingArtifactId === artifact.id
-                                                    ? dict.common.loading
-                                                    : dict.common.download}
-                                                </Button>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    )}
                                   </div>
+
+                                  {selectedArtifacts.length > 0 && (
+                                    <div className="flex max-h-[240px] shrink-0 flex-col overflow-hidden rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-background">
+                                      <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--ds-border-1))] px-4 py-2.5">
+                                        <div className="flex items-center gap-2">
+                                          <Package className="size-3.5 text-[hsl(var(--ds-text-2))]" />
+                                          <span className="text-[12px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
+                                            {p.artifactsLabel.replace("{{count}}", String(selectedArtifacts.length))}
+                                          </span>
+                                        </div>
+                                        {isAdmin && (
+                                          <Button
+                                            type="button"
+                                            variant="secondary"
+                                            size="sm"
+                                            onClick={() => setPublishDialogOpen(true)}
+                                          >
+                                            {p.publishArtifacts}
+                                          </Button>
+                                        )}
+                                      </div>
+                                      <div className="min-h-0 flex-1 overflow-auto divide-y divide-[hsl(var(--ds-border-1))]">
+                                        {selectedArtifacts.map((artifact) => {
+                                          const sizeKb = Math.round(Number(artifact.size_bytes) / 1024);
+                                          const sizeLabel =
+                                            sizeKb >= 1024
+                                              ? `${(sizeKb / 1024).toFixed(1)} MB`
+                                              : `${sizeKb} KB`;
+                                          const filename = artifact.path.split("/").pop() ?? artifact.path;
+                                          return (
+                                            <div key={artifact.id} className="flex items-center gap-3 px-4 py-3">
+                                              <Package className="size-3.5 shrink-0 text-[hsl(var(--ds-text-2))]" />
+                                              <div className="min-w-0 flex-1">
+                                                <div className="truncate text-[12px] font-medium text-foreground">
+                                                  {filename}
+                                                </div>
+                                                <div className="truncate text-[12px] text-[hsl(var(--ds-text-2))]">
+                                                  {artifact.path}
+                                                </div>
+                                              </div>
+                                              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                                                {sizeLabel}
+                                              </span>
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => downloadArtifact(artifact.id)}
+                                                disabled={downloadingArtifactId === artifact.id}
+                                              >
+                                                {downloadingArtifactId === artifact.id
+                                                  ? dict.common.loading
+                                                  : dict.common.download}
+                                              </Button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </div>
                           ) : (
-                            <div className="px-6 py-10 text-[12px] text-[hsl(var(--ds-text-2))]">
-                              {dict.common.loading}
+                            <div className="w-full space-y-3 px-6 py-8">
+                              <Skeleton className="h-5 w-44 bg-[hsl(var(--ds-border-1))]" />
+                              <Skeleton className="h-4 w-72 bg-[hsl(var(--ds-border-1))]" />
+                              <div className="grid w-full gap-3 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+                                <div className="space-y-3">
+                                  <Skeleton className="h-24 w-full rounded-[12px] bg-[hsl(var(--ds-border-1))]" />
+                                  <Skeleton className="h-32 w-full rounded-[12px] bg-[hsl(var(--ds-border-1))]" />
+                                </div>
+                                <div className="space-y-3">
+                                  <Skeleton className="h-32 w-full rounded-[12px] bg-[hsl(var(--ds-border-1))]" />
+                                  <Skeleton className="h-48 w-full rounded-[12px] bg-[hsl(var(--ds-border-1))]" />
+                                </div>
+                              </div>
                             </div>
                           )}
                         </DialogBody>
@@ -1848,8 +2588,10 @@ export default function PipelineDetailClient({
 
                       <div className="space-y-2">
                         {secretsLoading && (
-                          <div className="text-[12px] text-[hsl(var(--ds-text-2))] py-2">
-                            {dict.common.loading}
+                          <div className="space-y-2 py-2">
+                            <Skeleton className="h-8 w-full bg-[hsl(var(--ds-border-1))]" />
+                            <Skeleton className="h-8 w-full bg-[hsl(var(--ds-border-1))]" />
+                            <Skeleton className="h-8 w-full bg-[hsl(var(--ds-border-1))]" />
                           </div>
                         )}
                         {!secretsLoading && secrets.length === 0 && (
@@ -2151,6 +2893,27 @@ export default function PipelineDetailClient({
         }}
         loading={secretDeleting === secretToDelete}
         danger
+      />
+
+      <ConfirmDialog
+        open={retryDialogTarget !== null}
+        title={p.detail.retryDialogTitle}
+        description={p.detail.retryDialogDescription
+          .replace("{{name}}", retryDialogTarget?.jobName ?? "")
+          .replace("{{steps}}", String(retryDialogTarget?.stepCount ?? 0))}
+        confirmLabel={p.detail.retryDialogConfirm}
+        cancelLabel={dict.common.cancel}
+        onOpenChange={(open) => {
+          if (!open) setRetryDialogTarget(null);
+        }}
+        onConfirm={() => {
+          if (!retryDialogTarget) return;
+          void handleRetryJob(retryDialogTarget.jobKey).finally(() => {
+            setRetryDialogTarget(null);
+          });
+        }}
+        loading={retryingJobKey === retryDialogTarget?.jobKey}
+        icon={<RotateCcw className="size-4 text-warning" />}
       />
 
       <TypedConfirmDialog
