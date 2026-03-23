@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
-import { createPipelineRun, listPipelineRuns, getPipeline, cancelPipelineRun } from '@/services/conductorClient';
+import { createPipelineRun, listPipelineRuns, getPipeline, cancelPipelineRun } from '@/services/conductorGateway';
 import { queryOne, query } from '@/lib/db';
+import { PIPELINE_ACTIVE_STATUSES_SQL } from '@/services/statuses';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const rateLimitResponse = rateLimiter(request);
@@ -31,8 +32,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const limitRaw = request.nextUrl.searchParams.get('limit');
-    const limit = limitRaw ? Number(limitRaw) : 20;
-    const runs = await listPipelineRuns(id, Number.isNaN(limit) ? 20 : limit);
+    const parsedLimit = limitRaw ? Number(limitRaw) : 20;
+    const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(100, Math.trunc(parsedLimit))) : 20;
+    const runs = await listPipelineRuns(id, limit);
     return NextResponse.json(runs);
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (concurrencyMode === 'queue' || concurrencyMode === 'cancel_previous') {
       // Find active runs for this pipeline
       const activeRuns = await query<{ id: string; status: string }>(
-        `SELECT id, status FROM pipeline_runs WHERE pipeline_id = $1 AND status IN ('queued', 'running', 'waiting_manual') ORDER BY created_at ASC`,
+        `SELECT id, status FROM pipeline_runs WHERE pipeline_id = $1 AND status IN (${PIPELINE_ACTIVE_STATUSES_SQL}) ORDER BY created_at ASC`,
         [id]
       );
 

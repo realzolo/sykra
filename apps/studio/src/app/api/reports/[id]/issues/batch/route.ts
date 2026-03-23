@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { exec } from '@/lib/db';
 import { logger } from '@/services/logger';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { z } from 'zod';
 import { requireUser, unauthorized } from '@/services/auth';
@@ -11,7 +11,7 @@ import { requireReportAccess } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 const batchOperationSchema = z.object({
   action: z.enum(['update_status', 'assign', 'delete']),
@@ -19,6 +19,13 @@ const batchOperationSchema = z.object({
   status: z.enum(['open', 'fixed', 'ignored', 'false_positive', 'planned']).optional(),
   assigned_to: z.string().optional(),
 });
+
+type BatchIssueAction = z.infer<typeof batchOperationSchema>['action'];
+
+type BatchIssueOperationResult = {
+  action: BatchIssueAction;
+  affected: number;
+};
 
 // Batch update issues
 export async function POST(
@@ -41,7 +48,7 @@ export async function POST(
 
     logger.setContext({ reportId, action, count: issueIds.length });
 
-    const result = await withRetry(async () => {
+    const result = await withRetry<BatchIssueOperationResult>(async () => {
       await requireReportAccess(reportId, user.id);
 
       switch (action) {

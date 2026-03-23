@@ -12,15 +12,16 @@ type LoadOptions struct {
 
 func LoadWithOptions(opts LoadOptions) (Config, error) {
 	cfg := Config{
-		Port:                  "8200",
-		ConductorToken:        "",
-		DatabaseURL:           "",
-		EncryptionKey:         "",
-		Concurrency:           4,
-		PipelineConcurrency:   4,
-		DataDir:               "data",
-		LogRetentionDays:      30,
-		ArtifactRetentionDays: 30,
+		Port:                   "8200",
+		ConductorToken:         "",
+		DatabaseURL:            "",
+		EncryptionKey:          "",
+		Concurrency:            4,
+		PipelineConcurrency:    4,
+		PipelineRunConcurrency: 1,
+		DataDir:                "data",
+		LogRetentionDays:       30,
+		ArtifactRetentionDays:  30,
 	}
 
 	analyzeTimeoutRaw := "1h"
@@ -44,6 +45,7 @@ func LoadWithOptions(opts LoadOptions) (Config, error) {
 	cfg.EncryptionKey = envString("ENCRYPTION_KEY", cfg.EncryptionKey)
 	cfg.Concurrency = envInt("CONDUCTOR_CONCURRENCY", cfg.Concurrency)
 	cfg.PipelineConcurrency = envInt("PIPELINE_CONCURRENCY", cfg.PipelineConcurrency)
+	cfg.PipelineRunConcurrency = envInt("PIPELINE_RUN_CONCURRENCY", cfg.PipelineRunConcurrency)
 	cfg.DataDir = envString("CONDUCTOR_DATA_DIR", cfg.DataDir)
 	cfg.LogRetentionDays = envInt("PIPELINE_LOG_RETENTION_DAYS", cfg.LogRetentionDays)
 	cfg.ArtifactRetentionDays = envInt("PIPELINE_ARTIFACT_RETENTION_DAYS", cfg.ArtifactRetentionDays)

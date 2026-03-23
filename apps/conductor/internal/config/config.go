@@ -7,16 +7,17 @@ import (
 )
 
 type Config struct {
-	Port                  string
-	ConductorToken        string
-	DatabaseURL           string
-	EncryptionKey         string
-	Concurrency           int
-	AnalyzeTimeout        time.Duration
-	PipelineConcurrency   int
-	DataDir               string
-	LogRetentionDays      int
-	ArtifactRetentionDays int
+	Port                   string
+	ConductorToken         string
+	DatabaseURL            string
+	EncryptionKey          string
+	Concurrency            int
+	AnalyzeTimeout         time.Duration
+	PipelineConcurrency    int
+	PipelineRunConcurrency int
+	DataDir                string
+	LogRetentionDays       int
+	ArtifactRetentionDays  int
 	// Studio integration — used for Conductor -> Studio callbacks/events.
 	StudioURL   string
 	StudioToken string

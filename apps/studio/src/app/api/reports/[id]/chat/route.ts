@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { exec, query, queryOne } from '@/lib/db';
+import { asJsonObject, type JsonObject } from '@/lib/json';
 import { readSecret } from '@/lib/vault';
 import { getOutputLanguageLabel } from '@/lib/outputLanguage';
 import {
@@ -8,7 +9,7 @@ import {
   supportsReasoningEffort,
   supportsTemperature,
 } from '@/lib/aiModelCapabilities';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { requireReportAccess } from '@/services/orgs';
 import { IntegrationResolutionError, resolveAIIntegration } from '@/services/integrations';
@@ -17,15 +18,30 @@ import { sanitizeAIConfig } from '@/services/integrations/ai-config';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 interface ReportRow {
   project_id: string;
   score: number | null;
   summary: string | null;
-  issues: Array<Record<string, unknown>> | null;
   project_name: string | null;
   project_repo: string | null;
+}
+
+interface IssueRow {
+  id: string;
+  file: string;
+  line: number | null;
+  severity: string;
+  category: string;
+  rule: string;
+  message: string;
+  suggestion: string | null;
+  codeSnippet: string | null;
+  fixPatch: string | null;
+  priority: number | null;
+  impactScope: string | null;
+  estimatedEffort: string | null;
 }
 
 type ConversationMessage = {
@@ -44,6 +60,34 @@ type ConversationRow = {
 type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
+};
+
+type AnthropicChatPayload = {
+  model: string;
+  max_tokens: number;
+  system: string;
+  messages: ChatMessage[];
+  stream: true;
+  temperature?: number;
+};
+
+type OpenAIChatPayload = {
+  model: string;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  max_tokens: number;
+  stream: true;
+  temperature?: number;
+};
+
+type OpenAIResponsesPayload = {
+  model: string;
+  input: string;
+  max_output_tokens: number;
+  stream?: true;
+  reasoning?: {
+    effort: Exclude<ReasoningEffort, 'none'>;
+  };
+  temperature?: number;
 };
 
 type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -86,7 +130,6 @@ export async function POST(
       r.project_id,
       r.score,
       r.summary,
-      r.issues,
       p.name as project_name,
       p.repo as project_repo
      from analysis_reports r
@@ -97,6 +140,29 @@ export async function POST(
   if (!reportRow) {
     return NextResponse.json({ error: 'Report not found' }, { status: 404 });
   }
+
+  const issueRows = await query<IssueRow>(
+    `select
+        i.id,
+        i.file,
+        i.line,
+        i.severity,
+        i.category,
+        i.rule,
+        i.message,
+        i.suggestion,
+        i.code_snippet as "codeSnippet",
+        i.fix_patch as "fixPatch",
+        i.priority,
+        i.impact_scope as "impactScope",
+        i.estimated_effort as "estimatedEffort"
+     from analysis_issues i
+     where i.report_id = $1
+     order by i.priority asc nulls last, i.created_at asc`,
+    [reportId]
+  );
+  const issueIdSet = new Set(issueRows.map((issue) => issue.id));
+  const linkedIssueId = isUuid(issueId) && issueIdSet.has(issueId) ? issueId : null;
 
   let conversation: ConversationRow | null = null;
   if (conversationId) {
@@ -114,7 +180,7 @@ export async function POST(
        (report_id, issue_id, messages, created_at, updated_at)
        values ($1, $2, '[]'::jsonb, now(), now())
        returning id, issue_id, updated_at, messages`,
-      [reportId, isUuid(issueId) ? issueId : null]
+      [reportId, linkedIssueId]
     );
   }
   if (!conversation) {
@@ -122,7 +188,7 @@ export async function POST(
   }
 
   const messages = normalizeConversationMessages(conversation.messages);
-  const issues = Array.isArray(reportRow.issues) ? reportRow.issues : [];
+  const issues = issueRows;
   const summary = typeof reportRow.summary === 'string' ? reportRow.summary : '';
   const score = typeof reportRow.score === 'number' ? reportRow.score : 0;
 
@@ -142,25 +208,40 @@ ${summary}
 `;
 
   if (issueId) {
-    let issue: Record<string, unknown> | null = null;
+    let issue: IssueRow | null = null;
     if (isUuid(issueId)) {
-      issue = await queryOne<Record<string, unknown>>(
-        `select * from analysis_issues where id = $1`,
-        [issueId]
+      issue = await queryOne<IssueRow>(
+        `select
+            id,
+            file,
+            line,
+            severity,
+            category,
+            rule,
+            message,
+            suggestion,
+            code_snippet as "codeSnippet",
+            fix_patch as "fixPatch",
+            priority,
+            impact_scope as "impactScope",
+            estimated_effort as "estimatedEffort"
+         from analysis_issues
+         where id = $1 and report_id = $2`,
+        [issueId, reportId]
       );
     }
     if (!issue) {
       const ref = parseIssueReference(issueId);
       if (ref) {
         issue = issues.find((item) =>
-          asString(item.file) === ref.file &&
+          item.file === ref.file &&
           String(item.line ?? '') === ref.line &&
-          asString(item.category) === ref.category &&
-          asString(item.rule) === ref.rule &&
-          (ref.message == null || asString(item.message) === ref.message)
+          item.category === ref.category &&
+          item.rule === ref.rule &&
+          (ref.message == null || item.message === ref.message)
         ) ?? null;
       } else {
-        issue = issues.find((item) => asString(item.file) === issueId) ?? null;
+        issue = issues.find((item) => item.file === issueId) ?? null;
       }
     }
     if (issue) {
@@ -173,8 +254,8 @@ Rule: ${issue.rule}
 Issue: ${issue.message}
 Suggestion: ${issue.suggestion ?? 'None'}
 `;
-      if (issue.code_snippet || issue.codeSnippet) {
-        const snippet = (issue.code_snippet || issue.codeSnippet) as string;
+      if (issue.codeSnippet) {
+        const snippet = issue.codeSnippet;
         context += `\nCode snippet:\n\`\`\`\n${snippet}\n\`\`\`\n`;
       }
     }
@@ -335,7 +416,7 @@ export async function GET(
     return NextResponse.json(data ?? null);
   }
 
-  const data = await query<Record<string, unknown>>(
+  const data = await query<ConversationRow>(
     `select id, issue_id, messages, updated_at
      from analysis_conversations
      where report_id = $1
@@ -349,7 +430,7 @@ function writeSSEEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
   event: string,
-  payload: Record<string, unknown>
+  payload: JsonObject
 ) {
   const text = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
   controller.enqueue(encoder.encode(text));
@@ -414,14 +495,14 @@ function parseIssueReference(
   };
 }
 
-function parseJSONLoose(raw: string): Record<string, unknown> {
+function parseJSONLoose(raw: string): JsonObject {
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
   if (start === -1 || end <= start) {
     throw new Error('invalid json');
   }
   const candidate = raw.slice(start, end + 1).trim();
-  return JSON.parse(candidate) as Record<string, unknown>;
+  return JSON.parse(candidate) as JsonObject;
 }
 
 function extractErrorMessage(raw: string): string | null {
@@ -432,8 +513,9 @@ function extractErrorMessage(raw: string): string | null {
     const nested = parsed.error;
     if (!nested) return null;
     if (typeof nested === 'string') return nested;
-    if (typeof nested !== 'object') return null;
-    return asString((nested as Record<string, unknown>).message) ?? null;
+    const nestedObject = asJsonObject(nested);
+    if (!nestedObject) return null;
+    return asString(nestedObject.message) ?? null;
   } catch {
     return null;
   }
@@ -463,8 +545,8 @@ function shouldUseResponsesAPIForChat(config: ReturnType<typeof sanitizeAIConfig
 }
 
 function extractResponsesText(data: unknown): string | null {
-  if (!data || typeof data !== 'object') return null;
-  const candidate = data as Record<string, unknown>;
+  const candidate = asJsonObject(data);
+  if (!candidate) return null;
 
   if (typeof candidate.output_text === 'string' && candidate.output_text.trim()) {
     return candidate.output_text;
@@ -475,13 +557,15 @@ function extractResponsesText(data: unknown): string | null {
 
   const parts: string[] = [];
   for (const item of output) {
-    if (!item || typeof item !== 'object') continue;
-    const content = (item as Record<string, unknown>).content;
+    const itemObject = asJsonObject(item);
+    if (!itemObject) continue;
+    const content = itemObject.content;
     if (!Array.isArray(content)) continue;
 
     for (const block of content) {
-      if (!block || typeof block !== 'object') continue;
-      const text = (block as Record<string, unknown>).text;
+      const blockObject = asJsonObject(block);
+      if (!blockObject) continue;
+      const text = blockObject.text;
       if (typeof text === 'string' && text) {
         parts.push(text);
       }
@@ -518,7 +602,7 @@ async function* requestAnthropicChatStream(input: {
 }): AsyncGenerator<string> {
   const base = requiredBaseUrl(input.config);
   const endpoint = base.endsWith('/v1') ? `${base}/messages` : `${base}/v1/messages`;
-  const payload: Record<string, unknown> = {
+  const payload: AnthropicChatPayload = {
     model: input.config.model,
     max_tokens: input.config.maxTokens ?? 4096,
     system: input.system,
@@ -560,10 +644,10 @@ async function* requestAnthropicChatStream(input: {
     const type = asString(parsed.type);
     if (type !== 'content_block_delta') continue;
 
-    const delta = parsed.delta;
-    if (!delta || typeof delta !== 'object') continue;
-    if (asString((delta as Record<string, unknown>).type) !== 'text_delta') continue;
-    const text = asString((delta as Record<string, unknown>).text);
+    const delta = asJsonObject(parsed.delta);
+    if (!delta) continue;
+    if (asString(delta.type) !== 'text_delta') continue;
+    const text = asString(delta.text);
     if (text) yield text;
   }
 }
@@ -576,7 +660,7 @@ async function* requestOpenAIChatStream(input: {
   signal: AbortSignal;
 }): AsyncGenerator<string> {
   const base = requiredBaseUrl(input.config);
-  const payload: Record<string, unknown> = {
+  const payload: OpenAIChatPayload = {
     model: input.config.model,
     messages: [{ role: 'system', content: input.system }, ...input.messages],
     max_tokens: input.config.maxTokens ?? 4096,
@@ -615,12 +699,14 @@ async function* requestOpenAIChatStream(input: {
     if (!parsed) continue;
 
     const choices = parsed.choices;
-    if (!Array.isArray(choices) || choices.length === 0 || typeof choices[0] !== 'object' || !choices[0]) {
+    if (!Array.isArray(choices) || choices.length === 0) {
       continue;
     }
-    const delta = (choices[0] as Record<string, unknown>).delta;
-    if (!delta || typeof delta !== 'object') continue;
-    const text = asString((delta as Record<string, unknown>).content);
+    const firstChoice = asJsonObject(choices[0]);
+    if (!firstChoice) continue;
+    const delta = asJsonObject(firstChoice.delta);
+    if (!delta) continue;
+    const text = asString(delta.content);
     if (text) yield text;
   }
 }
@@ -637,7 +723,7 @@ async function* requestOpenAIResponsesStream(input: {
     .map((item) => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
     .join('\n\n');
 
-  const payload: Record<string, unknown> = {
+  const payload: OpenAIResponsesPayload = {
     model: input.config.model,
     input: `${input.system}\n\nConversation:\n${transcript}\n\nAssistant:`,
     max_output_tokens: input.config.maxTokens ?? 4096,
@@ -733,7 +819,7 @@ async function requestOpenAIResponsesOnce(input: {
     .map((item) => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
     .join('\n\n');
 
-  const payload: Record<string, unknown> = {
+  const payload: OpenAIResponsesPayload = {
     model: input.config.model,
     input: `${input.system}\n\nConversation:\n${transcript}\n\nAssistant:`,
     max_output_tokens: input.config.maxTokens ?? 4096,
@@ -833,20 +919,21 @@ function parseSSEData(raw: string): string | null {
   return dataLines.join('\n');
 }
 
-function safeJSONParse(raw: string): Record<string, unknown> | null {
+function safeJSONParse(raw: string): JsonObject | null {
   try {
-    return JSON.parse(raw) as Record<string, unknown>;
+    return JSON.parse(raw) as JsonObject;
   } catch {
     return null;
   }
 }
 
-function extractErrorFromParsed(parsed: Record<string, unknown>): string | null {
+function extractErrorFromParsed(parsed: JsonObject): string | null {
   const top = asString(parsed.message);
   if (top) return top;
   const nested = parsed.error;
   if (!nested) return null;
   if (typeof nested === 'string') return nested;
-  if (typeof nested !== 'object') return null;
-  return asString((nested as Record<string, unknown>).message) ?? null;
+  const nestedObject = asJsonObject(nested);
+  if (!nestedObject) return null;
+  return asString(nestedObject.message) ?? null;
 }

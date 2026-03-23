@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { query, queryOne, exec } from '@/lib/db';
 import { logger } from '@/services/logger';
+import { organizationColumnList } from '@/services/sql/projections';
 
 export type OrgRole = 'owner' | 'admin' | 'reviewer' | 'member';
 export type OrgStatus = 'active' | 'invited' | 'suspended';
@@ -9,7 +10,7 @@ export const ORG_COOKIE = 'org_id';
 export const ORG_ADMIN_ROLES: OrgRole[] = ['owner', 'admin'];
 const DEFAULT_PERSONAL_ORG_FALLBACK = 'User';
 
-type ProjectAccessRecord = Record<string, unknown> & {
+type ProjectAccessRecord = {
   id: string;
   org_id: string | null;
   repo: string;
@@ -17,7 +18,7 @@ type ProjectAccessRecord = Record<string, unknown> & {
   ruleset_id?: string | null;
 };
 
-type ReportAccessRecord = Record<string, unknown> & {
+type ReportAccessRecord = {
   id: string;
   org_id: string | null;
 };
@@ -49,7 +50,8 @@ function personalOrgName(email?: string | null) {
 
 export async function ensurePersonalOrg(userId: string, email?: string | null): Promise<Organization> {
   const existing = await queryOne<Organization>(
-    `select * from organizations
+    `select ${organizationColumnList}
+     from organizations
      where owner_id = $1 and is_personal = true`,
     [userId]
   );
@@ -64,7 +66,7 @@ export async function ensurePersonalOrg(userId: string, email?: string | null): 
   const created = await queryOne<Organization>(
     `insert into organizations (name, slug, is_personal, owner_id, created_at, updated_at)
      values ($1,$2,true,$3,now(),now())
-     returning *`,
+     returning ${organizationColumnList}`,
     [name, slug, userId]
   );
 
@@ -106,7 +108,7 @@ export async function getActiveOrgId(
 
 export async function getUserOrgs(userId: string): Promise<Organization[]> {
   return query<Organization>(
-    `select o.*
+    `select ${organizationColumnList}
      from org_members m
      join organizations o on o.id = m.org_id
      where m.user_id = $1 and m.status = 'active'`,
@@ -115,7 +117,7 @@ export async function getUserOrgs(userId: string): Promise<Organization[]> {
 }
 
 export async function isOrgMember(orgId: string, userId: string): Promise<boolean> {
-  const row = await queryOne(
+  const row = await queryOne<{ org_id: string }>(
     `select org_id
      from org_members
      where org_id = $1 and user_id = $2 and status = 'active'`,
@@ -147,7 +149,9 @@ export async function requireOrgAccess(orgId: string, userId: string): Promise<v
 
 export async function requireProjectAccess(projectId: string, userId: string) {
   const project = await queryOne<ProjectAccessRecord>(
-    `select * from code_projects where id = $1`,
+    `select id, org_id, repo, default_branch, ruleset_id
+     from code_projects
+     where id = $1`,
     [projectId]
   );
 
@@ -166,7 +170,9 @@ export async function requireProjectAccess(projectId: string, userId: string) {
 
 export async function requireReportAccess(reportId: string, userId: string) {
   const report = await queryOne<ReportAccessRecord>(
-    `select * from analysis_reports where id = $1`,
+    `select id, org_id
+     from analysis_reports
+     where id = $1`,
     [reportId]
   );
 

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireUser, unauthorized } from '@/services/auth';
 import { exec, queryOne } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
+import { asJsonObject, type JsonObject } from '@/lib/json';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
@@ -48,7 +49,7 @@ const upsertSchema = z.object({
 
 type StorageRow = {
   provider: 'local' | 's3';
-  config: Record<string, unknown>;
+  config: JsonObject;
 };
 
 function sanitizeResponse(row: StorageRow | null) {
@@ -70,7 +71,7 @@ function sanitizeResponse(row: StorageRow | null) {
     };
   }
 
-  const cfg = row.config ?? {};
+  const cfg = asJsonObject(row.config) ?? {};
   return {
     provider: 's3' as const,
     config: {
@@ -128,7 +129,7 @@ export async function PUT(request: NextRequest) {
   );
 
   const provider = parsedBody.data.provider;
-  let nextConfig: Record<string, unknown>;
+  let nextConfig: JsonObject;
   if (provider === 'local') {
     const parsedLocal = localConfigSchema.safeParse(parsedBody.data.config ?? {});
     if (!parsedLocal.success) {
@@ -143,10 +144,10 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid S3 storage config' }, { status: 400 });
     }
 
-    const existingEncrypted =
-      existing?.provider === 's3' && existing.config
-        ? (existing.config.s3SecretAccessKeyEncrypted as string | undefined)
-        : undefined;
+    const existingConfig = existing?.provider === 's3' ? asJsonObject(existing.config) : null;
+    const existingEncrypted = typeof existingConfig?.s3SecretAccessKeyEncrypted === 'string'
+      ? existingConfig.s3SecretAccessKeyEncrypted
+      : undefined;
 
     let encryptedSecret = existingEncrypted ?? '';
     if (parsedS3.data.s3SecretAccessKey && parsedS3.data.s3SecretAccessKey.length > 0) {

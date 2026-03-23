@@ -18,6 +18,7 @@ type Pipeline struct {
 	Name               string     `json:"name"`
 	Description        string     `json:"description"`
 	IsActive           bool       `json:"is_active"`
+	AutoTrigger        bool       `json:"auto_trigger"`
 	CurrentVersionID   *string    `json:"current_version_id,omitempty"`
 	ConcurrencyMode    string     `json:"concurrency_mode"`
 	TriggerSchedule    *string    `json:"trigger_schedule,omitempty"`
@@ -420,6 +421,7 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 	branch, origin := deriveSourceBranch(currentConfig, projectDefaultBranch)
 	out.SourceBranch = branch
 	out.SourceBranchSource = origin
+	out.AutoTrigger = deriveAutoTrigger(currentConfig)
 	return &out, nil
 }
 
@@ -671,6 +673,7 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		branch, origin := deriveSourceBranch(currentConfig, projectDefaultBranch)
 		item.SourceBranch = branch
 		item.SourceBranchSource = origin
+		item.AutoTrigger = deriveAutoTrigger(currentConfig)
 		items = append(items, item)
 	}
 	return items, nil
@@ -756,6 +759,7 @@ func (s *Store) ListActivePipelines(ctx context.Context) ([]Pipeline, error) {
 		branch, origin := deriveSourceBranch(currentConfig, projectDefaultBranch)
 		item.SourceBranch = branch
 		item.SourceBranchSource = origin
+		item.AutoTrigger = deriveAutoTrigger(currentConfig)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -916,6 +920,12 @@ type sourceBranchConfig struct {
 	Jobs []sourceBranchJob `json:"jobs"`
 }
 
+type autoTriggerConfig struct {
+	Trigger struct {
+		AutoTrigger bool `json:"autoTrigger"`
+	} `json:"trigger"`
+}
+
 func normalizeSourceValue(value string, fallback string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed != "" {
@@ -951,6 +961,19 @@ func deriveSourceBranch(config json.RawMessage, projectDefaultBranch string) (st
 	}
 
 	return defaultBranch, "project_default"
+}
+
+func deriveAutoTrigger(config json.RawMessage) bool {
+	if len(config) == 0 {
+		return false
+	}
+
+	var parsed autoTriggerConfig
+	if err := json.Unmarshal(config, &parsed); err != nil {
+		return false
+	}
+
+	return parsed.Trigger.AutoTrigger
 }
 
 func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*PipelineRun, error) {

@@ -3,12 +3,12 @@ import type { NextRequest } from 'next/server';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId } from '@/services/orgs';
 import { query } from '@/lib/db';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 export async function GET(request: NextRequest) {
   const rl = rateLimiter(request);

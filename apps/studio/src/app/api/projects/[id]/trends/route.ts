@@ -4,13 +4,33 @@ import { query } from '@/lib/db';
 import { logger } from '@/services/logger';
 import { projectIdSchema, dateRangeSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { requireProjectAccess } from '@/services/orgs';
+import { qualitySnapshotColumnList } from '@/services/sql/projections';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
+
+type QualitySnapshotRow = {
+  id: string;
+  project_id: string;
+  report_id: string | null;
+  snapshot_date: string;
+  score: number | null;
+  category_scores: unknown;
+  total_issues: number | null;
+  critical_issues: number | null;
+  high_issues: number | null;
+  medium_issues: number | null;
+  low_issues: number | null;
+  tech_debt_score: number | null;
+  complexity_score: number | null;
+  security_score: number | null;
+  performance_score: number | null;
+  created_at: string;
+};
 
 export async function GET(
   request: NextRequest,
@@ -47,8 +67,8 @@ export async function GET(
     // Query trend data with retry
     const data = await withRetry(async () => {
       await requireProjectAccess(projectId, user.id);
-      return query<Record<string, unknown>>(
-        `select *
+      return query<QualitySnapshotRow>(
+        `select ${qualitySnapshotColumnList}
          from analysis_quality_snapshots
          where project_id = $1 and snapshot_date >= $2
          order by snapshot_date asc`,

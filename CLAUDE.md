@@ -44,8 +44,25 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 - **No compatibility design/code paths**: Do not add dual-field parsing (`foo ?? Foo`), legacy aliases, or fallback branches for stale response shapes.
 - **No compatibility naming**: Do not introduce `legacy*`, `compat*`, `polyfill*`, or similar identifiers.
 - **Single contract source**: Conductor HTTP contracts are defined in `packages/contracts/src/conductor.ts` and consumed by Studio.
+- **Conductor gateway payload typing**: `apps/studio/src/services/conductorGateway.ts` request payload parameters must use explicit DTO types; do not use `unknown` for outbound Conductor request bodies.
 - **Array response contract**: Conductor list endpoints must serialize empty collections as `[]`, not `null`, so Studio Zod array schemas always receive an array shape.
 - **Conductor timestamp contract**: Conductor API datetime fields must be validated as ISO8601/RFC3339 with timezone offsets allowed (`datetime({ offset: true })`), not `Z`-only.
+- **Pipeline summary contract**: Conductor pipeline list/get payloads must include `auto_trigger`, `source_branch`, and `source_branch_source` so webhook auto-trigger matching can run without per-pipeline detail fan-out.
+- **Pipeline status contract**: `pipeline_runs`, `pipeline_jobs`, and `pipeline_steps` status constraints must all include `waiting_manual` to match runtime state transitions.
+- **Pipeline runs list bounds**: pipeline runs list APIs must clamp `limit` to a safe range (`1..100`) at HTTP boundaries.
+- **Issue source of truth**: `analysis_issues` is the canonical issue store; do not read issue aggregates from `analysis_reports.issues`.
+- **Quality snapshot source**: `create_quality_snapshot` must compute issue counts from `analysis_issues` (by `report_id`), not from report-level JSON issue payloads.
+- **Analyze cache consistency**: `/api/analyze-cached` must reuse recent identical analyses from persistent database reads only; do not rely on process-local result caches for cross-request decisions.
+- **SQL projection discipline**: Service/API SQL must use explicit column projections for read/write-return paths; avoid `select *` / `returning *` in production flows. Studio lint enforces this via `apps/studio/src/scripts/check-sql-projections.mjs` (also checks alias wildcards such as `i.*` / `jsonb_agg(c.*)`). Shared table projection constants must be defined in `apps/studio/src/services/sql/projections.ts` and reused across routes/services instead of duplicating inline column lists.
+- **DTO typing discipline**: API routes and services must use explicit row/response interfaces for DB query results; avoid `Record<string, unknown>` in production read/write paths when the payload shape is known.
+- **Weak-type elimination baseline**: In `apps/studio/src/app/api/**` and `apps/studio/src/services/**`, `Record<string, unknown>` should not be used. Use explicit DTO interfaces for stable contracts and `JsonObject`/`asJsonObject` (`apps/studio/src/lib/json.ts`) for genuinely dynamic JSON payloads.
+- **DB query typing discipline**: Calls to `query` / `queryOne` in Studio API/services must specify generic row types explicitly (no implicit default row typing). Enforced by `apps/studio/src/scripts/check-db-query-typing.mjs` in Studio lint.
+- **DB helper strictness**: `apps/studio/src/lib/db.ts` `query` / `queryOne` are generic-only (no default `any` type parameter). Do not reintroduce implicit row typing defaults.
+- **Write-path execution semantics**: Use `exec` (pool scope) and `execTx` (`apps/studio/src/lib/db.ts`, transaction scope) for write-only SQL that does not read row payloads, instead of ad-hoc `query` calls.
+- **Status constant centralization**: Reused analysis/pipeline status groups (active/terminal/failure/result-ready) must be defined in `apps/studio/src/services/statuses.ts` and reused across routes/services; avoid scattering duplicated hardcoded status sets.
+- **Status SQL list reuse**: For repeated status filters in SQL, reuse the status SQL list constants exported from `apps/studio/src/services/statuses.ts` (for example analysis active/result-ready, pipeline active/running) instead of duplicating inline `status in (...)` strings.
+- **Analysis report status type source**: Use `AnalysisReportStatus` from `apps/studio/src/services/statuses.ts` for shared report status typing in services/routes instead of repeating union literals.
+- **Shared JSON object helper**: Generic unknown-object guards must reuse `apps/studio/src/lib/json.ts` (`JsonObject`, `asJsonObject`) instead of duplicating ad-hoc object-cast helpers in routes/services.
 - **Server-enforced project scope**: Project-scoped list APIs (for example `/api/reports` and `/api/pipelines`) must validate `projectId` access and enforce filtering on the server side; never rely on client-side filtering for tenant boundaries.
 - **Type safety baseline**: `apps/studio/tsconfig.json` enforces strict type checks (`allowJs: false`, `skipLibCheck: false`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true`).
 - **Schema requirement**: latest schema (`docs/db/init.sql`) and any required upgrade migrations must be applied before runtime. Missing required columns/tables are treated as errors, not tolerated with fallback logic.
@@ -60,6 +77,9 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 
 - Prefer domain names over technical workaround names (`pipelineRun`, `rulesetSnapshot`, `integrationConfig`).
 - Use final-state naming only. Do not use transitional prefixes/suffixes like `Enhanced*`, `New*`, `Old*`, `V2*`, `Temp*`, or `*Legacy`.
+- External service access modules should use gateway naming (`*Gateway`) instead of generic client naming (`*Client`) when they encapsulate transport + contract parsing.
+- Process-local implementations must be explicitly named with scope semantics (for example `createInMemoryRateLimiter`) to avoid distributed behavior ambiguity.
+- Audit log metadata must use domain-correct nouns (`entityType: 'org'` for organization entities, `entityType: 'project'` for project entities) and should not reuse unrelated entity labels.
 - Optional fields must be modeled as truly optional fields; never assign `undefined` to an explicitly present property under `exactOptionalPropertyTypes`.
 - External API payload parsing must be schema-first (`zod` contract parse before business logic).
 - Do not add transitional adapter layers for old payloads or old naming; update all callers to the canonical contract in one change set.
@@ -67,7 +87,7 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 ## Quality Gates
 
 - Studio CI baseline must be green on every change set:
-  - `pnpm -C apps/studio lint` returns 0 errors and 0 warnings.
+  - `pnpm -C apps/studio lint` returns 0 errors and 0 warnings (ESLint + SQL projection guard).
   - `pnpm -C apps/studio build` succeeds.
 - Conductor backend baseline must compile:
   - `cd apps/conductor && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...`

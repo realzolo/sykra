@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { queryOne } from '@/lib/db';
 import { createVCSClient } from '@/services/integrations';
@@ -8,7 +8,21 @@ import type { Integration } from '@/services/integrations';
 import { readSecret } from '@/lib/vault';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
+
+const integrationProjection = `
+  id,
+  user_id,
+  org_id,
+  type,
+  provider,
+  name,
+  is_default,
+  config,
+  vault_secret_name,
+  created_at,
+  updated_at
+`;
 
 export async function GET(request: NextRequest) {
   const rateLimitResponse = rateLimiter(request);
@@ -28,7 +42,7 @@ export async function GET(request: NextRequest) {
 
     // Get org's default VCS integration
     const integrationRow = await queryOne<Integration & { config: Integration['config'] | string | null }>(
-      `select *
+      `select ${integrationProjection}
        from org_integrations
        where org_id = $1 and type = 'vcs' and is_default = true
        limit 1`,

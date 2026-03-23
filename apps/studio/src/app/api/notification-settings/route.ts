@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { queryOne, exec } from '@/lib/db';
 import { formatErrorResponse } from '@/services/retry';
@@ -10,7 +10,7 @@ import { auditLogger, extractClientInfo } from '@/services/audit';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 type NotificationSettings = {
   email_enabled: boolean;

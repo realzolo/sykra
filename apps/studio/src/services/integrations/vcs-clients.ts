@@ -22,6 +22,15 @@ type GitHubRepoLite = {
   html_url: string;
 };
 
+type GitHubAuthenticatedUserLite = {
+  login: string;
+  name: string | null;
+  avatar_url: string;
+  public_repos: number;
+  total_private_repos?: number;
+  html_url: string;
+};
+
 type GitLabProjectLite = {
   namespace: { path: string };
   path: string;
@@ -45,6 +54,13 @@ type GitLabDiffLite = {
   new_path: string;
   diff: string;
 };
+
+function requireTextPayload(payload: unknown, context: string): string {
+  if (typeof payload !== 'string') {
+    throw new Error(`Invalid ${context} response payload`);
+  }
+  return payload;
+}
 
 /**
  * GitHub VCS Client
@@ -182,7 +198,7 @@ export class GitHubClient implements VCSClient {
         },
       });
 
-      return data as unknown as string;
+      return requireTextPayload(data, 'GitHub commit diff');
     } catch (error) {
       console.error('Failed to get commit diff:', error);
       throw new Error('Failed to fetch commit diff from GitHub');
@@ -199,7 +215,7 @@ export class GitHubClient implements VCSClient {
         mediaType: { format: 'diff' },
       });
 
-      return data as unknown as string;
+      return requireTextPayload(data, 'GitHub compare diff');
     } catch (error) {
       console.error('Failed to get compare diff:', error);
       throw new Error('Failed to fetch compare diff from GitHub');
@@ -215,13 +231,14 @@ export class GitHubClient implements VCSClient {
     html_url: string;
   }> {
     const { data } = await this.octokit.rest.users.getAuthenticated();
+    const profile = data as GitHubAuthenticatedUserLite;
     return {
-      login: data.login,
-      name: data.name ?? null,
-      avatar_url: data.avatar_url,
-      public_repos: data.public_repos,
-      total_private_repos: (data as Record<string, unknown>).total_private_repos as number ?? 0,
-      html_url: data.html_url,
+      login: profile.login,
+      name: profile.name ?? null,
+      avatar_url: profile.avatar_url,
+      public_repos: profile.public_repos,
+      total_private_repos: profile.total_private_repos ?? 0,
+      html_url: profile.html_url,
     };
   }
 

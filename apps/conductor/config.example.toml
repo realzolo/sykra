@@ -10,6 +10,10 @@ data_dir = "data" # optional local state path
 [database]
 url = "postgres://user:pass@localhost:5432/sykra"
 
+[pipeline]
+concurrency = 4
+run_concurrency = 1
+
 [security]
 encryption_key = ""
 

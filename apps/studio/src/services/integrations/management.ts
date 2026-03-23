@@ -2,12 +2,15 @@
  * Integration management service
  */
 
-import { queryOne, exec, withTransaction } from '@/lib/db';
+import { exec, execTx, queryOne, withTransaction } from '@/lib/db';
+import type { JsonObject } from '@/lib/json';
 import { storeSecret, updateSecret, deleteSecret } from '@/lib/vault';
 import { logger } from '@/services/logger';
+import { orgIntegrationColumnList } from '@/services/sql/projections';
 import type { Integration, IntegrationType, Provider, IntegrationConfig } from './types';
 
 type IntegrationRow = Omit<Integration, 'config'> & { config: string | IntegrationConfig | null };
+type IntegrationTypeRow = { id: string; type: IntegrationType };
 
 export interface CreateIntegrationInput {
   userId: string;
@@ -36,17 +39,17 @@ export async function createIntegration(input: CreateIntegrationInput): Promise<
 
   return withTransaction(async (client) => {
     if (input.isDefault) {
-      await client.query(
+      await execTx(client,
         `update org_integrations set is_default = false where org_id = $1 and type = $2`,
         [input.orgId, input.type]
       );
     }
 
-    const result = await client.query(
+    const result = await client.query<IntegrationRow>(
       `insert into org_integrations
         (user_id, org_id, type, provider, name, config, vault_secret_name, is_default, created_at, updated_at)
        values ($1,$2,$3,$4,$5,$6,$7,$8,now(),now())
-       returning *`,
+       returning ${orgIntegrationColumnList}`,
       [
         input.userId,
         input.orgId,
@@ -59,11 +62,10 @@ export async function createIntegration(input: CreateIntegrationInput): Promise<
       ]
     );
 
-    if (!result.rows[0]) {
+    const created = result.rows[0];
+    if (!created) {
       throw new Error('Failed to create integration');
     }
-
-    const created = result.rows[0] as IntegrationRow;
     const config = typeof created.config === 'string' ? (JSON.parse(created.config) as IntegrationConfig) : (created.config ?? {});
     return { ...created, config };
   });
@@ -79,26 +81,27 @@ export async function updateIntegration(
   input: UpdateIntegrationInput
 ): Promise<Integration> {
   return withTransaction(async (client) => {
-    const existingResult = await client.query(
-      `select * from org_integrations where id = $1 and org_id = $2`,
+    const existingResult = await client.query<IntegrationRow>(
+      `select ${orgIntegrationColumnList}
+       from org_integrations
+       where id = $1 and org_id = $2`,
       [integrationId, orgId]
     );
 
-    if (existingResult.rowCount === 0) {
+    const existing = existingResult.rows[0];
+    if (!existing) {
       throw new Error('Integration not found');
     }
 
-    const existing = existingResult.rows[0] as IntegrationRow;
-
     // If promoting to default, clear the current default first
     if (input.isDefault === true && !existing.is_default) {
-      await client.query(
+      await execTx(client,
         `update org_integrations set is_default = false where org_id = $1 and type = $2`,
         [orgId, existing.type]
       );
     }
 
-    const updateData: Record<string, unknown> = {};
+    const updateData: JsonObject = {};
     if (input.name !== undefined) updateData.name = input.name;
     if (input.config !== undefined) updateData.config = JSON.stringify(input.config);
     if (input.isDefault !== undefined) updateData.is_default = input.isDefault;
@@ -116,19 +119,18 @@ export async function updateIntegration(
     const assignments = fields.map((key, idx) => `${key} = $${idx + 3}`);
     const values = fields.map((key) => updateData[key]);
 
-    const updated = await client.query(
+    const updated = await client.query<IntegrationRow>(
       `update org_integrations
        set ${assignments.join(', ')}, updated_at = now()
        where id = $1 and org_id = $2
-       returning *`,
+       returning ${orgIntegrationColumnList}`,
       [integrationId, orgId, ...values]
     );
 
-    if (!updated.rows[0]) {
+    const row = updated.rows[0];
+    if (!row) {
       throw new Error('Failed to update integration');
     }
-
-    const row = updated.rows[0] as IntegrationRow;
     const config = typeof row.config === 'string' ? (JSON.parse(row.config) as IntegrationConfig) : (row.config ?? {});
     return { ...row, config };
   });
@@ -139,7 +141,9 @@ export async function updateIntegration(
  */
 export async function deleteIntegration(integrationId: string, orgId: string): Promise<void> {
   const integration = await queryOne<IntegrationRow>(
-    `select * from org_integrations where id = $1 and org_id = $2`,
+    `select ${orgIntegrationColumnList}
+     from org_integrations
+     where id = $1 and org_id = $2`,
     [integrationId, orgId]
   );
 
@@ -167,7 +171,7 @@ export async function setDefaultIntegration(
   orgId: string
 ): Promise<void> {
   await withTransaction(async (client) => {
-    const row = await client.query(
+    const row = await client.query<IntegrationTypeRow>(
       `select id, type from org_integrations where id = $1 and org_id = $2`,
       [integrationId, orgId]
     );
@@ -176,16 +180,20 @@ export async function setDefaultIntegration(
       throw new Error('Integration not found');
     }
 
-    const { type } = row.rows[0];
+    const integration = row.rows[0];
+    if (!integration) {
+      throw new Error('Integration not found');
+    }
+    const { type } = integration;
 
     // Clear existing default for this org + type
-    await client.query(
+    await execTx(client,
       `update org_integrations set is_default = false where org_id = $1 and type = $2`,
       [orgId, type]
     );
 
     // Set new default
-    await client.query(
+    await execTx(client,
       `update org_integrations set is_default = true where id = $1`,
       [integrationId]
     );

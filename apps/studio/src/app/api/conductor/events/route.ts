@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { isConductorAuthorized } from '@/services/conductorAuth';
 import { queryOne, query } from '@/lib/db';
 import { sendEmail, absoluteStudioUrl } from '@/services/email';
 import { writeBackReviewRun } from '@/services/reviewWriteback';
 import { logger } from '@/services/logger';
+import { isAnalysisResultReadyStatus, isPipelineFailureStatus } from '@/services/statuses';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 type ConductorEvent =
   | { type: 'pipeline.run.completed' | 'pipeline.run.failed'; runId: string }
@@ -76,7 +77,7 @@ async function notifyPipelineRun(runId: string) {
   const wantsFailure = notifyCfg?.onFailure !== false;
 
   const isSuccess = run.status === 'success';
-  const isFailure = run.status === 'failed' || run.status === 'timed_out' || run.status === 'canceled';
+  const isFailure = isPipelineFailureStatus(run.status);
 
   if (isSuccess && !wantsSuccess) return;
   if (isFailure && !wantsFailure) return;
@@ -151,7 +152,7 @@ async function notifyReportDone(reportId: string) {
     [reportId]
   );
   if (!report) return;
-  if (report.status !== 'done' && report.status !== 'partial_failed') return;
+  if (!isAnalysisResultReadyStatus(report.status)) return;
   if (!report.user_id) return;
 
   const user = await queryOne<{

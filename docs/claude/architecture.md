@@ -10,13 +10,15 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 ## Key Platform Features
 
 - AI code review with configurable rule sets, quality gate scoring, and issue tracking
+- Issues are normalized with a single source of truth in `analysis_issues`; report detail/chat/export/stats all read issue data from the normalized table.
 - PR review write-back mirrors analysis summaries back into GitHub / GitLab PR or MR comments, updating the same external comment on re-analysis
 - Rule set template marketplace: 5 built-in templates (React, Go, Security/OWASP, Python, Performance) importable via `GET /api/rules/templates` + `POST /api/rules/templates/[id]/import`
 - Report comparison view: diff two reports side-by-side (new / resolved / persisting issues) at `/o/:orgId/projects/:id/reports/compare?a=...&b=...`
 - Pipeline concurrency control: `allow | queue | cancel_previous` modes stored in `pipelines.concurrency_mode` column (included in `docs/db/init.sql`; use migration for existing DBs)
+- Pipeline runtime status model includes `waiting_manual` across run/job/step persistence, matching stage/job manual-entry execution semantics.
 - Pipeline config is authored as a stage-based profile (`trigger + stages + jobs + notifications`) with fixed core columns (`source`, `review`, `build`, `deploy`) plus automation slots between them; Studio derives runtime `needs` edges from stage order and dispatch mode
 - Pipeline editor UX is stage-driven: `source` is a fixed single-entry system stage, `review/build/deploy` expose stage-level `entryMode` (`auto | manual`) and `dispatchMode` (`parallel | serial`), automation slots are inserted on demand between core stages, and automation slots are fixed to `auto + parallel`
-- Pipeline branch configuration has a single source of truth: the fixed `source` node owns `source_checkout.branch`, and top-level `config.trigger` only controls trigger policy such as `autoTrigger`. New pipelines default that branch from `code_projects.default_branch`, the Source inspector uses a searchable combobox backed by project branches, the inspector can reset back to the project default, and pipeline summaries expose `source_branch` plus `source_branch_source` so list/detail UI can distinguish project default versus custom branch state.
+- Pipeline branch configuration has a single source of truth: the fixed `source` node owns `source_checkout.branch`, and top-level `config.trigger` only controls trigger policy such as `autoTrigger`. New pipelines default that branch from `code_projects.default_branch`, the Source inspector uses a searchable combobox backed by project branches, the inspector can reset back to the project default, and pipeline summaries expose `auto_trigger`, `source_branch`, and `source_branch_source` so list/detail/webhook logic can decide auto-trigger eligibility and branch matching without per-pipeline detail fan-out.
 - Project branch selection is unified through a shared searchable combobox + `useProjectBranches` hook across codebase browsing, commit filtering/compare, and pipeline Source editing so branch UX stays consistent everywhere.
 - Project-scoped single-value filters that need searchable selection, such as report status or commit author, should also use the shared combobox rather than bespoke select widgets.
 - Project configuration selectors that are effectively searchable single-value bindings, such as AI integration selection, should also use the shared combobox.
@@ -158,9 +160,9 @@ apps/
         projectContext.tsx      # ProjectDataProvider + useProject() hook
         ruleTemplates.ts        # Static built-in rule template data
       services/
-        db.ts github.ts claude.ts analyzeTask.ts
+        db.ts github.ts aiReviewService.ts analyzeTask.ts
         pipelineTypes.ts        # Pipeline editor/view types + pipeline summaries
-        conductorClient.ts         # cancelPipelineRun() + other Conductor proxy functions
+        conductorGateway.ts         # cancelPipelineRun() + other Conductor proxy functions
       proxy.ts                  # Unused auth middleware
     middleware.ts               # Org cookie sync + dashboard redirect (Next.js middleware)
   apps/conductor/

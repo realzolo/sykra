@@ -31,7 +31,7 @@ setInterval(() => {
   }
 }, 60000); // Cleanup every minute
 
-export function createRateLimiter(config: RateLimitConfig) {
+export function createInMemoryRateLimiter(config: RateLimitConfig) {
   return function rateLimiter(request: NextRequest) {
     const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
     const key = `rate-limit:${ip}`;

@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import type { PoolClient, QueryResultRow } from 'pg';
-import { query, queryOne, withTransaction } from '@/lib/db';
+import { execTx, query, queryOne, withTransaction } from '@/lib/db';
+import { asJsonObject, type JsonObject } from '@/lib/json';
 
 export const ARTIFACT_CHANNEL_PRESETS = ['dev', 'staging', 'prod', 'latest'] as const;
 export type ArtifactChannelPreset = (typeof ARTIFACT_CHANNEL_PRESETS)[number];
@@ -27,7 +28,7 @@ export type ArtifactVersionSummary = {
   source_pipeline_id: string | null;
   source_commit_sha: string | null;
   source_branch: string | null;
-  manifest: Record<string, unknown>;
+  manifest: JsonObject;
   published_by: string | null;
   created_at: string;
   updated_at: string;
@@ -147,13 +148,6 @@ export function normalizeArtifactChannelNames(values: string[] | undefined) {
   );
 }
 
-function parseJsonRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
 export async function listProjectArtifactRepositories(projectId: string, orgId: string) {
   const repositories = await query<ArtifactRepositoryRow>(
     `select r.id, r.org_id, r.project_id, r.slug, r.name, r.description, r.created_by,
@@ -225,7 +219,7 @@ export async function listProjectArtifactRepositories(projectId: string, orgId: 
   for (const version of versions) {
     const item: ArtifactVersionSummary = {
       ...version,
-      manifest: parseJsonRecord(version.manifest),
+      manifest: asJsonObject(version.manifest) ?? {},
       total_size_bytes: Number.parseInt(version.total_size_bytes, 10) || 0,
       files: filesByVersion.get(version.id) ?? [],
     };
@@ -329,7 +323,7 @@ export async function publishProjectArtifacts(input: PublishProjectArtifactsInpu
         ]
       );
     } else {
-      await client.query(
+      await execTx(client,
         `update artifact_repositories
             set name = $2,
                 description = $3,
@@ -411,7 +405,7 @@ export async function publishProjectArtifacts(input: PublishProjectArtifactsInpu
         throw new Error('Failed to store artifact blob');
       }
 
-      await client.query(
+      await execTx(client,
         `insert into artifact_files
            (version_id, org_id, blob_id, logical_path, file_name, created_at)
          values ($1, $2, $3, $4, $5, now())`,
@@ -426,7 +420,7 @@ export async function publishProjectArtifacts(input: PublishProjectArtifactsInpu
     }
 
     for (const channelName of channelNames) {
-      await client.query(
+      await execTx(client,
         `insert into artifact_channels
            (repository_id, org_id, project_id, name, version_id, updated_by, created_at, updated_at)
          values ($1, $2, $3, $4, $5, $6, now(), now())

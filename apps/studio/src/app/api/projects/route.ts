@@ -4,7 +4,7 @@ import { getProjects, createProject } from '@/services/db';
 import { logger } from '@/services/logger';
 import { createProjectSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { queryOne } from '@/lib/db';
@@ -12,10 +12,11 @@ import { createVCSClient, type Integration } from '@/services/integrations';
 import { readSecret } from '@/lib/vault';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 import { codebaseService } from '@/services/CodebaseService';
+import { orgIntegrationColumnList } from '@/services/sql/projections';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 function normalizeIntegration(row: Integration & { config: Integration['config'] | string | null }): Integration {
   return {
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
 
     // Get user's default VCS integration
     const vcsIntegrationRow = await queryOne<Integration & { config: Integration['config'] | string | null }>(
-      `select *
+      `select ${orgIntegrationColumnList}
        from org_integrations
        where org_id = $1 and type = 'vcs' and is_default = true
        limit 1`,
@@ -102,7 +103,7 @@ export async function POST(request: NextRequest) {
 
     // Get user's default AI integration
     const aiIntegrationRow = await queryOne<Integration & { config: Integration['config'] | string | null }>(
-      `select *
+      `select ${orgIntegrationColumnList}
        from org_integrations
        where org_id = $1 and type = 'ai' and is_default = true
        limit 1`,

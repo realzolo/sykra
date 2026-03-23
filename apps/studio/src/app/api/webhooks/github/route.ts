@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { exec, queryOne } from '@/lib/db';
 import { getProjectById, listProjectsByRepo, getRulesBySetId } from '@/services/db';
 import { buildReportCommits } from '@/services/analyzeTask';
-import { listPipelines, createPipelineRun, getPipeline } from '@/services/conductorClient';
+import { listPipelines, createPipelineRun } from '@/services/conductorGateway';
 import { logger } from '@/services/logger';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { codebaseService } from '@/services/CodebaseService';
@@ -12,12 +12,7 @@ import { buildAnalyzeFingerprint, createOrReuseAnalyzeReport } from '@/services/
 
 export const dynamic = 'force-dynamic';
 
-type WebhookProject = {
-  id: string;
-  org_id: string | null;
-  repo: string;
-  ruleset_id: string | null;
-};
+type WebhookProject = Awaited<ReturnType<typeof getProjectById>>;
 
 type PullRequestPayload = {
   number?: number;
@@ -36,32 +31,6 @@ type GitHubWebhookPayload = {
   repository?: { full_name?: string };
   pull_request?: PullRequestPayload;
 };
-
-function getPipelineSourceBranch(config: unknown): string {
-  if (!config || typeof config !== 'object') {
-    return 'main';
-  }
-
-  const jobs = 'jobs' in config ? (config as { jobs?: unknown }).jobs : undefined;
-  if (!Array.isArray(jobs)) {
-    return 'main';
-  }
-
-  const sourceJob = jobs.find((job) => {
-    if (!job || typeof job !== 'object') {
-      return false;
-    }
-    const type = 'type' in job ? (job as { type?: unknown }).type : undefined;
-    return type === 'source_checkout';
-  });
-
-  if (!sourceJob || typeof sourceJob !== 'object') {
-    return 'main';
-  }
-
-  const branch = 'branch' in sourceJob ? (sourceJob as { branch?: unknown }).branch : undefined;
-  return typeof branch === 'string' && branch.trim() !== '' ? branch.trim() : 'main';
-}
 
 function verifySignature(payload: string, signature: string, secret: string) {
   const hmac = crypto.createHmac('sha256', secret);
@@ -101,7 +70,7 @@ export async function POST(request: NextRequest) {
     let projects: WebhookProject[] = [];
 
     if (projectId) {
-      const project = (await getProjectById(projectId).catch(() => null)) as WebhookProject | null;
+      const project = await getProjectById(projectId).catch(() => null);
       if (!project) {
         return NextResponse.json({ error: 'Project not found' }, { status: 404 });
       }
@@ -110,7 +79,7 @@ export async function POST(request: NextRequest) {
       }
       projects = [project];
     } else {
-      projects = (await listProjectsByRepo(repoFullName).catch(() => [])) as WebhookProject[];
+      projects = await listProjectsByRepo(repoFullName).catch(() => []);
     }
 
     if (projects.length === 0) {
@@ -124,7 +93,7 @@ export async function POST(request: NextRequest) {
     const orgIds = new Set<string>();
 
     for (const project of projects) {
-      if (!project.org_id || !project.repo) {
+      if (!project.repo) {
         failed += 1;
         continue;
       }
@@ -152,14 +121,8 @@ export async function POST(request: NextRequest) {
           const allPipelines = await listPipelines(orgId);
           if (!Array.isArray(allPipelines)) continue;
           for (const p of allPipelines) {
-            const detail = await getPipeline(p.id).catch(() => null);
-            const trigger =
-              detail?.version?.config && typeof detail.version.config === 'object'
-                ? ((detail.version.config as { trigger?: { autoTrigger?: boolean } }).trigger ?? null)
-                : null;
-            if (!trigger?.autoTrigger) continue;
-            const branch = getPipelineSourceBranch(detail?.version?.config);
-            if (branch !== pushedBranch) continue;
+            if (!p.auto_trigger) continue;
+            if (p.source_branch !== pushedBranch) continue;
             try {
               await createPipelineRun(p.id, {
                 triggerType: 'webhook',
@@ -199,7 +162,7 @@ export async function POST(request: NextRequest) {
   let project: WebhookProject | null = null;
 
   if (projectId) {
-    project = (await getProjectById(projectId).catch(() => null)) as WebhookProject | null;
+    project = await getProjectById(projectId).catch(() => null);
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
@@ -207,7 +170,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Project repository mismatch' }, { status: 400 });
     }
   } else {
-    const projects = (await listProjectsByRepo(repoFullName).catch(() => [])) as WebhookProject[];
+    const projects = await listProjectsByRepo(repoFullName).catch(() => []);
     if (projects.length === 0) {
       return NextResponse.json({ ok: true });
     }
@@ -222,9 +185,6 @@ export async function POST(request: NextRequest) {
   if (!project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 });
   }
-  if (!project.org_id) {
-    return NextResponse.json({ error: 'Project is not associated with an organization' }, { status: 400 });
-  }
 
   if (!project.ruleset_id) {
     return NextResponse.json({ ok: true });
@@ -235,8 +195,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const headSha = pr?.head?.sha as string | undefined;
-  const baseSha = pr?.base?.sha as string | undefined;
+  const headSha = pr.head?.sha;
+  const baseSha = pr.base?.sha;
   if (!headSha) {
     return NextResponse.json({ error: 'Missing head sha' }, { status: 400 });
   }
@@ -303,7 +263,7 @@ export async function POST(request: NextRequest) {
          head_sha = excluded.head_sha,
          status = excluded.status,
          updated_at = now()
-       returning *`,
+       returning id`,
       [
         project.id,
         repoFullName,

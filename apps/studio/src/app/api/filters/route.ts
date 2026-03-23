@@ -1,21 +1,40 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { exec, query, queryOne } from '@/lib/db';
+import type { JsonObject } from '@/lib/json';
 import { logger } from '@/services/logger';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
+
+const savedFilterColumns = [
+  'id',
+  'user_id',
+  'name',
+  'filter_config',
+  'is_default',
+  'created_at',
+].join(', ');
 
 const filterSchema = z.object({
   name: z.string().min(1).max(100),
   filterConfig: z.record(z.string(), z.unknown()),
   isDefault: z.boolean().optional(),
 });
+
+type SavedFilterRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  filter_config: JsonObject;
+  is_default: boolean;
+  created_at: string;
+};
 
 // Get saved filters
 export async function GET(request: NextRequest) {
@@ -39,8 +58,8 @@ export async function GET(request: NextRequest) {
     logger.setContext({ userId });
 
     const data = await withRetry(async () => {
-      return query<Record<string, unknown>>(
-        `select *
+      return query<SavedFilterRow>(
+        `select ${savedFilterColumns}
          from analysis_saved_filters
          where user_id = $1
          order by created_at desc`,
@@ -86,11 +105,11 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const created = await queryOne<Record<string, unknown>>(
+      const created = await queryOne<SavedFilterRow>(
         `insert into analysis_saved_filters
           (user_id, name, filter_config, is_default, created_at)
          values ($1,$2,$3,$4,now())
-         returning *`,
+         returning ${savedFilterColumns}`,
         [userId, name, JSON.stringify(filterConfig), isDefault ?? false]
       );
 

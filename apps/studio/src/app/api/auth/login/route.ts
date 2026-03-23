@@ -4,12 +4,12 @@ import { formatErrorResponse } from '@/services/retry';
 import { authenticateUser, createSession, setSessionCookie } from '@/services/auth';
 import { ensurePersonalOrg } from '@/services/orgs';
 import { syncUserAvatar } from '@/services/avatars';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.strict);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.strict);
 
 export async function POST(request: NextRequest) {
   const rateLimitResponse = rateLimiter(request);

@@ -1,6 +1,7 @@
 import { exec, query, queryOne } from '@/lib/db';
 import { absoluteStudioUrl } from '@/services/email';
 import { resolveVCSIntegration } from '@/services/integrations/factory';
+import { isAnalysisResultReadyStatus } from '@/services/statuses';
 
 type ReviewReportRow = {
   id: string;
@@ -50,7 +51,7 @@ export async function writeBackReviewRun(reportId: string): Promise<void> {
   );
 
   if (!report) return;
-  if (report.status !== 'done' && report.status !== 'partial_failed') return;
+  if (!isAnalysisResultReadyStatus(report.status)) return;
 
   const reviewRun = await queryOne<ReviewRunRow>(
     `select id, comment_id

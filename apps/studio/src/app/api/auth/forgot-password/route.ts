@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createPasswordReset } from '@/services/auth';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.strict);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.strict);
+
+type ForgotPasswordResponse = {
+  success: boolean;
+  resetToken?: string;
+};
 
 export async function POST(request: NextRequest) {
   const rateLimitResponse = rateLimiter(request);
@@ -22,7 +27,7 @@ export async function POST(request: NextRequest) {
 
   const reset = await createPasswordReset(email);
 
-  const payload: Record<string, unknown> = { success: true };
+  const payload: ForgotPasswordResponse = { success: true };
   if (process.env.NODE_ENV !== 'production' && reset) {
     payload.resetToken = reset.token;
   }

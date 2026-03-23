@@ -9,6 +9,7 @@ import type {
   AIConnectionTestResult,
   AIProvider,
 } from './types';
+import { asJsonObject, type JsonObject } from '@/lib/json';
 import { isOpenAIOfficialBase, supportsReasoningEffort, supportsTemperature } from '@/lib/aiModelCapabilities';
 
 type ReasoningEffort = NonNullable<AIConfigWithSecret['reasoningEffort']>;
@@ -71,8 +72,8 @@ function parseAnalysisContent(content: string): AnalysisResult {
 }
 
 function extractResponsesText(data: unknown): string | null {
-  if (!data || typeof data !== 'object') return null;
-  const candidate = data as Record<string, unknown>;
+  const candidate = asJsonObject(data);
+  if (!candidate) return null;
 
   if (typeof candidate.output_text === 'string' && candidate.output_text.trim()) {
     return candidate.output_text;
@@ -83,13 +84,12 @@ function extractResponsesText(data: unknown): string | null {
 
   const parts: string[] = [];
   for (const item of output) {
-    if (!item || typeof item !== 'object') continue;
-    const content = (item as Record<string, unknown>).content;
+    const itemObject = asJsonObject(item);
+    const content = itemObject?.content;
     if (!Array.isArray(content)) continue;
 
     for (const block of content) {
-      if (!block || typeof block !== 'object') continue;
-      const text = (block as Record<string, unknown>).text;
+      const text = asJsonObject(block)?.text;
       if (typeof text === 'string' && text) {
         parts.push(text);
       }
@@ -115,9 +115,14 @@ function extractJSONText(raw: string): string {
   return raw.slice(start, end + 1);
 }
 
-function parseJSONLoose(raw: string): Record<string, unknown> {
+function parseJSONLoose(raw: string): JsonObject {
   const candidate = extractJSONText(raw).trim();
-  return JSON.parse(candidate) as Record<string, unknown>;
+  const parsed = JSON.parse(candidate);
+  const object = asJsonObject(parsed);
+  if (!object) {
+    throw new Error('Expected JSON object response');
+  }
+  return object;
 }
 
 function modelsCompatible(expected: string, observed?: string): boolean {
@@ -159,7 +164,7 @@ export class OpenAIAPIClient implements AIClient {
 
   private async testWithResponsesAPI(): Promise<AIConnectionTestResult> {
     const endpoint = `${this.config.baseUrl}/responses`;
-    const payload: Record<string, unknown> = {
+    const payload: JsonObject = {
       model: this.config.model,
       input: 'Return ONLY JSON: {"ok":true,"probe":"connectivity"}',
       max_output_tokens: 64,
@@ -235,7 +240,7 @@ export class OpenAIAPIClient implements AIClient {
         return base.endsWith('/v1') ? `${base}/messages` : `${base}/v1/messages`;
       })()
       : `${this.config.baseUrl}/chat/completions`;
-    const payload: Record<string, unknown> = this.isAnthropic
+    const payload: JsonObject = this.isAnthropic
       ? {
         model: this.config.model,
         max_tokens: 64,
@@ -284,13 +289,13 @@ export class OpenAIAPIClient implements AIClient {
       if (!Array.isArray(content) || content.length === 0 || typeof content[0] !== 'object' || !content[0]) {
         throw new Error('AI test response missing content');
       }
-      modelText = asString((content[0] as Record<string, unknown>).text) ?? '';
+      modelText = asString(asJsonObject(content[0])?.text) ?? '';
     } else {
       const choices = parsed.choices;
       if (!Array.isArray(choices) || choices.length === 0 || typeof choices[0] !== 'object' || !choices[0]) {
         throw new Error('AI test response missing choices');
       }
-      const message = (choices[0] as Record<string, unknown>).message as Record<string, unknown> | undefined;
+      const message = asJsonObject(asJsonObject(choices[0])?.message);
       modelText = asString(message?.content) ?? '';
     }
     if (!modelText) {
@@ -355,7 +360,7 @@ export class OpenAIAPIClient implements AIClient {
       ? `${prompt}\n\nCode to analyze:\n\`\`\`\n${code}\n\`\`\`\n\nPlease provide your analysis in JSON format with the following structure:\n${schema}`
       : prompt;
 
-    const payload: Record<string, unknown> = {
+    const payload: JsonObject = {
       model: this.config.model,
       max_tokens: this.config.maxTokens || 4096,
       messages: [{ role: 'user', content: fullPrompt }],
@@ -388,8 +393,8 @@ export class OpenAIAPIClient implements AIClient {
     if (!Array.isArray(contentBlocks) || contentBlocks.length === 0) {
       throw new Error('Anthropic response missing content');
     }
-    const firstBlock = contentBlocks[0] as Record<string, unknown>;
-    const content = asString(firstBlock.text) ?? '';
+    const firstBlock = asJsonObject(contentBlocks[0]);
+    const content = asString(firstBlock?.text) ?? '';
     if (!content.trim()) {
       throw new Error('Anthropic response missing text content');
     }
@@ -403,7 +408,7 @@ export class OpenAIAPIClient implements AIClient {
       : prompt;
 
     if (this.useResponsesAPI) {
-      const body: Record<string, unknown> = {
+      const body: JsonObject = {
         model: this.config.model,
         input: fullPrompt,
         max_output_tokens: this.config.maxTokens || 4096,
@@ -440,7 +445,7 @@ export class OpenAIAPIClient implements AIClient {
       return parseAnalysisContent(content);
     }
 
-    const body: Record<string, unknown> = {
+    const body: JsonObject = {
       model: this.config.model,
       messages: [{ role: 'user', content: fullPrompt }],
       max_tokens: this.config.maxTokens || 4096,
@@ -481,7 +486,7 @@ export class OpenAIAPIClient implements AIClient {
     const fullPrompt = `${prompt}\n\nCode to analyze:\n\`\`\`\n${code}\n\`\`\``;
 
     if (this.isAnthropic) {
-      const body: Record<string, unknown> = {
+      const body: JsonObject = {
         model: this.config.model,
         max_tokens: this.config.maxTokens || 4096,
         messages: [{ role: 'user', content: fullPrompt }],
@@ -528,10 +533,11 @@ export class OpenAIAPIClient implements AIClient {
           for (const dataLine of dataLines) {
             if (!dataLine || dataLine === '[DONE]') continue;
             try {
-              const parsed = JSON.parse(dataLine) as Record<string, unknown>;
+              const parsed = asJsonObject(JSON.parse(dataLine));
+              if (!parsed) continue;
               const type = asString(parsed.type);
               if (type !== 'content_block_delta') continue;
-              const delta = parsed.delta as Record<string, unknown> | undefined;
+              const delta = asJsonObject(parsed.delta);
               if (!delta) continue;
               if (asString(delta.type) !== 'text_delta') continue;
               const text = asString(delta.text);
@@ -547,7 +553,7 @@ export class OpenAIAPIClient implements AIClient {
       const result = await this.analyzeWithOpenAI(prompt, code);
       yield result.summary;
     } else {
-      const body: Record<string, unknown> = {
+      const body: JsonObject = {
         model: this.config.model,
         messages: [{ role: 'user', content: fullPrompt }],
         max_tokens: this.config.maxTokens || 4096,

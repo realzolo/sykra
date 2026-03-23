@@ -310,7 +310,6 @@ func RunAnalyzeTask(
 	}
 	tokenUsageJSON, tokensUsed := marshalTokenUsage(tokenUsage)
 
-	issuesJSON, _ := json.Marshal(finalResult.Issues)
 	categoryScoresJSON, _ := json.Marshal(finalResult.CategoryScores)
 	doneMessage := "Analysis completed"
 	progressPhase := "completed"
@@ -328,7 +327,6 @@ func RunAnalyzeTask(
 		Status:              finalStatus,
 		Score:               finalResult.Score,
 		CategoryScores:      categoryScoresJSON,
-		Issues:              issuesJSON,
 		Summary:             finalResult.Summary,
 		ComplexityMetrics:   finalResult.ComplexityMetrics,
 		DuplicationMetrics:  finalResult.DuplicationMetrics,

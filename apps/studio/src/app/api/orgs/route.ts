@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { exec, queryOne } from '@/lib/db';
 import { ensurePersonalOrg, getUserOrgs } from '@/services/orgs';
 import { auditLogger, extractClientInfo } from '@/services/audit';
+import { organizationCoreColumnList } from '@/services/sql/projections';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 type OrgRow = {
   id: string;
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     `insert into organizations
       (name, slug, is_personal, owner_id, created_at, updated_at)
      values ($1,$2,false,$3,now(),now())
-     returning *`,
+     returning ${organizationCoreColumnList}`,
     [name, slug, user.id]
   );
 
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
   const clientInfo = extractClientInfo(request);
   await auditLogger.log({
     action: 'create',
-    entityType: 'user',
+    entityType: 'org',
     entityId: org.id,
     userId: user.id,
     changes: { name, slug },

@@ -2,15 +2,15 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requireProjectAccess } from '@/services/orgs';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { createPipelineSchema, projectIdSchema, validateRequest } from '@/services/validation';
-import { createPipeline, listPipelines } from '@/services/conductorClient';
+import { createPipeline, listPipelines } from '@/services/conductorGateway';
 import type { ConductorCreatePipelineRequest } from '@sykra/contracts/conductor';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 export async function GET(request: NextRequest) {
   const rateLimitResponse = rateLimiter(request);

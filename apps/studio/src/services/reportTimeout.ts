@@ -1,6 +1,7 @@
 import { query, queryOne } from '@/lib/db';
 import { logger } from '@/services/logger';
 import { DEFAULT_ORG_RUNTIME_SETTINGS } from '@/services/runtimeSettings.shared';
+import { ANALYSIS_ACTIVE_STATUSES_SQL } from '@/services/statuses';
 
 type ExpiredReportRow = { id: string };
 
@@ -29,7 +30,7 @@ export async function failTimedOutReports(): Promise<number> {
        select r.id
        from analysis_reports r
        left join org_runtime_settings ors on ors.org_id = r.org_id
-       where r.status in ('pending', 'running')
+       where r.status in (${ANALYSIS_ACTIVE_STATUSES_SQL})
          and r.created_at < now() - make_interval(
            secs => greatest(1, floor(coalesce(ors.analyze_report_timeout_ms, $1 * 1000) / 1000.0)::int)
          )
@@ -56,7 +57,7 @@ export async function failTimedOutReport(reportId: string): Promise<boolean> {
        from analysis_reports r
        left join org_runtime_settings ors on ors.org_id = r.org_id
        where r.id = $1
-         and r.status in ('pending', 'running')
+         and r.status in (${ANALYSIS_ACTIVE_STATUSES_SQL})
          and r.created_at < now() - make_interval(
            secs => greatest(1, floor(coalesce(ors.analyze_report_timeout_ms, $2 * 1000) / 1000.0)::int)
          )

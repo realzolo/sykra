@@ -4,7 +4,20 @@
  */
 
 import { exec, query } from '@/lib/db';
+import type { JsonObject } from '@/lib/json';
 import { logger } from './logger';
+
+const auditLogColumnList = [
+  'id',
+  'action',
+  'entity_type',
+  'entity_id',
+  'user_id',
+  'changes',
+  'ip_address',
+  'user_agent',
+  'created_at',
+].join(', ');
 
 export type AuditAction =
   | 'create'
@@ -16,17 +29,29 @@ export type AuditAction =
   | 'login'
   | 'logout';
 
-export type AuditEntityType = 'project' | 'pipeline' | 'report' | 'rule' | 'ruleset' | 'user' | 'org';
+export type AuditEntityType = 'project' | 'pipeline' | 'report' | 'issue' | 'rule' | 'ruleset' | 'user' | 'org';
 
 export interface AuditLogEntry {
   action: AuditAction;
   entityType: AuditEntityType;
   entityId?: string;
   userId?: string;
-  changes?: Record<string, unknown>;
+  changes?: JsonObject;
   ipAddress?: string | null;
   userAgent?: string | null;
 }
+
+type AuditLogRow = {
+  id: string;
+  action: AuditAction;
+  entity_type: AuditEntityType;
+  entity_id: string | null;
+  user_id: string | null;
+  changes: JsonObject | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+};
 
 class AuditLogger {
   /**
@@ -76,8 +101,8 @@ class AuditLogger {
         where.push(`entity_id = $${params.length}`);
       }
 
-      const rows = await query(
-        `select *
+      const rows = await query<AuditLogRow>(
+        `select ${auditLogColumnList}
          from audit_logs
          ${where.length ? `where ${where.join(' and ')}` : ''}
          order by created_at desc
@@ -97,8 +122,8 @@ class AuditLogger {
    */
   async getUserActivity(userId: string, limit: number = 50) {
     try {
-      const rows = await query(
-        `select *
+      const rows = await query<AuditLogRow>(
+        `select ${auditLogColumnList}
          from audit_logs
          where user_id = $1
          order by created_at desc

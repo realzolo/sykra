@@ -2,17 +2,18 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId } from '@/services/orgs';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
-import { getPipelineRun, getPipelineRunEvents } from '@/services/conductorClient';
+import { getPipelineRun, getPipelineRunEvents } from '@/services/conductorGateway';
 import { logger } from '@/services/logger';
+import type { JsonObject } from '@/lib/json';
+import { isPipelineTerminalStatus } from '@/services/statuses';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
-const TERMINAL_RUN_STATUSES = new Set(['success', 'failed', 'canceled', 'timed_out']);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
-function encodeSse(data: Record<string, unknown>) {
+function encodeSse(data: JsonObject) {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
@@ -64,7 +65,7 @@ export async function GET(
           logger.info(`Pipeline run stream disconnected: ${runId}`);
         };
 
-        const send = (payload: Record<string, unknown>) => {
+        const send = (payload: JsonObject) => {
           if (!active) return;
           controller.enqueue(encoder.encode(encodeSse(payload)));
         };
@@ -83,7 +84,7 @@ export async function GET(
               timestamp: new Date().toISOString(),
             });
           }
-          if (TERMINAL_RUN_STATUSES.has(detail.run.status)) {
+          if (isPipelineTerminalStatus(detail.run.status)) {
             cleanup();
           }
         };
@@ -118,7 +119,7 @@ export async function GET(
               timestamp: new Date().toISOString(),
             });
 
-            if (TERMINAL_RUN_STATUSES.has(initialDetail.run.status)) {
+            if (isPipelineTerminalStatus(initialDetail.run.status)) {
               cleanup();
               return;
             }

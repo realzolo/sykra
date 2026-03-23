@@ -35,6 +35,20 @@ export class IntegrationResolutionError extends Error {
   }
 }
 
+const integrationProjection = `
+  id,
+  org_id,
+  user_id,
+  type,
+  provider,
+  name,
+  is_default,
+  config,
+  vault_secret_name,
+  created_at,
+  updated_at
+`;
+
 function parseIntegrationConfig(raw: IntegrationRow['config']): IntegrationConfig {
   if (typeof raw === 'string') {
     const parsed = JSON.parse(raw) as unknown;
@@ -115,7 +129,9 @@ export async function resolveVCSIntegration(projectId: string): Promise<{
   // 1. Try project-specific integration
   if (project.vcs_integration_id) {
     const integrationRow = await queryOne<IntegrationRow>(
-      `select * from org_integrations where id = $1`,
+      `select ${integrationProjection}
+       from org_integrations
+       where id = $1`,
       [project.vcs_integration_id]
     );
 
@@ -133,7 +149,8 @@ export async function resolveVCSIntegration(projectId: string): Promise<{
   // 2. Try org default integration
   if (project.org_id) {
     const defaultIntegrationRow = await queryOne<IntegrationRow>(
-      `select * from org_integrations
+      `select ${integrationProjection}
+       from org_integrations
        where org_id = $1 and type = 'vcs' and is_default = true`,
       [project.org_id]
     );
@@ -173,7 +190,9 @@ export async function resolveAIIntegration(projectId: string): Promise<{
   // 1. Try project-specific integration
   if (project.ai_integration_id) {
     const integrationRow = await queryOne<IntegrationRow>(
-      `select * from org_integrations where id = $1`,
+      `select ${integrationProjection}
+       from org_integrations
+       where id = $1`,
       [project.ai_integration_id]
     );
 
@@ -196,7 +215,8 @@ export async function resolveAIIntegration(projectId: string): Promise<{
   // 2. Try org default integration
   if (project.org_id) {
     const defaultIntegrationRow = await queryOne<IntegrationRow>(
-      `select * from org_integrations
+      `select ${integrationProjection}
+       from org_integrations
        where org_id = $1 and type = 'ai' and is_default = true`,
       [project.org_id]
     );
@@ -223,7 +243,8 @@ export async function getOrgIntegrations(
   type?: 'vcs' | 'ai'
 ): Promise<Integration[]> {
   const rows = await query<IntegrationRow>(
-    `select * from org_integrations
+    `select ${integrationProjection}
+     from org_integrations
      where org_id = $1
      ${type ? `and type = $2` : ''}
      order by created_at desc`,
@@ -238,7 +259,8 @@ export async function getOrgIntegrations(
  */
 export async function getIntegration(integrationId: string, orgId?: string): Promise<Integration> {
   const row = await queryOne<IntegrationRow>(
-    `select * from org_integrations
+    `select ${integrationProjection}
+     from org_integrations
      where id = $1 ${orgId ? 'and org_id = $2' : ''}`,
     orgId ? [integrationId, orgId] : [integrationId]
   );

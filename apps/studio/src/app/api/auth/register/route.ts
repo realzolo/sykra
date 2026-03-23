@@ -2,12 +2,18 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { formatErrorResponse } from '@/services/retry';
 import { createEmailVerification, createUser, deleteAuthUser, isEmailVerificationRequired, sendVerificationEmail } from '@/services/auth';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.strict);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.strict);
+
+type RegisterResponse = {
+  user: { id: string; email: string | null; displayName: string | null };
+  verificationRequired: boolean;
+  verificationToken?: string;
+};
 
 export async function POST(request: NextRequest) {
   const rateLimitResponse = rateLimiter(request);
@@ -49,7 +55,7 @@ export async function POST(request: NextRequest) {
       ...clientInfo,
     });
 
-    const payload: Record<string, unknown> = {
+    const payload: RegisterResponse = {
       user: { id: user.id, email: user.email, displayName },
       verificationRequired,
     };

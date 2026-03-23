@@ -5,14 +5,14 @@ import { codebaseService } from '@/services/CodebaseService';
 import { logger } from '@/services/logger';
 import { projectIdSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { requireProjectAccess } from '@/services/orgs';
 import { getOrgRuntimeSettings } from '@/services/runtimeSettings';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 export async function GET(
   request: NextRequest,

@@ -4,6 +4,7 @@ import type {
   PipelinePackageManager,
   PipelineProjectKind,
 } from '@/services/pipelineTypes';
+import { asJsonObject, type JsonObject } from '@/lib/json';
 
 type ProjectRef = CodebaseRef & {
   defaultBranch?: string | null;
@@ -75,7 +76,7 @@ export async function inferProjectPipelineDefaults(project: ProjectRef): Promise
 }
 
 function buildNodeDefaults(input: {
-  packageJson: Record<string, unknown> | null;
+  packageJson: JsonObject | null;
   packageManager: PipelinePackageManager;
   projectKind: PipelineProjectKind;
   hasNextConfig: boolean;
@@ -206,7 +207,7 @@ function resolveNodeInstallCommand(packageManager: PipelinePackageManager, hasLo
 }
 
 function resolveNodeBuildCommand(
-  packageJson: Record<string, unknown> | null,
+  packageJson: JsonObject | null,
   packageManager: PipelinePackageManager,
   projectKind: PipelineProjectKind,
   input: { hasNextConfig: boolean; hasViteConfig: boolean; hasReactScripts: boolean }
@@ -227,7 +228,7 @@ function resolveNodeBuildCommand(
 }
 
 function detectPackageManager(
-  packageJson: Record<string, unknown> | null,
+  packageJson: JsonObject | null,
   hasFile: (name: string) => boolean
 ): PipelinePackageManager {
   const declaredValue = packageJson ? packageJson['packageManager'] : undefined;
@@ -245,7 +246,7 @@ function detectPackageManager(
 }
 
 function detectProjectKind(
-  packageJson: Record<string, unknown> | null,
+  packageJson: JsonObject | null,
   hasFile: (name: string) => boolean
 ): PipelineProjectKind {
   if (hasFile('next.config.js') || hasFile('next.config.mjs') || hasFile('next.config.ts') || hasFile('next.config.cjs')) {
@@ -269,23 +270,24 @@ function detectProjectKind(
   return 'unknown';
 }
 
-function hasPackageDependency(packageJson: Record<string, unknown> | null, dependency: string): boolean {
+function hasPackageDependency(packageJson: JsonObject | null, dependency: string): boolean {
   if (!packageJson) return false;
   const sections = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'] as const;
   for (const section of sections) {
     const value = packageJson[section];
-    if (!value || typeof value !== 'object') continue;
-    if (dependency in (value as Record<string, unknown>)) {
+    const dependencies = asJsonObject(value);
+    if (!dependencies) continue;
+    if (dependency in dependencies) {
       return true;
     }
   }
   return false;
 }
 
-function hasBuildScript(packageJson: Record<string, unknown> | null): boolean {
+function hasBuildScript(packageJson: JsonObject | null): boolean {
   const scripts = packageJson ? packageJson['scripts'] : undefined;
-  if (!scripts || typeof scripts !== 'object') return false;
-  return typeof (scripts as Record<string, unknown>).build === 'string' && Boolean((scripts as Record<string, unknown>).build);
+  const scriptsObject = asJsonObject(scripts);
+  return typeof scriptsObject?.build === 'string' && Boolean(scriptsObject.build);
 }
 
 function packageManagerCommand(packageManager: PipelinePackageManager, suffix: string): string {
@@ -312,7 +314,7 @@ function normalizeRef(value?: string | null): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-async function readJsonFile(project: ProjectRef, filePath: string): Promise<Record<string, unknown> | null> {
+async function readJsonFile(project: ProjectRef, filePath: string): Promise<JsonObject | null> {
   try {
     const result = await codebaseService.readFile(
       {
@@ -327,7 +329,7 @@ async function readJsonFile(project: ProjectRef, filePath: string): Promise<Reco
     if (result.isBinary || !result.content.trim()) {
       return null;
     }
-    return JSON.parse(result.content) as Record<string, unknown>;
+    return asJsonObject(JSON.parse(result.content));
   } catch {
     return null;
   }

@@ -6,19 +6,25 @@ import { query } from '@/lib/db';
 import { logger } from '@/services/logger';
 import { projectIdSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { requireProjectAccess } from '@/services/orgs';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 const reviewSchema = z.object({
   commit: z.string().regex(/^[0-9a-f]{7,40}$/i, 'commit is required'),
   path: z.string().min(1),
   line: z.number().int().min(0).optional(),
 });
+
+type CommitReviewItemRow = {
+  id: string;
+  path: string;
+  line: number;
+};
 
 export async function GET(
   request: NextRequest,
@@ -73,7 +79,7 @@ export async function GET(
 
     sql += ' order by created_at asc';
 
-    const rows = await withRetry(() => query<Record<string, unknown>>(sql, paramsList));
+    const rows = await withRetry(() => query<CommitReviewItemRow>(sql, paramsList));
     return NextResponse.json(rows);
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
@@ -111,7 +117,7 @@ export async function POST(
 
     const lineValue = validated.line ?? 0;
 
-    const rows = await withRetry(() => query<Record<string, unknown>>(
+    const rows = await withRetry(() => query<CommitReviewItemRow>(
       `insert into commit_review_items
         (org_id, project_id, commit_sha, path, line, reviewer_id, created_at)
        values ($1,$2,$3,$4,$5,$6,now())
@@ -158,7 +164,7 @@ export async function DELETE(
 
     const lineValue = validated.line ?? 0;
 
-    const rows = await withRetry(() => query<Record<string, unknown>>(
+    const rows = await withRetry(() => query<CommitReviewItemRow>(
       `delete from commit_review_items
        where project_id = $1
          and org_id = $2

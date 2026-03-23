@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { cookies, headers } from 'next/headers';
 import { createHash, randomBytes } from 'crypto';
 import { hash, verify } from '@node-rs/argon2';
-import { exec, query, queryOne, withTransaction } from '@/lib/db';
+import { exec, execTx, query, queryOne, withTransaction } from '@/lib/db';
+import type { JsonObject } from '@/lib/json';
 import { sendEmail } from './email';
 import { logger } from './logger';
 
@@ -197,7 +198,7 @@ export async function upsertOAuthUser(input: {
   email: string;
   displayName?: string | null;
   avatarUrl?: string | null;
-  profile: Record<string, unknown>;
+  profile: JsonObject;
 }): Promise<AuthUser> {
   return withTransaction(async (client) => {
     const identityRow = await client.query<{
@@ -219,7 +220,7 @@ export async function upsertOAuthUser(input: {
         throw new Error('Account disabled');
       }
 
-      await client.query(
+      await execTx(client,
         `update auth_users
          set display_name = coalesce(display_name, $2),
              avatar_url = coalesce(avatar_url, $3),
@@ -229,7 +230,7 @@ export async function upsertOAuthUser(input: {
          where id = $1`,
         [existingIdentity.user_id, input.displayName ?? null, input.avatarUrl ?? null]
       );
-      await client.query(
+      await execTx(client,
         `update auth_identities
          set email = $3,
              profile = $4
@@ -271,7 +272,7 @@ export async function upsertOAuthUser(input: {
     }
 
     const profile = JSON.stringify(input.profile ?? {});
-    await client.query(
+    await execTx(client,
       `insert into auth_identities (user_id, provider, provider_user_id, email, profile, created_at)
        values ($1, $2, $3, $4, $5, now())
        on conflict (provider, provider_user_id) do nothing`,
@@ -300,7 +301,7 @@ export async function linkOAuthIdentityToUser(input: {
   email: string;
   displayName?: string | null;
   avatarUrl?: string | null;
-  profile: Record<string, unknown>;
+  profile: JsonObject;
 }): Promise<AuthUser> {
   return withTransaction(async (client) => {
     const targetUserRow = await client.query<{
@@ -340,7 +341,7 @@ export async function linkOAuthIdentityToUser(input: {
       throw new Error('Account disabled');
     }
 
-    await client.query(
+    await execTx(client,
       `update auth_users
        set display_name = coalesce(display_name, $2),
            avatar_url = coalesce(avatar_url, $3),
@@ -352,7 +353,7 @@ export async function linkOAuthIdentityToUser(input: {
     );
 
     const profile = JSON.stringify(input.profile ?? {});
-    const identityUpdate = await client.query(
+    const identityUpdate = await client.query<{ _never?: never }>(
       `update auth_identities
        set email = $3,
            profile = $4
@@ -361,7 +362,7 @@ export async function linkOAuthIdentityToUser(input: {
     );
 
     if (identityUpdate.rowCount === 0) {
-      await client.query(
+      await execTx(client,
         `insert into auth_identities (user_id, provider, provider_user_id, email, profile, created_at)
          values ($1, $2, $3, $4, $5, now())
          on conflict (provider, provider_user_id) do nothing`,
@@ -605,8 +606,8 @@ export async function verifyEmailToken(token: string): Promise<boolean> {
   if (!row) return false;
 
   await withTransaction(async (client) => {
-    await client.query(`update auth_email_verifications set used_at = now() where id = $1`, [row.id]);
-    await client.query(
+    await execTx(client, `update auth_email_verifications set used_at = now() where id = $1`, [row.id]);
+    await execTx(client,
       `update auth_users
        set email_verified_at = now(),
            status = case when status = 'pending' then 'active' else status end,
@@ -658,7 +659,7 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
   const passwordHash = await hash(newPassword);
 
   await withTransaction(async (client) => {
-    await client.query(
+    await execTx(client,
       `insert into auth_credentials (user_id, password_hash, password_updated_at)
        values ($1, $2, now())
        on conflict (user_id) do update
@@ -666,9 +667,9 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
              password_updated_at = now()`,
       [row.user_id, passwordHash]
     );
-    await client.query(`update auth_password_resets set used_at = now() where id = $1`, [row.id]);
-    await client.query(`update auth_users set updated_at = now() where id = $1`, [row.user_id]);
-    await client.query(
+    await execTx(client, `update auth_password_resets set used_at = now() where id = $1`, [row.id]);
+    await execTx(client, `update auth_users set updated_at = now() where id = $1`, [row.user_id]);
+    await execTx(client,
       `update auth_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`,
       [row.user_id]
     );

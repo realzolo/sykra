@@ -26,6 +26,7 @@ import {
   type ConductorPipeline,
 } from '@sykra/contracts/conductor';
 import { z } from 'zod';
+import type { JsonObject } from '@/lib/json';
 
 function conductorBaseUrl() {
   const baseUrl = process.env.CONDUCTOR_BASE_URL?.replace(/\/+$/, '');
@@ -50,9 +51,24 @@ async function fetchConductor<T>(path: string, init: RequestInit, schema: z.ZodT
     throw new Error(`Conductor request failed: ${res.status} ${text}`);
   }
   const text = await res.text().catch(() => '');
-  const json = text ? (JSON.parse(text) as unknown) : null;
+  let json: unknown = null;
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new Error(`Conductor returned invalid JSON for ${path}`);
+    }
+  }
   return schema.parse(json);
 }
+
+export type ConductorCreatePipelineRunRequest = {
+  triggerType?: string;
+  triggeredBy?: string;
+  idempotencyKey?: string;
+  metadata?: JsonObject;
+  rollbackOf?: string;
+};
 
 export async function listPipelines(orgId: string, projectId?: string | null): Promise<ConductorPipeline[]> {
   const params = new URLSearchParams({ orgId });
@@ -106,14 +122,18 @@ export async function deletePipeline(id: string): Promise<ConductorDeletePipelin
 }
 
 export async function listPipelineRuns(pipelineId: string, limit = 20): Promise<ConductorPipelineRun[]> {
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 20;
   return fetchConductor(
-    `/v1/pipelines/${pipelineId}/runs?limit=${limit}`,
+    `/v1/pipelines/${pipelineId}/runs?limit=${safeLimit}`,
     { method: 'GET', headers: conductorHeaders() },
     conductorListPipelineRunsResponseSchema
   );
 }
 
-export async function createPipelineRun(pipelineId: string, payload: unknown): Promise<ConductorPipelineRun> {
+export async function createPipelineRun(
+  pipelineId: string,
+  payload: ConductorCreatePipelineRunRequest
+): Promise<ConductorPipelineRun> {
   return fetchConductor(
     `/v1/pipelines/${pipelineId}/runs`,
     { method: 'POST', headers: conductorHeaders(), body: JSON.stringify(payload) },

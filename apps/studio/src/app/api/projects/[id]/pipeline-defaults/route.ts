@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { requireUser, unauthorized } from '@/services/auth';
 import { projectIdSchema } from '@/services/validation';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse, withRetry } from '@/services/retry';
 import { requireProjectAccess } from '@/services/orgs';
 import { logger } from '@/services/logger';
@@ -10,7 +10,7 @@ import { inferProjectPipelineDefaults } from '@/services/pipelineInference';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 export async function GET(
   request: NextRequest,

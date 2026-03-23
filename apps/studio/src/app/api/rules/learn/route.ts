@@ -1,14 +1,31 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { exec, query } from '@/lib/db';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requireProjectAccess } from '@/services/orgs';
+import { aliasedColumnList, learnedPatternColumns } from '@/services/sql/projections';
 
 export const dynamic = 'force-dynamic';
 
 // Trigger auto-adjustment of rule weights
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
+const learnedPatternColumnList = aliasedColumnList(learnedPatternColumns, 'lp');
+
+type LearnedPatternRow = {
+  id: string;
+  project_id: string;
+  pattern_type: 'anti_pattern' | 'best_practice' | 'code_smell' | 'optimization';
+  pattern_name: string;
+  pattern_description: string;
+  detection_regex: string | null;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  confidence_score: string | number;
+  occurrence_count: number;
+  is_enabled: boolean;
+  created_at: string;
+  last_seen: string;
+};
 
 export async function POST(request: NextRequest) {
   const rateLimitResponse = rateLimiter(request);
@@ -42,7 +59,7 @@ export async function GET(request: NextRequest) {
   const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
 
   let sql = `
-    select lp.*
+    select ${learnedPatternColumnList}
     from quality_learned_patterns lp
     join code_projects p on p.id = lp.project_id
     where lp.is_enabled = true and p.org_id = $1
@@ -60,7 +77,7 @@ export async function GET(request: NextRequest) {
 
   sql += ` order by lp.confidence_score desc`;
 
-  const data = await query<Record<string, unknown>>(sql, params);
+  const data = await query<LearnedPatternRow>(sql, params);
 
   return NextResponse.json(data ?? []);
 }

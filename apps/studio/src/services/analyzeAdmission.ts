@@ -1,7 +1,10 @@
 import { createHash } from 'crypto';
 import type { PoolClient } from 'pg';
 import { queryOne, withTransaction } from '@/lib/db';
+import type { JsonArray, JsonObject } from '@/lib/json';
 import { getOrgRuntimeSettings } from '@/services/runtimeSettings';
+import { ANALYSIS_ACTIVE_STATUSES_SQL } from '@/services/statuses';
+import type { AnalysisReportStatus } from '@/services/statuses';
 
 type AnalyzeAdmissionConfig = {
   rateWindowMs: number;
@@ -33,7 +36,7 @@ export type AnalyzeFingerprintInput = {
 
 export type AnalyzeAdmissionResult = {
   reportId: string;
-  status: 'queued' | 'running' | 'done' | 'partial_failed' | 'failed' | 'canceled';
+  status: 'queued' | Extract<AnalysisReportStatus, 'running' | 'partial_done' | 'done' | 'partial_failed' | 'failed' | 'canceled'>;
   projectId: string;
   orgId: string;
   incrementalAnalysis: boolean;
@@ -43,7 +46,7 @@ export type AnalyzeAdmissionResult = {
 
 type AnalyzeRejectResponse = {
   status: number;
-  body: Record<string, unknown>;
+  body: JsonObject;
   headers: Record<string, string>;
 };
 
@@ -60,11 +63,11 @@ type QueueDepthRow = {
 
 type AnalyzeReportRow = {
   id: string;
-  status: 'pending' | AnalyzeAdmissionResult['status'];
+  status: AnalysisReportStatus;
   project_id: string;
   org_id: string;
   created_at: string | Date;
-  analysis_snapshot: Record<string, unknown> | null;
+  analysis_snapshot: JsonObject | null;
 };
 
 async function getAnalyzeAdmissionConfig(orgId: string): Promise<AnalyzeAdmissionConfig> {
@@ -168,8 +171,8 @@ export async function checkAnalyzeBackpressure(
   const config = await getAnalyzeAdmissionConfig(orgId);
   const row = await queryOne<QueueDepthRow>(
     `select
-       count(*) filter (where status in ('pending', 'running')) as org_active,
-       count(*) filter (where project_id = $2 and status in ('pending', 'running')) as project_active
+       count(*) filter (where status in (${ANALYSIS_ACTIVE_STATUSES_SQL})) as org_active,
+       count(*) filter (where project_id = $2 and status in (${ANALYSIS_ACTIVE_STATUSES_SQL})) as project_active
      from analysis_reports
      where org_id = $1`,
     [orgId, projectId]
@@ -203,9 +206,9 @@ export async function createOrReuseAnalyzeReport(input: {
   orgId: string;
   projectId: string;
   fingerprint: string;
-  rulesetSnapshot: unknown[];
-  commits: unknown[];
-  analysisSnapshot: Record<string, unknown>;
+  rulesetSnapshot: JsonArray;
+  commits: JsonArray;
+  analysisSnapshot: JsonObject;
 }): Promise<AnalyzeAdmissionResult> {
   const config = await getAnalyzeAdmissionConfig(input.orgId);
 
@@ -284,9 +287,9 @@ async function insertAnalyzeReport(
   input: {
     projectId: string;
     orgId: string;
-    rulesetSnapshot: unknown[];
-    commits: unknown[];
-    analysisSnapshot: Record<string, unknown>;
+    rulesetSnapshot: JsonArray;
+    commits: JsonArray;
+    analysisSnapshot: JsonObject;
   }
 ): Promise<AnalyzeReportRow> {
   const { rows } = await client.query<AnalyzeReportRow>(

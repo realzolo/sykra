@@ -9,13 +9,13 @@ import {
   ORG_ADMIN_ROLES,
   requireProjectAccess,
 } from '@/services/orgs';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { promoteProjectArtifactChannel } from '@/services/artifactRegistry';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 const promoteSchema = z.object({
   repositoryId: z.string().uuid(),

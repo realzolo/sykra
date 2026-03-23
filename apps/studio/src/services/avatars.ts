@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { exec, query, queryOne } from '@/lib/db';
+import type { JsonObject } from '@/lib/json';
 
 const GRAVATAR_BASE_URL = 'https://www.gravatar.com/avatar';
 const AVATAR_SIZE = 160;
@@ -7,7 +8,7 @@ const AVATAR_CACHE_REVALIDATE_MS = 30 * 24 * 60 * 60 * 1000;
 
 type AvatarIdentityRow = {
   provider: string;
-  profile: Record<string, unknown> | null;
+  profile: JsonObject | null;
   created_at: string;
 };
 
@@ -25,7 +26,7 @@ export function buildGravatarAvatarUrl(email: string, size = AVATAR_SIZE) {
   return `${GRAVATAR_BASE_URL}/${gravatarHash(email)}?s=${size}&d=404`;
 }
 
-function extractProfileAvatar(provider: string, profile: Record<string, unknown> | null) {
+function extractProfileAvatar(provider: string, profile: JsonObject | null) {
   if (!profile) return null;
 
   const keysByProvider: Record<string, string[]> = {

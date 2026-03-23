@@ -142,6 +142,7 @@ func (s *Service) CreatePipeline(ctx context.Context, input CreatePipelineInput)
 			pipeline.NextScheduledAt = &next
 		}
 	}
+	pipeline.AutoTrigger = input.Config.Trigger.AutoTrigger
 
 	return pipeline, version, nil
 }

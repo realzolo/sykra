@@ -6,8 +6,11 @@
 import { NextResponse } from 'next/server';
 import { Client as PgClient } from 'pg';
 import { queryOne } from '@/lib/db';
+import type { NoResultRow } from '@/lib/db';
+import type { JsonObject } from '@/lib/json';
 import { logger } from './logger';
 import { failTimedOutReport } from './reportTimeout';
+import { isAnalysisTerminalStatus } from './statuses';
 
 interface SSEClient {
   reportId: string;
@@ -109,7 +112,6 @@ export function createSSEResponse(reportId: string) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
     },
   });
 }
@@ -117,7 +119,7 @@ export function createSSEResponse(reportId: string) {
 /**
  * Broadcast updates to all connected clients
  */
-export function broadcastUpdate(reportId: string, data: Record<string, unknown>) {
+export function broadcastUpdate(reportId: string, data: JsonObject) {
   const clientList = clients.get(reportId);
   if (!clientList || clientList.length === 0) {
     return;
@@ -224,7 +226,7 @@ async function ensureReportNotifyListener() {
   }
   const listener = new PgClient({ connectionString });
   await listener.connect();
-  await listener.query('LISTEN analysis_report_updates');
+  await listener.query<NoResultRow>('LISTEN analysis_report_updates');
   listener.on('notification', (msg) => {
     if (!msg.payload) return;
     void handleReportNotification(msg.payload);
@@ -360,13 +362,7 @@ async function emitReportSnapshot(reportId: string) {
     logger.info(`Report status updated: ${reportId} -> ${row.status}`);
   }
 
-  if (
-    row.status === 'done' ||
-    row.status === 'partial_done' ||
-    row.status === 'partial_failed' ||
-    row.status === 'failed' ||
-    row.status === 'canceled'
-  ) {
+  if (isAnalysisTerminalStatus(row.status)) {
     stopWatchingReport(reportId);
   }
 }

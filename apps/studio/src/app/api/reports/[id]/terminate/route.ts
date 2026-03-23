@@ -4,14 +4,15 @@ import { queryOne } from '@/lib/db';
 import { logger } from '@/services/logger';
 import { reportIdSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { requireReportAccess } from '@/services/orgs';
+import { ANALYSIS_ACTIVE_STATUSES_SQL } from '@/services/statuses';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 type ReportStatusRow = {
   id: string;
@@ -67,7 +68,7 @@ export async function POST(
              sse_seq = sse_seq + 1,
              updated_at = now()
          where id = $1
-           and status in ('pending', 'running')
+           and status in (${ANALYSIS_ACTIVE_STATUSES_SQL})
          returning id, status, project_id`,
         [reportId, terminationMessage]
       )

@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { verifyEmailToken } from '@/services/auth';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.strict);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.strict);
 
 export async function POST(request: NextRequest) {
   const rateLimitResponse = rateLimiter(request);

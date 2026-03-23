@@ -31,6 +31,7 @@ type databaseConfig struct {
 
 type pipelineConfig struct {
 	Concurrency           *int `toml:"concurrency"`
+	RunConcurrency        *int `toml:"run_concurrency"`
 	LogRetentionDays      *int `toml:"log_retention_days"`
 	ArtifactRetentionDays *int `toml:"artifact_retention_days"`
 }
@@ -112,6 +113,9 @@ func applyFileConfig(cfg *Config, fileCfg fileConfig, analyzeTimeoutRaw *string,
 	}
 	if fileCfg.Pipeline.Concurrency != nil {
 		cfg.PipelineConcurrency = *fileCfg.Pipeline.Concurrency
+	}
+	if fileCfg.Pipeline.RunConcurrency != nil {
+		cfg.PipelineRunConcurrency = *fileCfg.Pipeline.RunConcurrency
 	}
 	if fileCfg.Conductor.DataDir != nil {
 		cfg.DataDir = *fileCfg.Conductor.DataDir

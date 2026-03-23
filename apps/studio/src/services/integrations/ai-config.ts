@@ -1,4 +1,5 @@
 import type { AIConfig } from './types';
+import { asJsonObject } from '@/lib/json';
 import { parseOutputLanguage } from '@/lib/outputLanguage';
 
 const WEB_UI_HOSTS = new Set([
@@ -64,11 +65,10 @@ export function normalizeAIBaseUrl(raw: unknown): string {
 }
 
 export function sanitizeAIConfig(input: unknown): AIConfig {
-  if (!input || typeof input !== 'object') {
+  const raw = asJsonObject(input);
+  if (!raw) {
     throw new Error('AI config is required');
   }
-
-  const raw = input as Record<string, unknown>;
   const model = typeof raw.model === 'string' ? raw.model.trim() : '';
   if (!model) {
     throw new Error('AI model is required');

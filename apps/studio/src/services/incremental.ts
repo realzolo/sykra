@@ -1,5 +1,6 @@
 import { resolveAIIntegration } from './integrations';
-import { ReviewResult, ReviewIssue } from './claude';
+import { ReviewResult, ReviewIssue } from './aiReviewService';
+import { asJsonObject } from '@/lib/json';
 import { DEFAULT_OUTPUT_LANGUAGE, getOutputLanguageLabel, parseOutputLanguage } from '@/lib/outputLanguage';
 
 export interface IncrementalAnalysisResult {
@@ -33,10 +34,7 @@ export async function analyzeIncremental(
   const { client, integration } = await resolveAIIntegration(projectId);
   let outputLanguageCode = DEFAULT_OUTPUT_LANGUAGE;
   try {
-    const config =
-      integration && typeof integration.config === 'object' && integration.config !== null
-        ? integration.config as Record<string, unknown>
-        : {};
+    const config = integration ? asJsonObject(integration.config) ?? {} : {};
     outputLanguageCode = parseOutputLanguage(config.outputLanguage);
   } catch {
     outputLanguageCode = DEFAULT_OUTPUT_LANGUAGE;
@@ -126,14 +124,13 @@ function extractChangedFiles(diff: string): string[] {
 }
 
 export function shouldUseIncrementalAnalysis(
-  project: Record<string, unknown>,
   commits: string[],
   recentReports: PreviousReport[]
 ): boolean {
   // Use incremental analysis if:
   // 1. There's a recent report (within 7 days)
   // 2. The commit count is small (< 5)
-  // 3. Project has incremental analysis enabled
+  // 3. Project has recent report snapshot to compare against
 
   if (!recentReports || recentReports.length === 0) return false;
   if (commits.length >= 5) return false;

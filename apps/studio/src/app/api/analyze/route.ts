@@ -4,6 +4,7 @@ import { getRulesBySetId } from '@/services/db';
 import { shouldUseIncrementalAnalysis } from '@/services/incremental';
 import { buildReportCommits } from '@/services/analyzeTask';
 import { query } from '@/lib/db';
+import { asJsonObject, type JsonObject } from '@/lib/json';
 import { logger } from '@/services/logger';
 import { analyzeRequestSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
@@ -19,6 +20,29 @@ import {
 } from '@/services/analyzeAdmission';
 
 export const dynamic = 'force-dynamic';
+
+type RecentDoneReportRow = {
+  id: string;
+  created_at: string;
+  status: string;
+  score: number | null;
+  summary: string | null;
+};
+
+type PreviousIssueRow = {
+  file: string;
+  line: number | null;
+  severity: string;
+  category: string;
+  rule: string;
+  message: string;
+  suggestion: string | null;
+  codeSnippet: string | null;
+  fixPatch: string | null;
+  priority: number | null;
+  impactScope: string | null;
+  estimatedEffort: string | null;
+};
 
 export async function POST(request: NextRequest) {
   const user = await requireUser();
@@ -57,14 +81,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Preflight AI integration decryptability/config validity before creating report/task.
-    let aiIntegrationSnapshot: Record<string, unknown> = {};
+    let aiIntegrationSnapshot: JsonObject = {};
     try {
       const resolved = await withRetry(() => resolveAIIntegration(projectId));
       const integration = resolved.integration;
-      const config =
-        integration && typeof integration.config === 'object' && integration.config !== null
-          ? integration.config as Record<string, unknown>
-          : {};
+      const config = integration ? asJsonObject(integration.config) ?? {} : {};
       aiIntegrationSnapshot = integration
         ? {
             id: integration.id,
@@ -95,18 +116,50 @@ export async function POST(request: NextRequest) {
     }
 
     // Check whether to use incremental analysis
-    const recentReports = await query(
-      `select *
+    const recentDoneReports = await query<RecentDoneReportRow>(
+      `select id, created_at, status, score, summary
        from analysis_reports
        where project_id = $1 and status = 'done'
        order by created_at desc
        limit 1`,
       [projectId]
     );
+    const latestDoneReport = recentDoneReports[0] ?? null;
 
     const useIncremental =
       !forceFullAnalysis &&
-      shouldUseIncrementalAnalysis(project, selectedHashes, recentReports || []);
+      shouldUseIncrementalAnalysis(selectedHashes, latestDoneReport ? [latestDoneReport] : []);
+
+    let previousReportSnapshot: JsonObject | null = null;
+    if (useIncremental && latestDoneReport) {
+      const previousIssues = await query<PreviousIssueRow>(
+        `select
+            i.file,
+            i.line,
+            i.severity,
+            i.category,
+            i.rule,
+            i.message,
+            i.suggestion,
+            i.code_snippet as "codeSnippet",
+            i.fix_patch as "fixPatch",
+            i.priority,
+            i.impact_scope as "impactScope",
+            i.estimated_effort as "estimatedEffort"
+         from analysis_issues i
+         where i.report_id = $1
+         order by i.priority asc nulls last, i.created_at asc`,
+        [latestDoneReport.id]
+      );
+      previousReportSnapshot = {
+        id: latestDoneReport.id,
+        created_at: latestDoneReport.created_at,
+        status: latestDoneReport.status,
+        score: latestDoneReport.score,
+        summary: latestDoneReport.summary,
+        issues: previousIssues,
+      };
+    }
 
     // Build dedupe fingerprint once all semantic inputs are resolved.
     const analyzeFingerprint = buildAnalyzeFingerprint({
@@ -178,7 +231,7 @@ export async function POST(request: NextRequest) {
             severity: String(rule.severity ?? ''),
           })),
           aiIntegration: aiIntegrationSnapshot,
-          previousReport: useIncremental ? (recentReports?.[0] ?? null) : null,
+          previousReport: previousReportSnapshot,
           fingerprint: analyzeFingerprint,
         },
       })

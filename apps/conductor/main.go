@@ -88,7 +88,7 @@ func main() {
 	}
 	go pipelineService.RunScheduleLoop(ctx, 30*time.Second)
 	go dispatch.RunAnalysisLoop(ctx, st, publisher, cfg.AnalyzeTimeout, cfg.Concurrency, 2*time.Second)
-	go dispatch.RunPipelineLoop(ctx, st, engine, 1, 2*time.Second)
+	go dispatch.RunPipelineLoop(ctx, st, engine, cfg.PipelineRunConcurrency, 2*time.Second)
 	go pipeline.RunStudioCallbackLoop(ctx, st, cfg.StudioURL, cfg.StudioToken, 2*time.Second)
 	go sourceManager.RunWarmupLoop(ctx, st, 30*time.Minute)
 

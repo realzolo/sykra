@@ -1,14 +1,24 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { exec, queryOne } from '@/lib/db';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requireProjectAccess } from '@/services/orgs';
+import { projectConfigColumnList } from '@/services/sql/projections';
 
 export const dynamic = 'force-dynamic';
 
 // Get project configuration
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
+
+type ProjectConfigRow = {
+  ignore_patterns: string[];
+  quality_threshold: number | null;
+  artifact_retention_days: number | null;
+  auto_analyze: boolean;
+  webhook_url: string | null;
+  ai_integration_id: string | null;
+};
 
 export async function GET(
   request: NextRequest,
@@ -24,8 +34,8 @@ export async function GET(
 
   const { id } = await params;
   await requireProjectAccess(id, user.id);
-  const data = await queryOne<Record<string, unknown>>(
-    `select ignore_patterns, quality_threshold, artifact_retention_days, auto_analyze, webhook_url, ai_integration_id
+  const data = await queryOne<ProjectConfigRow>(
+    `select ${projectConfigColumnList}
      from code_projects
      where id = $1`,
     [id]
@@ -62,7 +72,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
   }
-  const updateData: Record<string, unknown> = {};
+  const updateData: Partial<ProjectConfigRow> = {};
   if (ignorePatterns !== undefined) updateData.ignore_patterns = ignorePatterns;
   if (qualityThreshold !== undefined) updateData.quality_threshold = qualityThreshold;
   if (artifactRetentionDays !== undefined) {
@@ -104,10 +114,12 @@ export async function PATCH(
     }
   }
 
-  const fields = Object.keys(updateData);
+  const fields = Object.keys(updateData) as Array<keyof ProjectConfigRow>;
   if (fields.length === 0) {
-    const existing = await queryOne<Record<string, unknown>>(
-      `select * from code_projects where id = $1`,
+    const existing = await queryOne<ProjectConfigRow>(
+      `select ${projectConfigColumnList}
+       from code_projects
+       where id = $1`,
       [id]
     );
     return NextResponse.json(existing);
@@ -123,8 +135,10 @@ export async function PATCH(
     [id, ...values]
   );
 
-  const data = await queryOne<Record<string, unknown>>(
-    `select * from code_projects where id = $1`,
+  const data = await queryOne<ProjectConfigRow>(
+    `select ${projectConfigColumnList}
+     from code_projects
+     where id = $1`,
     [id]
   );
 

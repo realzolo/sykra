@@ -3,12 +3,12 @@ import type { NextRequest } from 'next/server';
 
 import { exec, queryOne } from '@/lib/db';
 import { verifyArtifactDownloadToken } from '@/lib/artifactDownloadToken';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 type DownloadEventStatus = 'success' | 'failed';
 

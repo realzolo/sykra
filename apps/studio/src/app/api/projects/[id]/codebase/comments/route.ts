@@ -4,7 +4,7 @@ import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 
-import { query, withTransaction } from '@/lib/db';
+import { exec, execTx, query, withTransaction } from '@/lib/db';
 import { codebaseService } from '@/services/CodebaseService';
 import {
   computeThreadProjection,
@@ -14,14 +14,21 @@ import {
 import { logger } from '@/services/logger';
 import { projectIdSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { requireProjectAccess } from '@/services/orgs';
+import {
+  aliasedColumnList,
+  codebaseCommentColumns,
+  codebaseCommentColumnList,
+  codebaseThreadColumnList,
+} from '@/services/sql/projections';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 const PROJECTION_ALGORITHM_VERSION = 'projection-v1';
+const codebaseCommentSelectList = aliasedColumnList(codebaseCommentColumns, 'c');
 
 const createCommentSchema = z.object({
   thread_id: z.string().uuid().optional(),
@@ -82,6 +89,88 @@ type ThreadProjectionRow = {
   confidence: number | null;
   reason_code: string;
 };
+
+type ThreadStatus = 'open' | 'resolved';
+
+type CodebaseCommentRow = {
+  id: string;
+  thread_id: string;
+  org_id: string;
+  project_id: string;
+  repo: string;
+  ref: string;
+  commit_sha: string;
+  path: string;
+  line: number;
+  line_end: number | null;
+  selection_text: string | null;
+  author_id: string | null;
+  author_email: string | null;
+  body: string;
+  created_at: string;
+};
+
+type CodebaseThreadRow = {
+  id: string;
+  org_id: string;
+  project_id: string;
+  repo: string;
+  ref: string;
+  commit_sha: string;
+  path: string;
+  line: number;
+  line_end: number | null;
+  status: ThreadStatus;
+  author_id: string | null;
+  author_email: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type CommentAssignee = {
+  user_id: string;
+  email: string | null;
+};
+
+type OrgMemberRow = {
+  user_id: string;
+};
+
+type AuthUserEmailRow = {
+  id: string;
+  email: string | null;
+};
+
+type CodebaseCommentListRow = CodebaseCommentRow & {
+  thread_status: ThreadStatus;
+  thread_line: number | null;
+  thread_line_end: number | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  projection_status: ThreadProjectionStatus;
+  projection_confidence: number | null;
+  projection_reason_code: string;
+  projection_target_commit: string;
+  anchor_commit_sha: string | null;
+  anchor_path: string | null;
+  assignees: CommentAssignee[];
+};
+
+type CodebaseCommentCreateResponseRow = CodebaseCommentRow & {
+  thread_status: ThreadStatus;
+  thread_line: number | null;
+  thread_line_end: number | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  assignees: CommentAssignee[];
+};
+
+type ThreadLocation = Pick<
+  CodebaseThreadRow,
+  'id' | 'org_id' | 'project_id' | 'repo' | 'ref' | 'commit_sha' | 'path' | 'line' | 'line_end'
+>;
 
 // List comments for a file (optionally filter by line)
 export async function GET(
@@ -192,8 +281,8 @@ export async function GET(
         return [];
       }
 
-      return query<Record<string, unknown>>(
-        `select c.*,
+      return query<CodebaseCommentListRow>(
+        `select ${codebaseCommentSelectList},
                 t.id as thread_id,
                 t.status as thread_status,
                 p.projected_line_start as thread_line,
@@ -288,11 +377,11 @@ export async function POST(
           anchorSnapshot,
         });
 
-        const insertResult = await client.query(
+        const insertResult = await client.query<CodebaseCommentRow>(
           `insert into codebase_comments
             (thread_id, org_id, project_id, repo, ref, commit_sha, path, line, line_end, selection_text, author_id, author_email, body, created_at)
            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
-           returning *`,
+           returning ${codebaseCommentColumnList}`,
           [
             thread.id,
             thread.org_id,
@@ -317,7 +406,7 @@ export async function POST(
 
         const assigneeIds = Array.from(new Set(validated.assignees ?? []));
         if (assigneeIds.length > 0) {
-          const memberResult = await client.query(
+          const memberResult = await client.query<OrgMemberRow>(
             `select user_id
              from org_members
              where org_id = $1 and user_id = any($2::uuid[])`,
@@ -326,7 +415,7 @@ export async function POST(
           const allowedIds = memberResult.rows.map((row) => row.user_id);
 
           if (allowedIds.length > 0) {
-            const userRows = await client.query(
+            const userRows = await client.query<AuthUserEmailRow>(
               `select id, email
                from auth_users
                where id = any($1::uuid[])`,
@@ -343,7 +432,7 @@ export async function POST(
               return `($${base + 1}, $${base + 2}, $${base + 3})`;
             });
 
-            await client.query(
+            await execTx(client,
               `insert into codebase_comment_assignees (comment_id, user_id, email)
                values ${placeholders.join(', ')}
                on conflict (comment_id, user_id) do nothing`,
@@ -352,8 +441,8 @@ export async function POST(
           }
         }
 
-        const enrichedResult = await client.query(
-          `select c.*,
+        const enrichedResult = await client.query<CodebaseCommentCreateResponseRow>(
+          `select ${codebaseCommentSelectList},
                  t.id as thread_id,
                  t.status as thread_status,
                  t.line as thread_line,
@@ -428,7 +517,7 @@ export async function PATCH(
         resolvedFieldsSql = `resolved_by = $${resolvedByIndex}, resolved_at = now()`;
       }
 
-      const result = await query<Record<string, unknown>>(
+      const result = await query<CodebaseThreadRow>(
         `update codebase_comment_threads
          set status = $${statusIndex},
              ${resolvedFieldsSql},
@@ -437,7 +526,7 @@ export async function PATCH(
            and project_id = $2
            and org_id = $3
            and repo = $4
-         returning *`,
+         returning ${codebaseThreadColumnList}`,
         values
       );
       return result[0] ?? null;
@@ -494,7 +583,7 @@ async function ensureThreadProjections(args: {
   const missing = threads.filter((thread) => !map.has(thread.id));
   if (missing.length === 0) return map;
 
-  await query(
+  await exec(
     `insert into codebase_thread_projection_jobs
       (project_id, org_id, repo, target_commit_sha, status, attempt, created_at, updated_at)
      values ($1,$2,$3,$4,'running',1,now(),now())
@@ -562,7 +651,7 @@ async function ensureThreadProjections(args: {
           };
     }
 
-    await query(
+    await exec(
       `insert into codebase_thread_projections
         (thread_id, org_id, project_id, repo, target_commit_sha, projected_path, projected_line_start, projected_line_end, status, confidence, reason_code, algorithm_version, computed_at)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
@@ -602,7 +691,7 @@ async function ensureThreadProjections(args: {
     });
   }
 
-  await query(
+  await exec(
     `update codebase_thread_projection_jobs
      set status = $3,
          updated_at = now(),
@@ -698,7 +787,7 @@ async function resolveOrCreateThread(args: {
   userEmail: string;
   input: z.infer<typeof createCommentSchema>;
   anchorSnapshot: ThreadAnchorSnapshot | null;
-}) {
+}): Promise<ThreadLocation> {
   const {
     client,
     projectId,
@@ -711,8 +800,8 @@ async function resolveOrCreateThread(args: {
   } = args;
 
   if (input.thread_id) {
-    const existingResult = await client.query(
-      `select *
+    const existingResult = await client.query<CodebaseThreadRow>(
+      `select ${codebaseThreadColumnList}
        from codebase_comment_threads
        where id = $1
          and project_id = $2
@@ -727,7 +816,7 @@ async function resolveOrCreateThread(args: {
     }
 
     if (existing.status === 'resolved') {
-      await client.query(
+      await execTx(client,
         `update codebase_comment_threads
          set status = 'open',
              resolved_by = null,
@@ -741,17 +830,7 @@ async function resolveOrCreateThread(args: {
       existing.resolved_at = null;
     }
 
-    return existing as {
-      id: string;
-      org_id: string;
-      project_id: string;
-      repo: string;
-      ref: string;
-      commit_sha: string;
-      path: string;
-      line: number;
-      line_end: number | null;
-    };
+    return existing;
   }
 
   const threadId = randomUUID();
@@ -768,11 +847,11 @@ async function resolveOrCreateThread(args: {
     ? input.line_end
     : null;
 
-  const createdResult = await client.query(
+  const createdResult = await client.query<CodebaseThreadRow>(
     `insert into codebase_comment_threads
       (id, org_id, project_id, repo, ref, commit_sha, path, line, line_end, status, author_id, author_email, created_at, updated_at)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,now(),now())
-     returning *`,
+     returning ${codebaseThreadColumnList}`,
     [
       threadId,
       projectOrgId,
@@ -804,7 +883,7 @@ async function resolveOrCreateThread(args: {
     anchorBlobSha: null,
   };
 
-  await client.query(
+  await execTx(client,
     `insert into codebase_thread_anchors
       (thread_id, org_id, project_id, repo, anchor_commit_sha, anchor_path, anchor_line_start, anchor_line_end, anchor_selection_text, anchor_context_before, anchor_context_after, anchor_blob_sha, created_at)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
@@ -825,15 +904,5 @@ async function resolveOrCreateThread(args: {
     ]
   );
 
-  return created as {
-    id: string;
-    org_id: string;
-    project_id: string;
-    repo: string;
-    ref: string;
-    commit_sha: string;
-    path: string;
-    line: number;
-    line_end: number | null;
-  };
+  return created;
 }

@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getReportById, deleteReport } from '@/services/db';
 import { query } from '@/lib/db';
+import type { JsonObject } from '@/lib/json';
 import { logger } from '@/services/logger';
 import { reportIdSchema } from '@/services/validation';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { requireReportAccess } from '@/services/orgs';
@@ -13,7 +14,22 @@ import { failTimedOutReport } from '@/services/reportTimeout';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
+
+type ReportSectionRow = {
+  phase: 'core' | 'quality' | 'security_performance' | 'suggestions' | string;
+  attempt: number;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'canceled' | string;
+  payload: JsonObject | null;
+  errorMessage: string | null;
+  durationMs: number | null;
+  tokensUsed: number | null;
+  tokenUsage: JsonObject | null;
+  estimatedCostUsd: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  updatedAt: string;
+};
 
 export async function GET(
   request: NextRequest,
@@ -40,8 +56,20 @@ export async function GET(
       return NextResponse.json({ error: 'Report not found' }, { status: 404 });
     }
     const sections = await withRetry(() =>
-      query<Record<string, unknown>>(
-        `select *
+      query<ReportSectionRow>(
+        `select
+            s.phase,
+            s.attempt,
+            s.status,
+            s.payload,
+            s."errorMessage",
+            s."durationMs",
+            s."tokensUsed",
+            s."tokenUsage",
+            s."estimatedCostUsd",
+            s."startedAt",
+            s."completedAt",
+            s."updatedAt"
            from (
              select distinct on (phase)
                     phase,

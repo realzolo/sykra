@@ -12,6 +12,7 @@ export const conductorPipelineSchema = z.object({
   name: z.string(),
   description: z.string(),
   is_active: z.boolean(),
+  auto_trigger: z.boolean(),
   current_version_id: z.string().uuid().nullable().optional(),
   concurrency_mode: z.enum(['allow', 'queue', 'cancel_previous']),
   trigger_schedule: z.string().nullable().optional(),

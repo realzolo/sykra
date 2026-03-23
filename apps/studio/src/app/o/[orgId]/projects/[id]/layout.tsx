@@ -40,7 +40,7 @@ export default async function ProjectScopedLayout({
         repo: project.repo,
         default_branch: project.default_branch,
         org_id: project.org_id,
-        ruleset_id: project.ruleset_id ?? undefined,
+        ...(project.ruleset_id ? { ruleset_id: project.ruleset_id } : {}),
       }}
       dict={dict}
     >

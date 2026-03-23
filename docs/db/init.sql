@@ -271,7 +271,6 @@ create table analysis_reports (
   ),
   score int check (score between 0 and 100),
   category_scores jsonb,
-  issues jsonb,
   summary text,
   error_message text,
   analysis_progress jsonb,
@@ -285,7 +284,6 @@ create table analysis_reports (
   performance_findings jsonb,
   ai_suggestions jsonb,
   code_explanations jsonb,
-  priority_issues jsonb,
   context_analysis jsonb,
   analysis_duration_ms int,
   tokens_used int,
@@ -300,6 +298,8 @@ create table analysis_reports (
 create index idx_analysis_reports_project_id on analysis_reports(project_id);
 create index idx_analysis_reports_org_id on analysis_reports(org_id);
 create index idx_analysis_reports_project_id_status on analysis_reports(project_id, status);
+create index idx_analysis_reports_org_status_created_at on analysis_reports(org_id, status, created_at desc);
+create index idx_analysis_reports_project_status_created_at on analysis_reports(project_id, status, created_at desc);
 create index idx_analysis_reports_created_at on analysis_reports(created_at desc);
 create index idx_analysis_reports_user_id on analysis_reports(user_id);
 create index idx_analysis_reports_status on analysis_reports(status);
@@ -384,6 +384,8 @@ create table analysis_issues (
 create index idx_analysis_issues_report_id on analysis_issues(report_id);
 create index idx_analysis_issues_status on analysis_issues(status);
 create index idx_analysis_issues_severity on analysis_issues(severity);
+create index idx_analysis_issues_report_status on analysis_issues(report_id, status);
+create index idx_analysis_issues_report_severity on analysis_issues(report_id, severity);
 create index idx_analysis_issues_priority on analysis_issues(priority desc);
 
 create table analysis_issue_comments (
@@ -859,7 +861,7 @@ create table pipeline_runs (
   started_at timestamptz,
   finished_at timestamptz,
   updated_at timestamptz not null default now(),
-  constraint pipeline_runs_status_check check (status in ('queued','running','success','failed','canceled','timed_out','skipped')),
+  constraint pipeline_runs_status_check check (status in ('queued','running','waiting_manual','success','failed','canceled','timed_out','skipped')),
   constraint pipeline_runs_trigger_check check (trigger_type in ('manual','push','schedule','webhook','rollback'))
 );
 
@@ -880,7 +882,7 @@ create table pipeline_jobs (
   started_at timestamptz,
   finished_at timestamptz,
   updated_at timestamptz not null default now(),
-  constraint pipeline_jobs_status_check check (status in ('queued','running','success','failed','canceled','timed_out','skipped')),
+  constraint pipeline_jobs_status_check check (status in ('queued','running','waiting_manual','success','failed','canceled','timed_out','skipped')),
   unique (run_id, job_key)
 );
 
@@ -899,7 +901,7 @@ create table pipeline_steps (
   started_at timestamptz,
   finished_at timestamptz,
   updated_at timestamptz not null default now(),
-  constraint pipeline_steps_status_check check (status in ('queued','running','success','failed','canceled','timed_out','skipped')),
+  constraint pipeline_steps_status_check check (status in ('queued','running','waiting_manual','success','failed','canceled','timed_out','skipped')),
   unique (job_id, step_key)
 );
 
@@ -1114,11 +1116,11 @@ begin
       new.id,
       new.score,
       new.category_scores,
-      (select count(*) from jsonb_array_elements(coalesce(new.issues, '[]'::jsonb))),
-      (select count(*) from jsonb_array_elements(coalesce(new.issues, '[]'::jsonb)) where (value->>'severity')::text = 'critical'),
-      (select count(*) from jsonb_array_elements(coalesce(new.issues, '[]'::jsonb)) where (value->>'severity')::text = 'high'),
-      (select count(*) from jsonb_array_elements(coalesce(new.issues, '[]'::jsonb)) where (value->>'severity')::text = 'medium'),
-      (select count(*) from jsonb_array_elements(coalesce(new.issues, '[]'::jsonb)) where (value->>'severity')::text = 'low')
+      (select count(*) from analysis_issues i where i.report_id = new.id),
+      (select count(*) from analysis_issues i where i.report_id = new.id and i.severity = 'critical'),
+      (select count(*) from analysis_issues i where i.report_id = new.id and i.severity = 'high'),
+      (select count(*) from analysis_issues i where i.report_id = new.id and i.severity = 'medium'),
+      (select count(*) from analysis_issues i where i.report_id = new.id and i.severity = 'low')
     )
     on conflict (project_id, snapshot_date) do update
     set

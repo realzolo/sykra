@@ -19,20 +19,24 @@ if (process.env.NODE_ENV !== 'production') {
   global.__pgPool = pool;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function query<T = any>(text: string, params: unknown[] = []): Promise<T[]> {
+export async function query<T extends object>(text: string, params: unknown[] = []): Promise<T[]> {
   const { rows } = await pool.query(text, params);
   return rows as T[];
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function queryOne<T = any>(text: string, params: unknown[] = []): Promise<T | null> {
+export async function queryOne<T extends object>(text: string, params: unknown[] = []): Promise<T | null> {
   const rows = await query<T>(text, params);
   return rows[0] ?? null;
 }
 
 export async function exec(text: string, params: unknown[] = []): Promise<void> {
   await pool.query(text, params);
+}
+
+export type NoResultRow = { _never?: never };
+
+export async function execTx(client: PoolClient, text: string, params: unknown[] = []): Promise<void> {
+  await client.query<NoResultRow>(text, params);
 }
 
 export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {

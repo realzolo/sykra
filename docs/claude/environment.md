@@ -45,6 +45,7 @@ ENCRYPTION_KEY=             # Same key used by studio for decrypting secrets
 STUDIO_URL=                 # Studio base URL (Conductor -> Studio), used by pipeline executors
 STUDIO_TOKEN=               # Token presented to Studio as X-Conductor-Token (defaults to CONDUCTOR_TOKEN; dev falls back to "dev-conductor")
 PIPELINE_CONCURRENCY=       # Max concurrent pipeline jobs
+PIPELINE_RUN_CONCURRENCY=   # Max concurrent pipeline runs claimed by dispatch loop (default 1)
 WORKER_LEASE_TTL=           # Worker heartbeat lease window (default 45s)
 CONDUCTOR_DATA_DIR=            # Local logs/artifacts root
 PIPELINE_LOG_RETENTION_DAYS=
@@ -77,6 +78,7 @@ url = ""
 
 [pipeline]
 concurrency = 4
+run_concurrency = 1
 log_retention_days = 30
 artifact_retention_days = 30
 

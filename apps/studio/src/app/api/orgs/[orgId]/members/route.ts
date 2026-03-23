@@ -6,6 +6,13 @@ import { getOrgMemberRole } from '@/services/orgs';
 
 const roles = ['owner', 'admin', 'reviewer', 'member'] as const;
 type OrgRole = (typeof roles)[number];
+type OrgMemberRow = {
+  user_id: string;
+  role: OrgRole;
+  status: string;
+  created_at: string;
+  email: string | null;
+};
 
 function isValidRole(value: string): value is OrgRole {
   return roles.includes(value as OrgRole);
@@ -24,7 +31,7 @@ export async function GET(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const members = await query<Record<string, unknown>>(
+  const members = await query<OrgMemberRow>(
     `select m.user_id, m.role, m.status, m.created_at, u.email
      from org_members m
      left join auth_users u on u.id = m.user_id
@@ -84,7 +91,7 @@ export async function PATCH(
     [nextRole, orgId, userId]
   );
 
-  const updated = await queryOne<Record<string, unknown>>(
+  const updated = await queryOne<OrgMemberRow>(
     `select m.user_id, m.role, m.status, m.created_at, u.email
      from org_members m
      left join auth_users u on u.id = m.user_id

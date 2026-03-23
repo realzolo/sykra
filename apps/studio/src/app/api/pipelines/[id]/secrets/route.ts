@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { query, exec } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
-import { getPipeline } from '@/services/conductorClient';
+import { getPipeline } from '@/services/conductorGateway';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import {
   PIPELINE_SECRET_MAX_COUNT,
@@ -17,7 +17,7 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 type SecretMeta = {
   name: string;

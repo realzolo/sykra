@@ -3,17 +3,25 @@ import type { NextRequest } from 'next/server';
 import { getReports } from '@/services/db';
 import { logger } from '@/services/logger';
 import { withRetry, formatErrorResponse } from '@/services/retry';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, requireProjectAccess } from '@/services/orgs';
 import { isConductorAuthorized } from '@/services/conductorAuth';
 import { projectIdSchema } from '@/services/validation';
 import { query } from '@/lib/db';
 import { failTimedOutReports } from '@/services/reportTimeout';
+import { ANALYSIS_RESULT_READY_STATUSES_SQL } from '@/services/statuses';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
+
+type ConductorReportScoreRow = {
+  id: string;
+  status: 'done' | 'partial_failed';
+  score: number;
+  created_at: string;
+};
 
 export async function GET(request: NextRequest) {
   const rateLimitResponse = rateLimiter(request);
@@ -34,11 +42,11 @@ export async function GET(request: NextRequest) {
       const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(50, Math.trunc(parsedLimit))) : 20;
 
       const rows = await withRetry(() =>
-        query<Record<string, unknown>>(
+        query<ConductorReportScoreRow>(
           `select id, status, score, created_at
            from analysis_reports
            where project_id = $1
-             and status in ('done', 'partial_failed')
+             and status in (${ANALYSIS_RESULT_READY_STATUSES_SQL})
              and score is not null
            order by created_at desc
            limit $2`,

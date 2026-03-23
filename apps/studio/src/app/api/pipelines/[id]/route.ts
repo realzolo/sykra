@@ -3,16 +3,16 @@ import type { NextRequest } from 'next/server';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { updatePipelineSchema, validateRequest } from '@/services/validation';
-import { deletePipeline, getPipeline, updatePipeline } from '@/services/conductorClient';
+import { deletePipeline, getPipeline, updatePipeline } from '@/services/conductorGateway';
 import { query as dbQuery } from '@/lib/db';
 import type { ConductorUpdatePipelineRequest } from '@sykra/contracts/conductor';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const rateLimitResponse = rateLimiter(request);

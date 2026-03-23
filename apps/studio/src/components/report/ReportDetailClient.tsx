@@ -529,9 +529,8 @@ export default function ReportDetailClient({
   const primaryCommitSha = report.commits?.[0]?.sha;
 
   function codebaseHrefForIssue(issue: Issue) {
-    const base = withOrgPrefix(pathname, `/projects/${projectId}`);
+    const base = withOrgPrefix(pathname, `/projects/${projectId}/codebase`);
     const params = new URLSearchParams();
-    params.set('tab', 'codebase');
     if (issue.file) params.set('path', issue.file);
     if (primaryCommitSha) params.set('ref', primaryCommitSha);
     if (issue.line) params.set('line', String(issue.line));

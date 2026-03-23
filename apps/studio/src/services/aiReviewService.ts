@@ -4,6 +4,7 @@
 
 import { resolveAIIntegration } from './integrations';
 import { detectLanguagesInDiff, getLanguageSpecificRules, LANGUAGE_CONFIGS } from './languages';
+import { asJsonObject } from '@/lib/json';
 import { DEFAULT_OUTPUT_LANGUAGE, getOutputLanguageLabel, parseOutputLanguage } from '@/lib/outputLanguage';
 
 export interface ReviewResult {
@@ -112,10 +113,7 @@ export async function analyzeCode(
   const { client, integration } = await resolveAIIntegration(projectId);
   let outputLanguageCode = DEFAULT_OUTPUT_LANGUAGE;
   try {
-    const config =
-      integration && typeof integration.config === 'object' && integration.config !== null
-        ? integration.config as Record<string, unknown>
-        : {};
+    const config = integration ? asJsonObject(integration.config) ?? {} : {};
     outputLanguageCode = parseOutputLanguage(config.outputLanguage);
   } catch {
     outputLanguageCode = DEFAULT_OUTPUT_LANGUAGE;

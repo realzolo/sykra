@@ -167,6 +167,12 @@ func (a *API) handlePipelineByID(w http.ResponseWriter, r *http.Request) {
 					limit = value
 				}
 			}
+			if limit < 1 {
+				limit = 1
+			}
+			if limit > 100 {
+				limit = 100
+			}
 			items, err := a.service.ListRuns(r.Context(), pipelineID, limit)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, err.Error())

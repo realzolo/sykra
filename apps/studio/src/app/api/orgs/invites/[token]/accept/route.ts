@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
+import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { exec, queryOne } from '@/lib/db';
 import { auditLogger, extractClientInfo } from '@/services/audit';
 import { ORG_COOKIE } from '@/services/orgs';
+import { orgInviteAcceptColumnList } from '@/services/sql/projections';
 
 export const dynamic = 'force-dynamic';
 
-const rateLimiter = createRateLimiter(RATE_LIMITS.general);
+const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
 type InviteRow = {
   id: string;
@@ -31,7 +32,9 @@ export async function POST(
 
   const { token } = await params;
   const invite = await queryOne<InviteRow>(
-    `select * from org_invites where token = $1`,
+    `select ${orgInviteAcceptColumnList}
+     from org_invites
+     where token = $1`,
     [token]
   );
 
