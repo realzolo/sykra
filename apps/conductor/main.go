@@ -37,7 +37,7 @@ func main() {
 		cfg.WorkerLeaseTTL,
 	)
 	if err := requireCommandAvailable("docker", "info"); err != nil {
-		log.Fatalf("docker preflight failed: %v", err)
+		log.Printf("WARNING: docker is not available: %v (pipeline jobs requiring Docker will fail at runtime)", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
