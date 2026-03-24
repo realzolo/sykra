@@ -59,10 +59,6 @@ function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export function isEmailVerificationRequired() {
-  return true;
-}
-
 export async function getSession(): Promise<{ user: AuthUser; session: AuthSession; token: string } | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
@@ -178,6 +174,8 @@ export async function sendVerificationEmail(email: string, token: string, baseUr
 
   const text = [
     'Verify your email address to complete registration.',
+    '',
+    `Verification code: ${token}`,
     '',
     `Open this link: ${verifyUrl.toString()}`,
     '',

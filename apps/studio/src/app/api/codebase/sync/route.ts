@@ -17,7 +17,7 @@ const orgIdSchema = z.string().uuid('Invalid org ID');
 
 export async function POST(request: NextRequest) {
   const token = request.headers.get('x-task-token');
-  const isTaskConductor = Boolean(process.env.TASK_CONDUCTOR_TOKEN && token === process.env.TASK_CONDUCTOR_TOKEN);
+  const isTaskConductor = Boolean(process.env.CONDUCTOR_TOKEN && token === process.env.CONDUCTOR_TOKEN);
   const user = isTaskConductor ? null : await requireUser();
   if (!isTaskConductor && !user) return unauthorized();
 

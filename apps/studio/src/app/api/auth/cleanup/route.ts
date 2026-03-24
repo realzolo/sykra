@@ -6,12 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   const token = request.headers.get('x-task-token');
-  if (process.env.TASK_CONDUCTOR_TOKEN) {
-    if (token !== process.env.TASK_CONDUCTOR_TOKEN) {
-      const user = await requireUser();
-      if (!user) return unauthorized();
-    }
-  } else {
+  if (!process.env.CONDUCTOR_TOKEN || token !== process.env.CONDUCTOR_TOKEN) {
     const user = await requireUser();
     if (!user) return unauthorized();
   }

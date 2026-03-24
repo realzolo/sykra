@@ -99,6 +99,7 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 - **Dynamic pages**: any dashboard page that depends on auth/session or database reads must use `export const dynamic = 'force-dynamic'`
 - **Dynamic route params**: in pages and route handlers, `params` is async — `const { id } = await params` (avoid sync dynamic APIs errors)
 - **Self-hosted request timeouts**: long-running routes such as analyze/chat should be protected by the deployment platform or reverse proxy; do not rely on Vercel-specific timeout behavior in self-hosted environments.
+- **Auth email delivery requirement**: email-password registration and verification resend endpoints must fail fast when live email delivery is not configured (`503 EMAIL_DELIVERY_UNAVAILABLE`); do not silently degrade to console-only logging.
 
 ## Common Commands
 
@@ -107,7 +108,7 @@ pnpm dev     # Console dev server (port 8109)
 pnpm build   # Console production build (TypeScript check)
 pnpm start   # Console production server
 pnpm lint    # Console ESLint
-pnpm codebase:cleanup   # Cleanup stale workspaces (uses TASK_CONDUCTOR_TOKEN; optional STUDIO_BASE_URL)
+pnpm codebase:cleanup   # Cleanup stale workspaces (uses CONDUCTOR_TOKEN; optional STUDIO_BASE_URL)
 psql "$DATABASE_URL" -f docs/db/init.sql   # Initialize schema (fresh DB)
 cd apps/conductor && go run .   # Conductor service (reads config.toml if present)
 cd apps/worker && go run .      # Deploy worker service

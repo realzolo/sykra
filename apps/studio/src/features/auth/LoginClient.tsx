@@ -25,6 +25,10 @@ interface LoginClientProps {
   };
 }
 
+type LoginErrorResponse = {
+  code?: string;
+};
+
 export default function LoginClient({ dict, locale, legalLinks }: LoginClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -32,6 +36,7 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [signingUp, setSigningUp] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -57,45 +62,62 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
     return '/projects';
   }
 
+  function mapLoginErrorMessage(code: string | undefined, status: number) {
+    if (code === 'INVALID_CREDENTIALS') return dict.auth.invalidCredentials;
+    if (code === 'ACCOUNT_DISABLED') return dict.auth.accountDisabled;
+    if (code === 'ACCOUNT_LOCKED') return dict.auth.accountLocked;
+    if (code === 'RATE_LIMITED') return dict.auth.tooManyAttempts;
+    if (code === 'EMAIL_NOT_VERIFIED') return dict.auth.verifyEmailRequired;
+    if (status === 401) return dict.auth.invalidCredentials;
+    return dict.auth.loginFailed;
+  }
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
+    const normalizedEmail = email.trim();
 
+    if (!normalizedEmail) {
+      setLoginError(dict.auth.emailRequired);
+      emailRef.current?.focus();
+      return;
+    }
+
+    if (!password) {
+      setLoginError(dict.auth.passwordRequired);
+      return;
+    }
+
+    setLoginError(null);
     setLoading(true);
 
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: normalizedEmail, password }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => ({} as LoginErrorResponse));
         if (data?.code === 'EMAIL_NOT_VERIFIED') {
           await fetch('/api/auth/resend-verification', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: email.trim() }),
+            body: JSON.stringify({ email: normalizedEmail }),
           }).catch(() => {});
-          toast.error(dict.auth.verifyEmailRequired);
+          setLoginError(dict.auth.verifyEmailRequired);
           toast.success(dict.auth.verifyEmailSent);
           return;
         }
-        if (data?.code === 'ACCOUNT_LOCKED') {
-          toast.error(dict.auth.accountLocked);
-          return;
-        }
-        if (data?.code === 'RATE_LIMITED') {
-          toast.error(dict.auth.tooManyAttempts);
-          return;
-        }
-        throw new Error('login failed');
+        setLoginError(mapLoginErrorMessage(data?.code, res.status));
+        return;
       }
 
+      setLoginError(null);
       const nextPath = await resolveOrgRedirect();
       router.push(nextPath);
       router.refresh();
     } catch {
-      toast.error(dict.auth.loginFailed);
+      setLoginError(dict.auth.loginFailed);
     } finally {
       setLoading(false);
     }
@@ -128,10 +150,18 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      if (!res.ok) throw new Error('signup failed');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({} as LoginErrorResponse));
+        if (data?.code === 'EMAIL_DELIVERY_UNAVAILABLE' || res.status === 503) {
+          toast.error(dict.auth.emailDeliveryUnavailable);
+          return;
+        }
+        throw new Error('signup failed');
+      }
 
       toast.success(dict.auth.verifyEmailSent);
       setMode('login');
+      setLoginError(null);
     } catch {
       toast.error(dict.auth.signUpFailed);
     } finally {
@@ -231,8 +261,12 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
                       ref={emailRef}
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        setLoginError(null);
+                      }}
                       placeholder={dict.auth.emailPlaceholder}
+                      autoComplete="email"
                       required
                       disabled={loading}
                       className="h-10"
@@ -246,18 +280,27 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
                     <Input
                       type="password"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        setLoginError(null);
+                      }}
                       placeholder={dict.auth.passwordPlaceholder}
+                      autoComplete="current-password"
                       required
                       disabled={loading}
                       className="h-10"
                     />
                   </div>
+                  {loginError ? (
+                    <div role="alert" className="rounded-[8px] border border-danger/30 bg-danger/10 px-3 py-2 text-copy-12 text-danger">
+                      {loginError}
+                    </div>
+                  ) : null}
                   <div className="flex justify-end">
                     <button
                       type="button"
                       onClick={() => {
-                        setResetEmail(email);
+                        setResetEmail(email.trim());
                         setResetOpen(true);
                       }}
                       className="text-xs text-muted-foreground hover:underline"
@@ -270,7 +313,7 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
                     type="submit"
                     variant="default"
                     className="h-11 w-full shadow-sm border border-border"
-                    disabled={loading}
+                    disabled={loading || !email.trim() || !password}
                   >
                     {loading ? dict.common.loading : dict.auth.signIn}
                   </Button>
@@ -287,6 +330,7 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder={dict.auth.emailPlaceholder}
+                      autoComplete="email"
                       required
                       disabled={signingUp}
                       className="h-10"
@@ -302,6 +346,7 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder={dict.auth.passwordPlaceholder}
+                      autoComplete="new-password"
                       required
                       disabled={signingUp}
                       className="h-10"
@@ -343,7 +388,10 @@ export default function LoginClient({ dict, locale, legalLinks }: LoginClientPro
                 {mode === 'login' ? dict.auth.signUpPrompt : dict.auth.signInPrompt}{' '}
                 <button
                   type="button"
-                  onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
+                  onClick={() => {
+                    setMode(mode === 'login' ? 'signup' : 'login');
+                    setLoginError(null);
+                  }}
                   className="text-foreground hover:underline"
                 >
                   {mode === 'login' ? dict.auth.signUpAction : dict.auth.signInAction}

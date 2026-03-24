@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { formatErrorResponse } from '@/services/retry';
-import { createEmailVerification, createUser, deleteAuthUser, isEmailVerificationRequired, sendVerificationEmail } from '@/services/auth';
+import { createEmailVerification, createUser, deleteAuthUser, sendVerificationEmail } from '@/services/auth';
 import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { auditLogger, extractClientInfo } from '@/services/audit';
+import { getEmailDeliveryStatus } from '@/services/email';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +13,6 @@ const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.strict);
 type RegisterResponse = {
   user: { id: string; email: string | null; displayName: string | null };
   verificationRequired: boolean;
-  verificationToken?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -31,19 +31,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
+    const deliveryStatus = getEmailDeliveryStatus();
+    if (deliveryStatus.mode !== 'live') {
+      return NextResponse.json(
+        {
+          error: 'Email delivery is not configured for live sending',
+          code: 'EMAIL_DELIVERY_UNAVAILABLE',
+        },
+        { status: 503 }
+      );
+    }
+
     const user = await createUser(email, password, displayName);
-    const verificationRequired = isEmailVerificationRequired();
-    let verificationToken: string | undefined;
-    if (verificationRequired) {
-      const verification = await createEmailVerification(user.id);
-      verificationToken = verification.token;
-      const baseUrl = process.env.STUDIO_BASE_URL?.trim() || new URL(request.url).origin;
-      try {
-        await sendVerificationEmail(user.email ?? email, verification.token, baseUrl);
-      } catch (error) {
-        await deleteAuthUser(user.id);
-        throw error;
-      }
+    const verification = await createEmailVerification(user.id);
+    const baseUrl = process.env.STUDIO_BASE_URL?.trim() || new URL(request.url).origin;
+    try {
+      await sendVerificationEmail(user.email ?? email, verification.token, baseUrl);
+    } catch (error) {
+      await deleteAuthUser(user.id);
+      throw error;
     }
 
     const clientInfo = extractClientInfo(request);
@@ -57,12 +63,8 @@ export async function POST(request: NextRequest) {
 
     const payload: RegisterResponse = {
       user: { id: user.id, email: user.email, displayName },
-      verificationRequired,
+      verificationRequired: true,
     };
-
-    if (process.env.NODE_ENV !== 'production' && verificationToken) {
-      payload.verificationToken = verificationToken;
-    }
 
     return NextResponse.json(payload, { status: 201 });
   } catch (err) {

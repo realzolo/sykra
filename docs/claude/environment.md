@@ -11,12 +11,11 @@ GITHUB_CLIENT_ID=            # GitHub OAuth app client ID
 GITHUB_CLIENT_SECRET=        # GitHub OAuth app client secret
 GITHUB_CALLBACK_URL=         # Optional override for the GitHub OAuth callback URL
 CONDUCTOR_BASE_URL=            # Conductor base URL (e.g. http://localhost:8200)
-CONDUCTOR_TOKEN=               # Shared token for Conductor auth
-TASK_CONDUCTOR_TOKEN=          # Optional, protects internal task endpoints (e.g. /api/codebase/sync)
-EMAIL_PROVIDER=             # Email provider for notifications: console|resend
-EMAIL_FROM=                 # From address (required for resend)
-RESEND_API_KEY=             # Resend API key (required when EMAIL_PROVIDER=resend)
-STUDIO_BASE_URL=            # Public base URL for links included in emails (optional)
+CONDUCTOR_TOKEN=               # Shared token for Conductor auth; also used for internal task endpoints (e.g. /api/codebase/sync)
+EMAIL_PROVIDER=             # Email provider for auth verification/notifications: resend (required for live delivery)
+EMAIL_FROM=                 # From address (required)
+RESEND_API_KEY=             # Resend API key (required)
+STUDIO_BASE_URL=            # Public base URL for links included in emails (required for verification links)
 ANALYZE_RATE_LIMIT_WINDOW_MS=          # Analyze rate-limit window in ms (default 60000)
 ANALYZE_RATE_LIMIT_USER_PROJECT_MAX=   # Max analyze requests/window per org+user+project (default 6)
 ANALYZE_RATE_LIMIT_ORG_MAX=            # Max analyze requests/window per org (default 60)
@@ -35,6 +34,8 @@ AI_COST_OUTPUT_PER_MILLION_USD=         # Optional cost model for phase-level co
 
 Environment files for Studio live under `apps/studio` (e.g. `apps/studio/.env`).
 
+Auth email verification is strict: `/api/auth/register` and `/api/auth/resend-verification` require live email delivery configuration and return `503 EMAIL_DELIVERY_UNAVAILABLE` when email delivery is not configured.
+
 ## Conductor Env (apps/conductor)
 
 ```
@@ -43,7 +44,7 @@ CONDUCTOR_TOKEN=
 DATABASE_URL=               # Postgres connection string
 ENCRYPTION_KEY=             # Same key used by studio for decrypting secrets
 STUDIO_URL=                 # Studio base URL (Conductor -> Studio), used by pipeline executors
-STUDIO_TOKEN=               # Token presented to Studio as X-Conductor-Token (defaults to CONDUCTOR_TOKEN; dev falls back to "dev-conductor")
+STUDIO_TOKEN=               # Optional: token presented to Studio as X-Conductor-Token (defaults to CONDUCTOR_TOKEN)
 PIPELINE_CONCURRENCY=       # Max concurrent pipeline jobs
 PIPELINE_RUN_CONCURRENCY=   # Max concurrent pipeline runs claimed by dispatch loop (default 1)
 WORKER_LEASE_TTL=           # Worker heartbeat lease window (default 45s)
@@ -90,7 +91,6 @@ encryption_key = ""
 
 [studio]
 url = ""
-token = ""
 ```
 
 ## Worker Env (apps/worker)

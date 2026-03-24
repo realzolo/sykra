@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createEmailVerification, isEmailVerificationRequired, sendVerificationEmail } from '@/services/auth';
+import { createEmailVerification, sendVerificationEmail } from '@/services/auth';
 import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { queryOne } from '@/lib/db';
+import { getEmailDeliveryStatus } from '@/services/email';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +11,6 @@ const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.strict);
 
 type ResendVerificationResponse = {
   success: boolean;
-  verificationToken?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -19,8 +19,15 @@ export async function POST(request: NextRequest) {
     return rateLimitResponse;
   }
 
-  if (!isEmailVerificationRequired()) {
-    return NextResponse.json({ success: true, verificationRequired: false });
+  const deliveryStatus = getEmailDeliveryStatus();
+  if (deliveryStatus.mode !== 'live') {
+    return NextResponse.json(
+      {
+        error: 'Email delivery is not configured for live sending',
+        code: 'EMAIL_DELIVERY_UNAVAILABLE',
+      },
+      { status: 503 }
+    );
   }
 
   const body = await request.json();
@@ -35,18 +42,12 @@ export async function POST(request: NextRequest) {
     [email]
   );
 
-  let token: string | undefined;
   if (user && user.status !== 'disabled' && !user.email_verified_at) {
     const verification = await createEmailVerification(user.id);
-    token = verification.token;
     const baseUrl = process.env.STUDIO_BASE_URL?.trim() || new URL(request.url).origin;
     await sendVerificationEmail(email, verification.token, baseUrl);
   }
 
   const payload: ResendVerificationResponse = { success: true };
-  if (process.env.NODE_ENV !== 'production' && token) {
-    payload.verificationToken = token;
-  }
-
   return NextResponse.json(payload);
 }

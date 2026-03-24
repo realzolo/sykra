@@ -20,6 +20,3 @@ encryption_key = ""
 [studio]
 # Base URL for Studio (used for Conductor -> Studio callbacks/events)
 url = "http://localhost:8109"
-# Optional: token presented to Studio as `X-Conductor-Token`. If empty, Conductor will
-# fall back to the main `CONDUCTOR_TOKEN` env var / `[conductor].token` value.
-token = ""
