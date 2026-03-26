@@ -2,6 +2,6 @@ import { cn } from '@/lib/utils';
 
 export function Skeleton({ className }: { className?: string }) {
   return (
-    <div className={cn('skeleton rounded-md', className)} />
+    <span aria-hidden className={cn('skeleton block rounded-md', className)} />
   );
 }
