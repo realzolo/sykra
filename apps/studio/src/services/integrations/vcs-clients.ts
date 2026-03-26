@@ -125,37 +125,37 @@ export class GitHubClient implements VCSClient {
           affiliation: 'owner,collaborator,organization_member',
         }) as Promise<GitHubRepoLite[]>;
 
-      if (targetOwner) {
-        try {
-          const orgRepos = await this.octokit.paginate(this.octokit.rest.repos.listForOrg, {
-            org: targetOwner,
-            per_page: 100,
-            sort: 'updated',
-            type: 'all',
-          }) as GitHubRepoLite[];
-
-          if (orgRepos.length > 0) {
-            return orgRepos.map(mapRepo);
-          }
-        } catch (error) {
-          console.warn('Failed to list org repositories, falling back to user repositories:', error);
-        }
-
-        const userRepos = await listForUser();
-        const filtered = userRepos.filter((repo) => {
-          const repoOwner = typeof repo.owner === 'string' ? repo.owner : repo.owner?.login;
-          return repoOwner?.toLowerCase() === targetOwner.toLowerCase();
-        });
-
-        if (filtered.length > 0) {
-          return filtered.map(mapRepo);
-        }
-
-        return userRepos.map(mapRepo);
-      }
+      const listForOrg = async (org: string) =>
+        this.octokit.paginate(this.octokit.rest.repos.listForOrg, {
+          org,
+          per_page: 100,
+          sort: 'updated',
+          type: 'all',
+        }) as Promise<GitHubRepoLite[]>;
 
       const userRepos = await listForUser();
-      return userRepos.map(mapRepo);
+
+      if (!targetOwner) {
+        return userRepos.map(mapRepo);
+      }
+      const normalizedTargetOwner = targetOwner.toLowerCase();
+
+      const filteredUserRepos = userRepos.filter((repo) => {
+        const repoOwner = typeof repo.owner === 'string' ? repo.owner : repo.owner?.login;
+        return repoOwner?.toLowerCase() === normalizedTargetOwner;
+      });
+      if (filteredUserRepos.length > 0) {
+        return filteredUserRepos.map(mapRepo);
+      }
+
+      // Fallback for token modes where /user/repos omits organization repositories.
+      try {
+        const orgRepos = await listForOrg(targetOwner);
+        return orgRepos.map(mapRepo);
+      } catch (error) {
+        console.warn('Failed to list org repositories after /user/repos filtering:', error);
+        return [];
+      }
     } catch (error) {
       console.error('Failed to get repositories:', error);
       throw new Error('Failed to fetch repositories from GitHub');
