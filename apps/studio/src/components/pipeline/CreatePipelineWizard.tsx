@@ -24,12 +24,15 @@ import { useProject } from "@/lib/projectContext";
 import type {
   PipelineConfig,
   PipelineEnvironment,
+  PipelineEnvironmentDefinition,
   PipelineConfigDefaults,
   PipelineJobDiagnostic,
 } from "@/services/pipelineTypes";
 import {
   analyzePipelineConfig,
+  DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS,
   createDefaultPipelineConfig,
+  normalizePipelineEnvironmentDefinitions,
   normalizePipelineJobs,
   normalizeStageSettings,
 } from "@/services/pipelineTypes";
@@ -48,7 +51,6 @@ type Props = {
 type WizardStep = "basic" | "jobs" | "notifications";
 
 const WIZARD_STEPS: WizardStep[] = ["basic", "jobs", "notifications"];
-const ENV_OPTIONS: PipelineEnvironment[] = ["development", "staging", "production"];
 
 export default function CreatePipelineWizard({
   open,
@@ -67,6 +69,9 @@ export default function CreatePipelineWizard({
   const [description, setDescription] = useState("");
   const [config, setConfig] = useState<PipelineConfig>(() => createDefaultPipelineConfig("", project.default_branch));
   const [inferredDefaults, setInferredDefaults] = useState<PipelineConfigDefaults | null>(null);
+  const [environmentOptions, setEnvironmentOptions] = useState<PipelineEnvironmentDefinition[]>(
+    DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item }))
+  );
   const configDirtyRef = useRef(false);
 
   const normalizedJobs = useMemo(
@@ -122,6 +127,46 @@ export default function CreatePipelineWizard({
       controller.abort();
     };
   }, [open, projectId, project.default_branch]);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const controller = new AbortController();
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/runtime-settings", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const payload = await response.json().catch(() => ({}));
+        if (!active) return;
+        const nextOptions = normalizePipelineEnvironmentDefinitions(payload?.settings?.pipelineEnvironments);
+        setEnvironmentOptions(nextOptions);
+      } catch {
+        if (active) {
+          setEnvironmentOptions(DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item })));
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (environmentOptions.length === 0) return;
+    const environmentKeys = environmentOptions.map((item) => item.key);
+    if (!config.environment || !environmentKeys.includes(config.environment)) {
+      setConfig((current) => ({
+        ...current,
+        environment: environmentKeys[0] ?? "production",
+      }));
+    }
+  }, [config.environment, environmentOptions]);
 
   function updateConfig(updater: (current: PipelineConfig) => PipelineConfig) {
     configDirtyRef.current = true;
@@ -309,9 +354,9 @@ export default function CreatePipelineWizard({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {ENV_OPTIONS.map((environment) => (
-                      <SelectItem key={environment} value={environment}>
-                        {p.env[environment]}
+                    {environmentOptions.map((environment) => (
+                      <SelectItem key={environment.key} value={environment.key}>
+                        {environment.label}
                       </SelectItem>
                     ))}
                   </SelectContent>

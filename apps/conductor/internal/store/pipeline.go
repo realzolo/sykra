@@ -12,24 +12,40 @@ import (
 )
 
 type Pipeline struct {
-	ID                 string     `json:"id"`
-	OrgID              string     `json:"org_id"`
-	ProjectID          *string    `json:"project_id"`
-	Name               string     `json:"name"`
-	Description        string     `json:"description"`
-	IsActive           bool       `json:"is_active"`
-	AutoTrigger        bool       `json:"auto_trigger"`
-	CurrentVersionID   *string    `json:"current_version_id,omitempty"`
-	ConcurrencyMode    string     `json:"concurrency_mode"`
-	TriggerSchedule    *string    `json:"trigger_schedule,omitempty"`
-	LastScheduledAt    *time.Time `json:"last_scheduled_at,omitempty"`
-	NextScheduledAt    *time.Time `json:"next_scheduled_at,omitempty"`
-	SourceBranch       string     `json:"source_branch,omitempty"`
-	SourceBranchSource string     `json:"source_branch_source,omitempty"`
-	CreatedBy          *string    `json:"created_by,omitempty"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
-	LatestVersion      int        `json:"latest_version"`
+	ID                 string           `json:"id"`
+	OrgID              string           `json:"org_id"`
+	ProjectID          *string          `json:"project_id"`
+	Name               string           `json:"name"`
+	Description        string           `json:"description"`
+	Environment        string           `json:"environment"`
+	IsActive           bool             `json:"is_active"`
+	LastRun            *PipelineLastRun `json:"last_run"`
+	AutoTrigger        bool             `json:"auto_trigger"`
+	CurrentVersionID   *string          `json:"current_version_id,omitempty"`
+	ConcurrencyMode    string           `json:"concurrency_mode"`
+	TriggerSchedule    *string          `json:"trigger_schedule,omitempty"`
+	LastScheduledAt    *time.Time       `json:"last_scheduled_at,omitempty"`
+	NextScheduledAt    *time.Time       `json:"next_scheduled_at,omitempty"`
+	SourceBranch       string           `json:"source_branch,omitempty"`
+	SourceBranchSource string           `json:"source_branch_source,omitempty"`
+	CreatedBy          *string          `json:"created_by,omitempty"`
+	CreatedAt          time.Time        `json:"created_at"`
+	UpdatedAt          time.Time        `json:"updated_at"`
+	LatestVersion      int              `json:"latest_version"`
+}
+
+type PipelineLastRun struct {
+	ID            string     `json:"id"`
+	Status        string     `json:"status"`
+	TriggerType   string     `json:"trigger_type"`
+	TriggeredBy   *string    `json:"triggered_by,omitempty"`
+	RollbackOf    *string    `json:"rollback_of,omitempty"`
+	Branch        *string    `json:"branch,omitempty"`
+	CommitSHA     *string    `json:"commit_sha,omitempty"`
+	CommitMessage *string    `json:"commit_message,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	FinishedAt    *time.Time `json:"finished_at,omitempty"`
 }
 
 type PipelineVersion struct {
@@ -354,10 +370,20 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 		        p.concurrency_mode, p.trigger_schedule, p.last_scheduled_at, p.next_scheduled_at, p.created_by, p.created_at, p.updated_at,
 		        coalesce((select max(version) from pipeline_versions where pipeline_id=p.id), 0) as latest_version,
 		        coalesce(cp.default_branch, 'main') as project_default_branch,
-		        cv.config as current_config
+		        cv.config as current_config,
+		        lr.id, lr.status, lr.trigger_type, lr.triggered_by, lr.rollback_of, lr.branch, lr.commit_sha, lr.commit_message,
+		        lr.created_at, lr.started_at, lr.finished_at
 		 from pipelines p
 		 left join code_projects cp on cp.id = p.project_id
 		 left join pipeline_versions cv on cv.id = p.current_version_id
+		 left join lateral (
+			select r.id, r.status, r.trigger_type, r.triggered_by, r.rollback_of, r.branch, r.commit_sha, r.commit_message,
+			       r.created_at, r.started_at, r.finished_at
+			from pipeline_runs r
+			where r.pipeline_id = p.id
+			order by r.created_at desc
+			limit 1
+		 ) lr on true
 		 where p.id=$1`,
 		pipelineID,
 	)
@@ -371,6 +397,17 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 	var nextScheduledAt pgtype.Timestamptz
 	var projectDefaultBranch string
 	var currentConfig json.RawMessage
+	var lastRunID pgtype.UUID
+	var lastRunStatus pgtype.Text
+	var lastRunTriggerType pgtype.Text
+	var lastRunTriggeredBy pgtype.UUID
+	var lastRunRollbackOf pgtype.UUID
+	var lastRunBranch pgtype.Text
+	var lastRunCommitSHA pgtype.Text
+	var lastRunCommitMessage pgtype.Text
+	var lastRunCreatedAt pgtype.Timestamptz
+	var lastRunStartedAt pgtype.Timestamptz
+	var lastRunFinishedAt pgtype.Timestamptz
 	var out Pipeline
 	if err := row.Scan(
 		&out.ID,
@@ -390,6 +427,17 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 		&out.LatestVersion,
 		&projectDefaultBranch,
 		&currentConfig,
+		&lastRunID,
+		&lastRunStatus,
+		&lastRunTriggerType,
+		&lastRunTriggeredBy,
+		&lastRunRollbackOf,
+		&lastRunBranch,
+		&lastRunCommitSHA,
+		&lastRunCommitMessage,
+		&lastRunCreatedAt,
+		&lastRunStartedAt,
+		&lastRunFinishedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -421,7 +469,43 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 	branch, origin := deriveSourceBranch(currentConfig, projectDefaultBranch)
 	out.SourceBranch = branch
 	out.SourceBranchSource = origin
+	out.Environment = deriveEnvironment(currentConfig)
 	out.AutoTrigger = deriveAutoTrigger(currentConfig)
+	if lastRunID.Valid {
+		lastRun := PipelineLastRun{
+			ID:          lastRunID.String(),
+			Status:      lastRunStatus.String,
+			TriggerType: lastRunTriggerType.String,
+			CreatedAt:   lastRunCreatedAt.Time,
+		}
+		if lastRunTriggeredBy.Valid {
+			val := lastRunTriggeredBy.String()
+			lastRun.TriggeredBy = &val
+		}
+		if lastRunRollbackOf.Valid {
+			val := lastRunRollbackOf.String()
+			lastRun.RollbackOf = &val
+		}
+		if lastRunBranch.Valid {
+			val := lastRunBranch.String
+			lastRun.Branch = &val
+		}
+		if lastRunCommitSHA.Valid {
+			val := lastRunCommitSHA.String
+			lastRun.CommitSHA = &val
+		}
+		if lastRunCommitMessage.Valid {
+			val := lastRunCommitMessage.String
+			lastRun.CommitMessage = &val
+		}
+		if lastRunStartedAt.Valid {
+			lastRun.StartedAt = &lastRunStartedAt.Time
+		}
+		if lastRunFinishedAt.Valid {
+			lastRun.FinishedAt = &lastRunFinishedAt.Time
+		}
+		out.LastRun = &lastRun
+	}
 	return &out, nil
 }
 
@@ -582,7 +666,9 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		        p.concurrency_mode, p.trigger_schedule, p.last_scheduled_at, p.next_scheduled_at, p.created_by, p.created_at, p.updated_at,
 		        coalesce((select max(version) from pipeline_versions where pipeline_id=p.id), 0) as latest_version,
 		        coalesce(cp.default_branch, 'main') as project_default_branch,
-		        cv.config as current_config`
+		        cv.config as current_config,
+		        lr.id, lr.status, lr.trigger_type, lr.triggered_by, lr.rollback_of, lr.branch, lr.commit_sha, lr.commit_message,
+		        lr.created_at, lr.started_at, lr.finished_at`
 	if projectID != nil && *projectID != "" {
 		rows, err = s.pool.Query(
 			ctx,
@@ -590,6 +676,14 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 			 from pipelines p
 			 left join code_projects cp on cp.id = p.project_id
 			 left join pipeline_versions cv on cv.id = p.current_version_id
+			 left join lateral (
+				select r.id, r.status, r.trigger_type, r.triggered_by, r.rollback_of, r.branch, r.commit_sha, r.commit_message,
+				       r.created_at, r.started_at, r.finished_at
+				from pipeline_runs r
+				where r.pipeline_id = p.id
+				order by r.created_at desc
+				limit 1
+			 ) lr on true
 			 where p.org_id=$1 and p.project_id=$2
 			 order by p.updated_at desc`,
 			orgID,
@@ -602,6 +696,14 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 			 from pipelines p
 			 left join code_projects cp on cp.id = p.project_id
 			 left join pipeline_versions cv on cv.id = p.current_version_id
+			 left join lateral (
+				select r.id, r.status, r.trigger_type, r.triggered_by, r.rollback_of, r.branch, r.commit_sha, r.commit_message,
+				       r.created_at, r.started_at, r.finished_at
+				from pipeline_runs r
+				where r.pipeline_id = p.id
+				order by r.created_at desc
+				limit 1
+			 ) lr on true
 			 where p.org_id=$1
 			 order by p.updated_at desc`,
 			orgID,
@@ -623,6 +725,17 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		var nextScheduledAt pgtype.Timestamptz
 		var projectDefaultBranch string
 		var currentConfig json.RawMessage
+		var lastRunID pgtype.UUID
+		var lastRunStatus pgtype.Text
+		var lastRunTriggerType pgtype.Text
+		var lastRunTriggeredBy pgtype.UUID
+		var lastRunRollbackOf pgtype.UUID
+		var lastRunBranch pgtype.Text
+		var lastRunCommitSHA pgtype.Text
+		var lastRunCommitMessage pgtype.Text
+		var lastRunCreatedAt pgtype.Timestamptz
+		var lastRunStartedAt pgtype.Timestamptz
+		var lastRunFinishedAt pgtype.Timestamptz
 		var item Pipeline
 		if err := rows.Scan(
 			&item.ID,
@@ -642,6 +755,17 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 			&item.LatestVersion,
 			&projectDefaultBranch,
 			&currentConfig,
+			&lastRunID,
+			&lastRunStatus,
+			&lastRunTriggerType,
+			&lastRunTriggeredBy,
+			&lastRunRollbackOf,
+			&lastRunBranch,
+			&lastRunCommitSHA,
+			&lastRunCommitMessage,
+			&lastRunCreatedAt,
+			&lastRunStartedAt,
+			&lastRunFinishedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -673,7 +797,43 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		branch, origin := deriveSourceBranch(currentConfig, projectDefaultBranch)
 		item.SourceBranch = branch
 		item.SourceBranchSource = origin
+		item.Environment = deriveEnvironment(currentConfig)
 		item.AutoTrigger = deriveAutoTrigger(currentConfig)
+		if lastRunID.Valid {
+			lastRun := PipelineLastRun{
+				ID:          lastRunID.String(),
+				Status:      lastRunStatus.String,
+				TriggerType: lastRunTriggerType.String,
+				CreatedAt:   lastRunCreatedAt.Time,
+			}
+			if lastRunTriggeredBy.Valid {
+				val := lastRunTriggeredBy.String()
+				lastRun.TriggeredBy = &val
+			}
+			if lastRunRollbackOf.Valid {
+				val := lastRunRollbackOf.String()
+				lastRun.RollbackOf = &val
+			}
+			if lastRunBranch.Valid {
+				val := lastRunBranch.String
+				lastRun.Branch = &val
+			}
+			if lastRunCommitSHA.Valid {
+				val := lastRunCommitSHA.String
+				lastRun.CommitSHA = &val
+			}
+			if lastRunCommitMessage.Valid {
+				val := lastRunCommitMessage.String
+				lastRun.CommitMessage = &val
+			}
+			if lastRunStartedAt.Valid {
+				lastRun.StartedAt = &lastRunStartedAt.Time
+			}
+			if lastRunFinishedAt.Valid {
+				lastRun.FinishedAt = &lastRunFinishedAt.Time
+			}
+			item.LastRun = &lastRun
+		}
 		items = append(items, item)
 	}
 	return items, nil
@@ -759,6 +919,7 @@ func (s *Store) ListActivePipelines(ctx context.Context) ([]Pipeline, error) {
 		branch, origin := deriveSourceBranch(currentConfig, projectDefaultBranch)
 		item.SourceBranch = branch
 		item.SourceBranchSource = origin
+		item.Environment = deriveEnvironment(currentConfig)
 		item.AutoTrigger = deriveAutoTrigger(currentConfig)
 		items = append(items, item)
 	}
@@ -926,6 +1087,10 @@ type autoTriggerConfig struct {
 	} `json:"trigger"`
 }
 
+type environmentConfig struct {
+	Environment string `json:"environment"`
+}
+
 func normalizeSourceValue(value string, fallback string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed != "" {
@@ -974,6 +1139,24 @@ func deriveAutoTrigger(config json.RawMessage) bool {
 	}
 
 	return parsed.Trigger.AutoTrigger
+}
+
+func deriveEnvironment(config json.RawMessage) string {
+	const defaultEnvironment = "production"
+	if len(config) == 0 {
+		return defaultEnvironment
+	}
+
+	var parsed environmentConfig
+	if err := json.Unmarshal(config, &parsed); err != nil {
+		return defaultEnvironment
+	}
+
+	environment := strings.TrimSpace(parsed.Environment)
+	if environment == "" {
+		return defaultEnvironment
+	}
+	return environment
 }
 
 func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*PipelineRun, error) {

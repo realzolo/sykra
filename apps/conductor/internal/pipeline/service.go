@@ -142,6 +142,10 @@ func (s *Service) CreatePipeline(ctx context.Context, input CreatePipelineInput)
 			pipeline.NextScheduledAt = &next
 		}
 	}
+	pipeline.Environment = strings.TrimSpace(input.Config.Environment)
+	if pipeline.Environment == "" {
+		pipeline.Environment = "production"
+	}
 	pipeline.AutoTrigger = input.Config.Trigger.AutoTrigger
 
 	return pipeline, version, nil

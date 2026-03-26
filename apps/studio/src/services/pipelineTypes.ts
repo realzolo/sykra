@@ -1,4 +1,9 @@
-export type PipelineEnvironment = 'development' | 'staging' | 'production';
+export type PipelineEnvironment = string;
+export type PipelineEnvironmentDefinition = {
+  key: string;
+  label: string;
+  order: number;
+};
 export type PipelineProjectKind = 'node' | 'nextjs' | 'react' | 'vite' | 'python' | 'go' | 'java' | 'unknown';
 export type PipelineRuntimeKind = 'node' | 'python' | 'go' | 'java' | 'unknown';
 export type PipelinePackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'unknown';
@@ -70,6 +75,82 @@ export type PipelineTrigger = {
   autoTrigger: boolean;
   schedule?: string;
 };
+
+export const DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS: ReadonlyArray<PipelineEnvironmentDefinition> = [
+  { key: 'development', label: 'Development', order: 1 },
+  { key: 'preview', label: 'Preview', order: 2 },
+  { key: 'production', label: 'Production', order: 3 },
+];
+export const DEFAULT_PIPELINE_ENVIRONMENTS = DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map(
+  (item) => item.key
+) as ReadonlyArray<string>;
+const DEFAULT_PIPELINE_ENVIRONMENT = 'production';
+
+export function normalizePipelineEnvironmentKey(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized.slice(0, 32);
+}
+
+export function normalizePipelineEnvironmentLabel(value: string): string {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  return normalized.slice(0, 32);
+}
+
+function derivePipelineEnvironmentLabel(value: string): string {
+  const normalized = normalizePipelineEnvironmentKey(value);
+  if (!normalized) return 'Custom';
+  return normalized
+    .split('-')
+    .filter((part) => part.length > 0)
+    .map((part) => part[0]!.toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+export function normalizePipelineEnvironmentDefinitions(
+  values: PipelineEnvironmentDefinition[] | null | undefined
+): PipelineEnvironmentDefinition[] {
+  const raw = Array.isArray(values) ? values : [];
+  const deduped = new Map<string, PipelineEnvironmentDefinition>();
+  for (const [index, item] of raw.entries()) {
+    const key = normalizePipelineEnvironmentKey(item.key);
+    if (!key || deduped.has(key)) {
+      continue;
+    }
+    const label = normalizePipelineEnvironmentLabel(item.label) || derivePipelineEnvironmentLabel(key);
+    const order = Number.isFinite(item.order) && item.order > 0 ? Math.round(item.order) : index + 1;
+    deduped.set(key, { key, label, order });
+  }
+  if (deduped.size === 0) {
+    return DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item }));
+  }
+  return [...deduped.values()]
+    .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
+    .map((item, index) => ({ ...item, order: index + 1 }));
+}
+
+export function normalizePipelineEnvironmentOptions(
+  values: PipelineEnvironmentDefinition[] | null | undefined
+): PipelineEnvironment[] {
+  return normalizePipelineEnvironmentDefinitions(values).map((item) => item.key);
+}
+
+export function getPipelineEnvironmentLabel(
+  value: string,
+  definitions?: PipelineEnvironmentDefinition[] | null
+): string {
+  const key = normalizePipelineEnvironmentKey(value);
+  const options = normalizePipelineEnvironmentDefinitions(definitions ?? null);
+  const matched = options.find((item) => item.key === key);
+  if (matched) {
+    return matched.label;
+  }
+  return derivePipelineEnvironmentLabel(value);
+}
 
 export const PIPELINE_SCHEDULE_PRESET_EXPRESSIONS = {
   hourly: '0 * * * *',
@@ -157,6 +238,12 @@ export type PipelineSummary = {
   current_version_id?: string | null;
   latest_version: number;
   last_run?: PipelineRunSummary | null;
+  run_stats_7d?: {
+    total_runs: number;
+    success_runs: number;
+    failed_runs: number;
+    success_rate: number;
+  };
   concurrency_mode: 'allow' | 'queue' | 'cancel_previous';
   trigger_schedule?: string | null;
   last_scheduled_at?: string | null;
@@ -171,6 +258,9 @@ export type PipelineRunSummary = {
   id: string;
   status: PipelineRunStatus;
   trigger_type: PipelineRunTrigger;
+  triggered_by?: string | null;
+  triggered_by_email?: string | null;
+  triggered_by_name?: string | null;
   branch?: string | null;
   commit_sha?: string | null;
   commit_message?: string | null;
@@ -345,7 +435,7 @@ export function createDefaultPipelineConfig(
   return {
     name,
     buildImage: defaults?.buildImage?.trim() ?? '',
-    environment: 'production',
+    environment: DEFAULT_PIPELINE_ENVIRONMENT,
     trigger: { autoTrigger: false },
     stages: { ...DEFAULT_STAGE_SETTINGS },
     notifications: {
@@ -754,10 +844,14 @@ export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[
       message: 'CI build image is required.',
     });
   }
+  let hasCiArtifactOutputs = false;
   for (const job of jobs) {
     const stage = inferPipelineJobStage(job, jobs);
     if (stage !== 'deploy' && stage !== 'after_deploy') {
       for (const step of job.steps) {
+        if ((step.artifactPaths ?? []).some((path) => path.trim().length > 0)) {
+          hasCiArtifactOutputs = true;
+        }
         if ((step.type ?? 'shell') === 'docker') {
           diagnostics.push({
             level: 'error',
@@ -767,14 +861,14 @@ export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[
       }
     }
   }
+  if (!hasCiArtifactOutputs) {
+    diagnostics.push({
+      level: 'warning',
+      message: 'No artifact outputs are configured. Build steps need Artifact Paths (for example dist/** or .next/**) to upload artifacts.',
+    });
+  }
   return diagnostics;
 }
-
-export const ENV_LABELS: Record<PipelineEnvironment, string> = {
-  development: 'Dev',
-  staging: 'Staging',
-  production: 'Prod',
-};
 
 export const STATUS_VARIANTS: Record<PipelineRunStatus, 'success' | 'danger' | 'warning' | 'default'> = {
   success: 'success',

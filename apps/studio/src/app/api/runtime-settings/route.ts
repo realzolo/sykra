@@ -33,10 +33,11 @@ async function ensureRow(orgId: string) {
        analyze_backpressure_retry_after_sec,
        analyze_report_timeout_ms,
        codebase_file_max_bytes,
+       pipeline_environments,
        created_at,
        updated_at
      )
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),now())
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,now(),now())
      on conflict (org_id) do nothing`,
     [
       orgId,
@@ -51,6 +52,7 @@ async function ensureRow(orgId: string) {
       DEFAULT_ORG_RUNTIME_SETTINGS.analyzeBackpressureRetryAfterSec,
       DEFAULT_ORG_RUNTIME_SETTINGS.analyzeReportTimeoutMs,
       DEFAULT_ORG_RUNTIME_SETTINGS.codebaseFileMaxBytes,
+      JSON.stringify(DEFAULT_ORG_RUNTIME_SETTINGS.pipelineEnvironments),
     ]
   );
 }
@@ -109,6 +111,7 @@ export async function PUT(request: NextRequest) {
          analyze_backpressure_retry_after_sec = $10,
          analyze_report_timeout_ms = $11,
          codebase_file_max_bytes = $12,
+         pipeline_environments = $13::jsonb,
          updated_at = now()
        where org_id = $1`,
       [
@@ -124,6 +127,7 @@ export async function PUT(request: NextRequest) {
         validated.analyzeBackpressureRetryAfterSec,
         validated.analyzeReportTimeoutMs,
         validated.codebaseFileMaxBytes,
+        JSON.stringify(validated.pipelineEnvironments),
       ]
     );
 

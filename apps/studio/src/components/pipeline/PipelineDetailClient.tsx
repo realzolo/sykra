@@ -56,11 +56,11 @@ import {
   Hand,
   ListOrdered,
   Clock,
+  User,
   CheckCircle,
   XCircle,
   Circle,
   RefreshCw,
-  Package,
   Plus,
   Trash2,
   Copy,
@@ -69,6 +69,7 @@ import type { Dictionary } from "@/i18n";
 import type {
   PipelineConfig,
   PipelineEnvironment,
+  PipelineEnvironmentDefinition,
   PipelineJobDiagnostic,
   PipelineRunDetail,
   PipelineRunStatus,
@@ -76,10 +77,12 @@ import type {
 } from "@/services/pipelineTypes";
 import {
   analyzePipelineConfig,
+  DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS,
   createDefaultPipelineConfig,
   detectPipelineSchedulePreset,
   durationLabel,
-  ENV_LABELS,
+  getPipelineEnvironmentLabel,
+  normalizePipelineEnvironmentDefinitions,
   getSourceBranch,
   getStageConfig,
   normalizePipelineJobs,
@@ -263,6 +266,54 @@ function getTerminalLineClassName(tone: TerminalLineTone) {
   }
 }
 
+function getTerminalLineRowClassName(tone: TerminalLineTone) {
+  switch (tone) {
+    case "system":
+      return "bg-[hsl(var(--terminal-line-system-bg))]";
+    case "warning":
+      return "bg-[hsl(var(--terminal-line-warning-bg))]";
+    case "error":
+      return "bg-[hsl(var(--terminal-line-error-bg))]";
+    default:
+      return "";
+  }
+}
+
+function getTerminalLineMarkerClassName(tone: TerminalLineTone) {
+  switch (tone) {
+    case "warning":
+      return "bg-[hsl(var(--terminal-line-warning-marker))]";
+    case "error":
+      return "bg-[hsl(var(--terminal-line-error-marker))]";
+    default:
+      return "bg-transparent";
+  }
+}
+
+function getEnvironmentBadgeVariant(environment: string): "danger" | "warning" | "muted" {
+  switch (environment) {
+    case "production":
+      return "danger";
+    case "preview":
+      return "warning";
+    default:
+      return "muted";
+  }
+}
+
+function getRunActorLabel(run: PipelineRun, dict: Dictionary["pipelines"]): string {
+  if (run.triggered_by_name?.trim()) {
+    return run.triggered_by_name;
+  }
+  if (run.triggered_by_email?.trim()) {
+    return run.triggered_by_email;
+  }
+  if (run.triggered_by?.trim()) {
+    return run.triggered_by.slice(0, 8);
+  }
+  return dict.detail.trigger[run.trigger_type as keyof typeof dict.detail.trigger] ?? run.trigger_type;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function PipelineDetailClient({
@@ -283,6 +334,9 @@ export default function PipelineDetailClient({
   const [tab, setTab] = useState<Tab>(initialTab);
   const [pipeline, setPipeline] = useState<PipelineSummary | null>(null);
   const [config, setConfig] = useState<PipelineConfig | null>(null);
+  const [environmentOptions, setEnvironmentOptions] = useState<PipelineEnvironmentDefinition[]>(
+    DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item }))
+  );
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const initialRunId = searchParams.get("runId");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
@@ -320,7 +374,6 @@ export default function PipelineDetailClient({
   const [secretSaving, setSecretSaving] = useState(false);
   const [secretDeleting, setSecretDeleting] = useState<string | null>(null);
   const [secretToDelete, setSecretToDelete] = useState<string | null>(null);
-  const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [publishingArtifacts, setPublishingArtifacts] = useState(false);
   const [publishRepositoryName, setPublishRepositoryName] = useState(project.name);
@@ -471,6 +524,48 @@ export default function PipelineDetailClient({
     loadPipeline();
     loadRuns();
   }, [loadPipeline, loadRuns]);
+
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch("/api/runtime-settings", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const payload = await response.json().catch(() => ({}));
+        if (!active) return;
+        const nextOptions = normalizePipelineEnvironmentDefinitions(payload?.settings?.pipelineEnvironments);
+        setEnvironmentOptions(nextOptions);
+      } catch {
+        if (active) {
+          setEnvironmentOptions(DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item })));
+        }
+      }
+    })();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!config || environmentOptions.length === 0) return;
+    const environmentKeys = environmentOptions.map((item) => item.key);
+    if (!config.environment || !environmentKeys.includes(config.environment)) {
+      setConfig((current) =>
+        current
+          ? {
+              ...current,
+              environment: environmentKeys[0] ?? "production",
+            }
+          : current
+      );
+    }
+  }, [config, environmentOptions]);
+
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
   }, [selectedRunId]);
@@ -979,27 +1074,8 @@ export default function PipelineDetailClient({
     }
   }
 
-  async function downloadArtifact(artifactId: string) {
-    if (!selectedRunId) return;
-    setDownloadingArtifactId(artifactId);
-    try {
-      const response = await fetch(`/api/pipeline-runs/${selectedRunId}/artifacts/${artifactId}/download-token`, {
-        method: "POST",
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || typeof data?.url !== "string") {
-        throw new Error(data?.error ?? "Failed to prepare artifact download");
-      }
-      window.location.assign(data.url);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Artifact download failed");
-    } finally {
-      setDownloadingArtifactId(null);
-    }
-  }
-
   async function publishSelectedArtifacts() {
-    if (!selectedRunId || selectedArtifacts.length === 0) return;
+    if (!selectedRunId || selectedRunArtifacts.length === 0) return;
     setPublishingArtifacts(true);
     try {
       const response = await fetch(`/api/projects/${project.id}/artifacts`, {
@@ -1007,7 +1083,7 @@ export default function PipelineDetailClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           runId: selectedRunId,
-          artifactIds: selectedArtifacts.map((artifact) => artifact.id),
+          artifactIds: selectedRunArtifacts.map((artifact) => artifact.id),
           repositoryName: publishRepositoryName,
           repositorySlug: publishRepositorySlug,
           version: publishVersion,
@@ -1285,8 +1361,7 @@ export default function PipelineDetailClient({
   const runtimeStageCardWidth = runtimeStageCount >= 5 ? 252 : 288;
   const runtimeConnectorWidth = runtimeStageCount >= 5 ? 48 : 72;
   const sourceBranch = useMemo(() => getSourceBranch(config?.jobs ?? []), [config?.jobs]);
-  const sourceBranchSource =
-    pipeline?.source_branch_source ?? (sourceBranch === project.default_branch ? "project_default" : "custom");
+  const currentEnvironment = (pipeline?.environment ?? config?.environment ?? "production") as PipelineEnvironment;
   const currentRun =
     selectedRunId && runDetail?.run.id === selectedRunId
       ? runDetail.run
@@ -1471,9 +1546,7 @@ export default function PipelineDetailClient({
       </TooltipProvider>
     );
   }
-  const selectedArtifacts = selectedRuntimeJob
-    ? artifacts.filter((artifact) => artifact.job_id === selectedRuntimeJob.id)
-    : artifacts;
+  const selectedRunArtifacts = artifacts;
 
   useEffect(() => {
     setPublishRepositoryName(project.name);
@@ -1482,13 +1555,13 @@ export default function PipelineDetailClient({
 
   useEffect(() => {
     if (!publishDialogOpen) return;
-    const repositoryName = selectedRuntimeJobConfig?.name?.trim() || project.name;
+    const repositoryName = pipeline?.name?.trim() || project.name;
     setPublishRepositoryName(repositoryName);
     setPublishRepositorySlug(normalizeArtifactRepositorySlug(repositoryName));
     const versionSeed = currentRun?.commit_sha?.slice(0, 12) || selectedRunId?.slice(0, 8) || "";
     setPublishVersion(versionSeed ? `build-${versionSeed}` : "");
     setPublishChannels("");
-  }, [currentRun?.commit_sha, project.name, publishDialogOpen, selectedRunId, selectedRuntimeJobConfig?.name]);
+  }, [currentRun?.commit_sha, pipeline?.name, project.name, publishDialogOpen, selectedRunId]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -1508,16 +1581,10 @@ export default function PipelineDetailClient({
               </span>
               {pipeline?.environment && (
                 <Badge
-                  variant={
-                    pipeline.environment === "production"
-                      ? "danger"
-                      : pipeline.environment === "staging"
-                      ? "warning"
-                      : "muted"
-                  }
+                  variant={getEnvironmentBadgeVariant(pipeline.environment)}
                   size="sm"
                 >
-                  {ENV_LABELS[pipeline.environment]}
+                  {getPipelineEnvironmentLabel(pipeline.environment, environmentOptions)}
                 </Badge>
               )}
             </div>
@@ -1531,10 +1598,8 @@ export default function PipelineDetailClient({
                 <GitBranch className="size-3" />
                 <span className="truncate">{pipeline?.source_branch ?? sourceBranch}</span>
               </div>
-              <Badge variant={sourceBranchSource === "project_default" ? "muted" : "outline"} size="sm">
-                {sourceBranchSource === "project_default"
-                  ? p.basic.sourceBranchProjectDefault
-                  : p.basic.sourceBranchCustom}
+              <Badge variant={getEnvironmentBadgeVariant(currentEnvironment)} size="sm">
+                {getPipelineEnvironmentLabel(currentEnvironment, environmentOptions)}
               </Badge>
               {config?.trigger?.autoTrigger && (
                 <span className="text-[12px] text-accent">
@@ -1672,6 +1737,7 @@ export default function PipelineDetailClient({
                       {p.detail.trigger[
                         run.trigger_type as keyof typeof p.detail.trigger
                       ] ?? run.trigger_type}
+                      <span className="ml-1">· {p.detail.triggeredBy}: {getRunActorLabel(run, p)}</span>
                       {run.branch && (
                         <span className="ml-1">· {run.branch}</span>
                       )}
@@ -1747,6 +1813,10 @@ export default function PipelineDetailClient({
                                 )}
                               </div>
                             )}
+                            <div className="flex items-center gap-1">
+                              <User className="size-3" />
+                              <span>{p.detail.triggeredBy}: {getRunActorLabel(currentRun, p)}</span>
+                            </div>
                             {!!runStatusCounts.success && (
                               <div>{runStatusCounts.success} {p.status.success}</div>
                             )}
@@ -1765,15 +1835,25 @@ export default function PipelineDetailClient({
 
                       {/* Rollback / retry */}
                       {currentRun && currentRun.status === "success" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRollback(selectedRunId)}
-                          disabled={rollingBack === selectedRunId}
-                        >
-                          <RotateCcw className="size-3.5 mr-1" />
-                          {p.rollback}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setPublishDialogOpen(true)}
+                            disabled={selectedRunArtifacts.length === 0}
+                          >
+                            {p.publishArtifacts}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRollback(selectedRunId)}
+                            disabled={rollingBack === selectedRunId}
+                          >
+                            <RotateCcw className="size-3.5 mr-1" />
+                            {p.rollback}
+                          </Button>
+                        </div>
                       )}
                       {currentRun && currentRun.status === "failed" && (
                         <div className="flex flex-col items-end gap-1">
@@ -2217,10 +2297,10 @@ export default function PipelineDetailClient({
                                             </div>
                                           ) : logLoading && logText.length === 0 ? (
                                             <div className="space-y-2 py-1">
-                                              <Skeleton className="h-3 w-3/5 bg-white/10" />
-                                              <Skeleton className="h-3 w-4/5 bg-white/10" />
-                                              <Skeleton className="h-3 w-2/3 bg-white/10" />
-                                              <Skeleton className="h-3 w-5/6 bg-white/10" />
+                                              <Skeleton className="terminal-skeleton h-3 w-3/5" />
+                                              <Skeleton className="terminal-skeleton h-3 w-4/5" />
+                                              <Skeleton className="terminal-skeleton h-3 w-2/3" />
+                                              <Skeleton className="terminal-skeleton h-3 w-5/6" />
                                             </div>
                                           ) : logText ? (
                                             <div className="space-y-3">
@@ -2234,19 +2314,14 @@ export default function PipelineDetailClient({
                                                   <div
                                                     key={`${selectedStepId}-${index}`}
                                                     className={[
-                                                      "grid grid-cols-[4rem_minmax(0,1fr)] gap-3 rounded-[6px] px-2 py-0.5",
-                                                      tone === "warning"
-                                                        ? "border-l-2 border-warning/70 bg-warning/10"
-                                                        : tone === "error"
-                                                          ? "border-l-2 border-danger/70 bg-danger/10"
-                                                          : tone === "system"
-                                                            ? "bg-white/[0.02]"
-                                                            : "",
+                                                      "grid grid-cols-[2px_4rem_minmax(0,1fr)] gap-3 rounded-[6px] px-2 py-0.5",
+                                                      getTerminalLineRowClassName(tone),
                                                     ]
                                                       .filter(Boolean)
                                                       .join(" ")}
                                                   >
-                                                    <div className="select-none border-r border-white/6 pr-3 text-right tabular-nums text-terminal-muted/70">
+                                                    <div className={["rounded-full", getTerminalLineMarkerClassName(tone)].join(" ")} />
+                                                    <div className="select-none border-r border-[hsl(var(--terminal-divider))] pr-3 text-right tabular-nums text-[hsl(var(--terminal-muted)/0.72)]">
                                                       {String(index + 1)}
                                                     </div>
                                                     <div
@@ -2271,65 +2346,6 @@ export default function PipelineDetailClient({
                                     </div>
                                   </div>
 
-                                  {selectedArtifacts.length > 0 && (
-                                    <div className="flex max-h-[240px] shrink-0 flex-col overflow-hidden rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-background">
-                                      <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--ds-border-1))] px-4 py-2.5">
-                                        <div className="flex items-center gap-2">
-                                          <Package className="size-3.5 text-[hsl(var(--ds-text-2))]" />
-                                          <span className="text-[12px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
-                                            {p.artifactsLabel.replace("{{count}}", String(selectedArtifacts.length))}
-                                          </span>
-                                        </div>
-                                        {isAdmin && (
-                                          <Button
-                                            type="button"
-                                            variant="secondary"
-                                            size="sm"
-                                            onClick={() => setPublishDialogOpen(true)}
-                                          >
-                                            {p.publishArtifacts}
-                                          </Button>
-                                        )}
-                                      </div>
-                                      <div className="min-h-0 flex-1 overflow-auto divide-y divide-[hsl(var(--ds-border-1))]">
-                                        {selectedArtifacts.map((artifact) => {
-                                          const sizeKb = Math.round(Number(artifact.size_bytes) / 1024);
-                                          const sizeLabel =
-                                            sizeKb >= 1024
-                                              ? `${(sizeKb / 1024).toFixed(1)} MB`
-                                              : `${sizeKb} KB`;
-                                          const filename = artifact.path.split("/").pop() ?? artifact.path;
-                                          return (
-                                            <div key={artifact.id} className="flex items-center gap-3 px-4 py-3">
-                                              <Package className="size-3.5 shrink-0 text-[hsl(var(--ds-text-2))]" />
-                                              <div className="min-w-0 flex-1">
-                                                <div className="truncate text-[12px] font-medium text-foreground">
-                                                  {filename}
-                                                </div>
-                                                <div className="truncate text-[12px] text-[hsl(var(--ds-text-2))]">
-                                                  {artifact.path}
-                                                </div>
-                                              </div>
-                                              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
-                                                {sizeLabel}
-                                              </span>
-                                              <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => downloadArtifact(artifact.id)}
-                                                disabled={downloadingArtifactId === artifact.id}
-                                              >
-                                                {downloadingArtifactId === artifact.id
-                                                  ? dict.common.loading
-                                                  : dict.common.download}
-                                              </Button>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
                                 </div>
                               </div>
                             </div>
@@ -2423,9 +2439,9 @@ export default function PipelineDetailClient({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {(["development", "staging", "production"] as const).map((env) => (
-                            <SelectItem key={env} value={env}>
-                              {p.env[env]}
+                          {environmentOptions.map((env) => (
+                            <SelectItem key={env.key} value={env.key}>
+                              {env.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -2885,6 +2901,9 @@ export default function PipelineDetailClient({
             <DialogDescription>{p.publishArtifactsDescription}</DialogDescription>
           </DialogHeader>
           <DialogBody className="space-y-4">
+            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+              {p.artifactsLabel.replace("{{count}}", String(selectedRunArtifacts.length))}
+            </div>
             <SettingsField label={p.publishRepositoryName}>
               <Input
                 value={publishRepositoryName}
@@ -2932,6 +2951,7 @@ export default function PipelineDetailClient({
               onClick={publishSelectedArtifacts}
               disabled={
                 publishingArtifacts ||
+                selectedRunArtifacts.length === 0 ||
                 !publishRepositoryName.trim() ||
                 !publishRepositorySlug.trim() ||
                 !publishVersion.trim()

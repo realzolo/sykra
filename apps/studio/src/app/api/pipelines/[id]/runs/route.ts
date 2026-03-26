@@ -35,7 +35,34 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const parsedLimit = limitRaw ? Number(limitRaw) : 20;
     const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(100, Math.trunc(parsedLimit))) : 20;
     const runs = await listPipelineRuns(id, limit);
-    return NextResponse.json(runs);
+    const triggeredByIds = Array.from(
+      new Set(
+        runs
+          .map((run) => run.triggered_by)
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      )
+    );
+    if (triggeredByIds.length === 0) {
+      return NextResponse.json(runs);
+    }
+
+    const users = await query<{ id: string; email: string | null; display_name: string | null }>(
+      `select id, email, display_name
+         from auth_users
+        where id = any($1::uuid[])`,
+      [triggeredByIds]
+    );
+    const userById = new Map(users.map((item) => [item.id, item]));
+    const hydrated = runs.map((run) => {
+      const actor = run.triggered_by ? userById.get(run.triggered_by) : undefined;
+      if (!actor) return run;
+      return {
+        ...run,
+        triggered_by_email: actor.email,
+        triggered_by_name: actor.display_name,
+      };
+    });
+    return NextResponse.json(hydrated);
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     return NextResponse.json({ error }, { status: statusCode });

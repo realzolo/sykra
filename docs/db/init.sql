@@ -468,8 +468,21 @@ create table org_runtime_settings (
   analyze_backpressure_retry_after_sec int not null default 15 check (analyze_backpressure_retry_after_sec > 0),
   analyze_report_timeout_ms int not null default 3600000 check (analyze_report_timeout_ms >= 60000),
   codebase_file_max_bytes int not null default 262144 check (codebase_file_max_bytes >= 16384),
+  pipeline_environments jsonb not null default
+    '[{"key":"development","label":"Development","order":1},{"key":"preview","label":"Preview","order":2},{"key":"production","label":"Production","order":3}]'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint org_runtime_settings_pipeline_environments_check
+    check (
+      jsonb_typeof(pipeline_environments) = 'array'
+      and jsonb_array_length(pipeline_environments) > 0
+      and jsonb_array_length(
+        jsonb_path_query_array(
+          pipeline_environments,
+          '$[*] ? (@.type() == "object" && @.key.type() == "string" && @.label.type() == "string" && @.order.type() == "number")'
+        )
+      ) = jsonb_array_length(pipeline_environments)
+    )
 );
 
 create table analysis_rate_buckets (

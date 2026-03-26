@@ -17,11 +17,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import type { Dictionary } from '@/i18n';
 import { useProject } from '@/lib/projectContext';
-import type { PipelineSummary, PipelineRunStatus } from '@/services/pipelineTypes';
+import type {
+  PipelineEnvironmentDefinition,
+  PipelineSummary,
+  PipelineRunStatus,
+} from '@/services/pipelineTypes';
 import {
+  DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS,
   detectPipelineSchedulePreset,
   durationLabel,
-  ENV_LABELS,
+  getPipelineEnvironmentLabel,
+  normalizePipelineEnvironmentDefinitions,
   STATUS_VARIANTS,
 } from '@/services/pipelineTypes';
 import { withOrgPrefix } from '@/lib/orgPath';
@@ -41,7 +47,7 @@ const STATUS_ICONS: Record<PipelineRunStatus, React.ReactNode> = {
 
 const ENV_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'muted'> = {
   production:  'danger',
-  staging:     'warning',
+  preview:     'warning',
   development: 'muted',
 };
 
@@ -64,6 +70,14 @@ type ArtifactDownloadStats = {
   }>;
 };
 
+function getRunActorLabel(run: PipelineSummary['last_run'], fallbackLabel: string): string {
+  if (!run) return fallbackLabel;
+  if (run.triggered_by_name?.trim()) return run.triggered_by_name;
+  if (run.triggered_by_email?.trim()) return run.triggered_by_email;
+  if (run.triggered_by?.trim()) return run.triggered_by.slice(0, 8);
+  return fallbackLabel;
+}
+
 export default function ProjectPipelinesView({
   projectId,
   dict,
@@ -80,6 +94,9 @@ export default function ProjectPipelinesView({
   const [loading, setLoading] = useState(true);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+  const [environmentOptions, setEnvironmentOptions] = useState<PipelineEnvironmentDefinition[]>(
+    DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item }))
+  );
   const [downloadStats, setDownloadStats] = useState<ArtifactDownloadStats | null>(null);
   const [downloadStatsLoading, setDownloadStatsLoading] = useState(true);
 
@@ -91,6 +108,25 @@ export default function ProjectPipelinesView({
       .catch(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [projectId]);
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
+    fetch('/api/runtime-settings', { cache: 'no-store', signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (!alive || !payload) return;
+        setEnvironmentOptions(normalizePipelineEnvironmentDefinitions(payload?.settings?.pipelineEnvironments));
+      })
+      .catch(() => {
+        if (!alive) return;
+        setEnvironmentOptions(DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item })));
+      });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -333,13 +369,26 @@ export default function ProjectPipelinesView({
                         {p.detail.nextRun}: {formatLocalDateTime(pipeline.next_scheduled_at)}
                       </span>
                     )}
+                    {run && (
+                      <span className="truncate">
+                        {p.detail.triggeredBy}: {getRunActorLabel(run, 'system')}
+                      </span>
+                    )}
+                    <span className="truncate">
+                      {p.list.statsRuns7d
+                        .replace('{{count}}', String(pipeline.run_stats_7d?.total_runs ?? 0))
+                        .replace(
+                          '{{rate}}',
+                          (pipeline.run_stats_7d?.success_rate ?? 0).toFixed(1)
+                        )}
+                    </span>
                   </div>
                 </div>
-	                <div className="w-24 flex justify-center">
-	                  <Badge variant={ENV_BADGE_VARIANT[env] ?? 'muted'} size="sm">
-	                    {ENV_LABELS[env]}
-	                  </Badge>
-	                </div>
+                <div className="w-24 flex justify-center">
+                  <Badge variant={ENV_BADGE_VARIANT[env] ?? 'muted'} size="sm">
+                    {getPipelineEnvironmentLabel(env, environmentOptions)}
+                  </Badge>
+                </div>
                 <div className="w-20 flex justify-center">
                   {status ? (
                     <span className="flex items-center gap-1">

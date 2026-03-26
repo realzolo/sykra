@@ -3,7 +3,7 @@ import type { PoolClient, QueryResultRow } from 'pg';
 import { execTx, query, queryOne, withTransaction } from '@/lib/db';
 import { asJsonObject, type JsonObject } from '@/lib/json';
 
-export const ARTIFACT_CHANNEL_PRESETS = ['dev', 'staging', 'prod', 'latest'] as const;
+export const ARTIFACT_CHANNEL_PRESETS = ['dev', 'preview', 'prod', 'latest'] as const;
 export type ArtifactChannelPreset = (typeof ARTIFACT_CHANNEL_PRESETS)[number];
 
 export type ArtifactFileSummary = {

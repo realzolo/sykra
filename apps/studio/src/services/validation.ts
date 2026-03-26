@@ -129,6 +129,24 @@ const pipelineNotificationsSchema = z.object({
   channels: z.array(z.enum(['email', 'inapp'])).default(['inapp', 'email']),
 });
 
+const pipelineEnvironmentKeySchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z][a-z0-9-]{0,31}$/, 'Environment key must match ^[a-z][a-z0-9-]{0,31}$');
+
+const pipelineEnvironmentLabelSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(32, 'Environment label must be at most 32 characters');
+
+const pipelineEnvironmentDefinitionSchema = z.object({
+  key: pipelineEnvironmentKeySchema,
+  label: pipelineEnvironmentLabelSchema,
+  order: z.number().int().min(1).max(100),
+});
+
 const pipelineStageConfigSchema = z.object({
   entryMode: z.enum(['auto', 'manual']).optional(),
   dispatchMode: z.enum(['parallel', 'serial']).optional(),
@@ -152,7 +170,7 @@ export const pipelineConfigSchema = z.object({
   description: z.string().optional(),
   buildImage: z.string().optional(),
   variables: z.record(z.string(), z.string()).optional(),
-  environment: z.enum(['development', 'staging', 'production']).default('production'),
+  environment: pipelineEnvironmentKeySchema.default('production'),
   trigger: pipelineTriggerSchema,
   notifications: pipelineNotificationsSchema,
   stages: pipelineStagesSchema,
@@ -221,6 +239,24 @@ export const runtimeSettingsSchema = z.object({
   analyzeBackpressureRetryAfterSec: z.number().int().min(1).max(3_600),
   analyzeReportTimeoutMs: z.number().int().min(60_000).max(24 * 60 * 60 * 1000),
   codebaseFileMaxBytes: z.number().int().min(16 * 1024).max(10 * 1024 * 1024),
+  pipelineEnvironments: z.array(pipelineEnvironmentDefinitionSchema).min(1).max(20),
+}).superRefine((value, ctx) => {
+  const keySet = new Set(value.pipelineEnvironments.map((item) => item.key));
+  if (keySet.size !== value.pipelineEnvironments.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['pipelineEnvironments'],
+      message: 'pipelineEnvironments contains duplicate keys',
+    });
+  }
+  const orderSet = new Set(value.pipelineEnvironments.map((item) => item.order));
+  if (orderSet.size !== value.pipelineEnvironments.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['pipelineEnvironments'],
+      message: 'pipelineEnvironments contains duplicate order values',
+    });
+  }
 });
 
 /**

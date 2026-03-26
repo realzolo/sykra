@@ -5,6 +5,7 @@ import { getActiveOrgId } from '@/services/orgs';
 import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { getPipelineRun } from '@/services/conductorGateway';
+import { queryOne } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,23 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (run.org_id && run.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    return NextResponse.json(data);
+    if (!run.triggered_by) {
+      return NextResponse.json(data);
+    }
+    const actor = await queryOne<{ email: string | null; display_name: string | null }>(
+      `select email, display_name
+         from auth_users
+        where id = $1`,
+      [run.triggered_by]
+    );
+    return NextResponse.json({
+      ...data,
+      run: {
+        ...run,
+        triggered_by_email: actor?.email ?? null,
+        triggered_by_name: actor?.display_name ?? null,
+      },
+    });
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     return NextResponse.json({ error }, { status: statusCode });

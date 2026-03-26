@@ -5,13 +5,29 @@ import { z } from 'zod';
 // Conductor timestamps are RFC3339/ISO8601 and may include timezone offsets (e.g. +08:00).
 const isoDateString = z.string().datetime({ offset: true });
 
+const conductorPipelineLastRunSchema = z.object({
+  id: z.string().uuid(),
+  status: z.string(),
+  trigger_type: z.string(),
+  triggered_by: z.string().uuid().nullable().optional(),
+  rollback_of: z.string().uuid().nullable().optional(),
+  branch: z.string().nullable().optional(),
+  commit_sha: z.string().nullable().optional(),
+  commit_message: z.string().nullable().optional(),
+  created_at: isoDateString,
+  started_at: isoDateString.nullable().optional(),
+  finished_at: isoDateString.nullable().optional(),
+});
+
 export const conductorPipelineSchema = z.object({
   id: z.string().uuid(),
   org_id: z.string().uuid(),
   project_id: z.string().uuid().nullable().optional(),
   name: z.string(),
   description: z.string(),
+  environment: z.string().min(1),
   is_active: z.boolean(),
+  last_run: conductorPipelineLastRunSchema.nullable(),
   auto_trigger: z.boolean(),
   current_version_id: z.string().uuid().nullable().optional(),
   concurrency_mode: z.enum(['allow', 'queue', 'cancel_previous']),

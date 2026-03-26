@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,11 @@ import SettingsPageShell from '@/components/settings/SettingsPageShell';
 import SettingsRow from '@/components/settings/SettingsRow';
 import SettingsSection from '@/components/settings/SettingsSection';
 import {
+  DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS,
+  normalizePipelineEnvironmentDefinitions,
+  type PipelineEnvironmentDefinition,
+} from '@/services/pipelineTypes';
+import {
   DEFAULT_ORG_RUNTIME_SETTINGS,
   type OrgRuntimeSettings,
 } from '@/services/runtimeSettings.shared';
@@ -22,7 +28,21 @@ function numberOrDefault(value: number | undefined, fallback: number) {
 }
 
 function defaultState(): OrgRuntimeSettings {
-  return { ...DEFAULT_ORG_RUNTIME_SETTINGS };
+  return {
+    ...DEFAULT_ORG_RUNTIME_SETTINGS,
+    pipelineEnvironments: DEFAULT_ORG_RUNTIME_SETTINGS.pipelineEnvironments.map((item) => ({ ...item })),
+  };
+}
+
+function createPipelineEnvironmentCandidate(existing: PipelineEnvironmentDefinition[]): PipelineEnvironmentDefinition {
+  const used = new Set(existing.map((item) => item.key));
+  for (let index = 1; index <= 100; index += 1) {
+    const key = index === 1 ? 'env' : `env-${index}`;
+    if (!used.has(key)) {
+      return { key, label: '', order: existing.length + 1 };
+    }
+  }
+  return { key: `env-${existing.length + 1}`, label: '', order: existing.length + 1 };
 }
 
 function PageSkeleton() {
@@ -89,6 +109,7 @@ export default function RuntimeScreen() {
           ),
           analyzeReportTimeoutMs: numberOrDefault(settings.analyzeReportTimeoutMs, DEFAULT_ORG_RUNTIME_SETTINGS.analyzeReportTimeoutMs),
           codebaseFileMaxBytes: numberOrDefault(settings.codebaseFileMaxBytes, DEFAULT_ORG_RUNTIME_SETTINGS.codebaseFileMaxBytes),
+          pipelineEnvironments: normalizePipelineEnvironmentDefinitions(settings.pipelineEnvironments),
         });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : i18n.loadFailed);
@@ -102,10 +123,46 @@ export default function RuntimeScreen() {
     };
   }, [i18n.loadFailed]);
 
+  const environmentIssues = useMemo(() => {
+    const keyRegex = /^[a-z][a-z0-9-]{0,31}$/;
+    const keyCounts = new Map<string, number>();
+    for (const item of state.pipelineEnvironments) {
+      const key = item.key.trim();
+      keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+    }
+    return state.pipelineEnvironments.map((item) => {
+      const key = item.key.trim();
+      const label = item.label.trim();
+      return {
+        invalidKey: !keyRegex.test(key),
+        duplicateKey: (keyCounts.get(key) ?? 0) > 1,
+        emptyLabel: label.length === 0,
+      };
+    });
+  }, [state.pipelineEnvironments]);
+
+  const hasEnvironmentIssues = useMemo(
+    () => environmentIssues.some((item) => item.invalidKey || item.duplicateKey || item.emptyLabel),
+    [environmentIssues]
+  );
+
   const canSave = useMemo(() => {
     if (!isAdmin || saving || loading) return false;
-    return Object.values(state).every((value) => Number.isFinite(value) && value > 0);
-  }, [isAdmin, loading, saving, state]);
+    const numericChecks = [
+      state.analyzeRateWindowMs,
+      state.analyzeRateUserProjectMax,
+      state.analyzeRateOrgMax,
+      state.analyzeRateIpMax,
+      state.analyzeDedupeTtlSec,
+      state.analyzeDedupeLockTtlSec,
+      state.analyzeBackpressureProjectActiveMax,
+      state.analyzeBackpressureOrgActiveMax,
+      state.analyzeBackpressureRetryAfterSec,
+      state.analyzeReportTimeoutMs,
+      state.codebaseFileMaxBytes,
+    ];
+    return numericChecks.every((value) => Number.isFinite(value) && value > 0) && !hasEnvironmentIssues;
+  }, [hasEnvironmentIssues, isAdmin, loading, saving, state]);
 
   function updateNumber<K extends keyof OrgRuntimeSettings>(key: K, value: string) {
     const parsed = Number.parseInt(value, 10);
@@ -115,19 +172,91 @@ export default function RuntimeScreen() {
     }));
   }
 
+  function updatePipelineEnvironment(
+    index: number,
+    patch: Partial<Pick<PipelineEnvironmentDefinition, 'key' | 'label'>>
+  ) {
+    setState((current) => {
+      const next = current.pipelineEnvironments.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const nextKey = patch.key === undefined ? item.key : patch.key.slice(0, 32);
+        const nextLabel =
+          patch.label === undefined
+            ? item.label
+            : patch.label.slice(0, 32);
+        return { ...item, key: nextKey, label: nextLabel };
+      });
+      return {
+        ...current,
+        pipelineEnvironments: next.map((item, itemIndex) => ({ ...item, order: itemIndex + 1 })),
+      };
+    });
+  }
+
+  function movePipelineEnvironment(index: number, direction: 'up' | 'down') {
+    setState((current) => {
+      const list = [...current.pipelineEnvironments];
+      const target = direction === 'up' ? index - 1 : index + 1;
+      if (target < 0 || target >= list.length) return current;
+      const sourceItem = list[index];
+      const targetItem = list[target];
+      if (!sourceItem || !targetItem) return current;
+      list[index] = targetItem;
+      list[target] = sourceItem;
+      return {
+        ...current,
+        pipelineEnvironments: list.map((item, itemIndex) => ({ ...item, order: itemIndex + 1 })),
+      };
+    });
+  }
+
+  function removePipelineEnvironment(index: number) {
+    setState((current) => {
+      if (current.pipelineEnvironments.length <= 1) return current;
+      const list = current.pipelineEnvironments.filter((_, itemIndex) => itemIndex !== index);
+      return {
+        ...current,
+        pipelineEnvironments: list.map((item, itemIndex) => ({ ...item, order: itemIndex + 1 })),
+      };
+    });
+  }
+
+  function addPipelineEnvironment() {
+    setState((current) => {
+      const candidate = createPipelineEnvironmentCandidate(current.pipelineEnvironments);
+      return {
+        ...current,
+        pipelineEnvironments: [...current.pipelineEnvironments, candidate],
+      };
+    });
+  }
+
+  function resetPipelineEnvironments() {
+    setState((current) => ({
+      ...current,
+      pipelineEnvironments: DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item })),
+    }));
+  }
+
   async function save() {
     if (!canSave) return;
     setSaving(true);
     try {
+      const normalizedEnvironments = normalizePipelineEnvironmentDefinitions(state.pipelineEnvironments);
+      const payload: OrgRuntimeSettings = {
+        ...state,
+        pipelineEnvironments: normalizedEnvironments,
+      };
       const response = await fetch('/api/runtime-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(state),
+        body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data?.error ?? i18n.saveFailed);
       }
+      setState(payload);
       toast.success(i18n.saveSuccess);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : i18n.saveFailed);
@@ -231,6 +360,113 @@ export default function RuntimeScreen() {
               disabled={!isAdmin}
               className="w-40"
             />
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection title={i18n.pipelineEnvironmentsTitle} description={i18n.pipelineEnvironmentsDescription}>
+        <SettingsRow
+          left={
+            <>
+              <div className="text-[13px] font-medium">{i18n.pipelineEnvironmentsLabel}</div>
+              <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{i18n.pipelineEnvironmentsHint}</div>
+            </>
+          }
+          right={
+            <div className="w-full max-w-[420px] space-y-2">
+              {state.pipelineEnvironments.map((item, index) => {
+                const issue = environmentIssues[index];
+                return (
+                  <div
+                    key={index}
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-2"
+                  >
+                    <Input
+                      value={item.key}
+                      onChange={(event) => updatePipelineEnvironment(index, { key: event.target.value })}
+                      placeholder={i18n.pipelineEnvironmentsKeyPlaceholder}
+                      disabled={!isAdmin}
+                      className="font-mono text-[12px]"
+                    />
+                    <Input
+                      value={item.label}
+                      onChange={(event) => updatePipelineEnvironment(index, { label: event.target.value })}
+                      placeholder={i18n.pipelineEnvironmentsLabelPlaceholder}
+                      disabled={!isAdmin}
+                      className="text-[12px]"
+                    />
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => movePipelineEnvironment(index, 'up')}
+                        disabled={!isAdmin || index === 0}
+                        className="size-8"
+                        aria-label={i18n.pipelineEnvironmentsMoveUp}
+                      >
+                        <ArrowUp className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => movePipelineEnvironment(index, 'down')}
+                        disabled={!isAdmin || index === state.pipelineEnvironments.length - 1}
+                        className="size-8"
+                        aria-label={i18n.pipelineEnvironmentsMoveDown}
+                      >
+                        <ArrowDown className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removePipelineEnvironment(index)}
+                        disabled={!isAdmin || state.pipelineEnvironments.length <= 1}
+                        className="size-8 text-danger"
+                        aria-label={i18n.pipelineEnvironmentsRemove}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                    {issue && (issue.invalidKey || issue.duplicateKey || issue.emptyLabel) && (
+                      <div className="col-span-3 text-[11px] text-danger">
+                        {issue.invalidKey
+                          ? i18n.pipelineEnvironmentsKeyInvalid
+                          : issue.duplicateKey
+                            ? i18n.pipelineEnvironmentsDuplicateKey
+                            : i18n.pipelineEnvironmentsLabelRequired}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="flex items-center justify-between pt-1">
+                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{i18n.pipelineEnvironmentsColumns}</div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={resetPipelineEnvironments}
+                    disabled={!isAdmin}
+                    className="h-8 gap-1.5"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    {i18n.pipelineEnvironmentsReset}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addPipelineEnvironment}
+                    disabled={!isAdmin || state.pipelineEnvironments.length >= 20}
+                    className="h-8 gap-1.5"
+                  >
+                    <Plus className="size-3.5" />
+                    {i18n.pipelineEnvironmentsAdd}
+                  </Button>
+                </div>
+              </div>
+            </div>
           }
         />
       </SettingsSection>

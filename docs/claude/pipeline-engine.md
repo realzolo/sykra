@@ -84,7 +84,7 @@
   - `artifact_repositories` defines the package/repository namespace per project.
   - `artifact_versions` stores immutable published versions with source run / pipeline / commit provenance.
   - `artifact_files` maps logical file paths to deduplicated `artifact_blobs`.
-  - `artifact_channels` maps mutable channels like `dev`, `staging`, `prod`, `latest` onto immutable versions.
+  - `artifact_channels` maps mutable channels like `dev`, `preview`, `prod`, `latest` onto immutable versions.
   - `artifact_version_usages` records promotion / download / deployment consumption events for traceability and future retention protection.
 - Artifact blob storage is deduplicated by `(org_id, sha256)` in `artifact_blobs`; Conductor cleanup must not delete storage objects that are referenced by published registry versions.
 - Artifact deployment flow is pull-based for remote workers: workers should fetch immutable artifact versions from Conductor-backed artifact storage rather than receiving binary payloads over the WebSocket control channel; deployment/promotion provenance is recorded in `artifact_version_usages`.

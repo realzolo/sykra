@@ -69,6 +69,14 @@
     --terminal-background: 0 0% 7%;
     --terminal-foreground: 0 0% 92%;
     --terminal-muted: var(--ds-text-2);
+    --terminal-divider: 220 14% 20%;
+    --terminal-line-system-bg: 220 18% 12%;
+    --terminal-line-warning-bg: 38 92% 50% / 0.14;
+    --terminal-line-warning-marker: 38 92% 50%;
+    --terminal-line-error-bg: 0 84% 60% / 0.16;
+    --terminal-line-error-marker: 0 84% 60%;
+    --terminal-skeleton-base: 0 0% 100% / 0.14;
+    --terminal-skeleton-shimmer: 0 0% 100% / 0.3;
 
     --scrollbar-track: var(--ds-surface-1);
     --scrollbar-thumb: 0 0% 28%;
@@ -130,6 +138,14 @@
     --terminal-background: 220 27% 10%;
     --terminal-foreground: 0 0% 92%;
     --terminal-muted: var(--ds-text-2);
+    --terminal-divider: 220 20% 22%;
+    --terminal-line-system-bg: 220 22% 14%;
+    --terminal-line-warning-bg: 38 92% 50% / 0.18;
+    --terminal-line-warning-marker: 38 96% 52%;
+    --terminal-line-error-bg: 0 84% 60% / 0.18;
+    --terminal-line-error-marker: 0 90% 62%;
+    --terminal-skeleton-base: 0 0% 100% / 0.12;
+    --terminal-skeleton-shimmer: 0 0% 100% / 0.24;
 
     --scrollbar-track: var(--ds-surface-1);
     --scrollbar-thumb: 215 14% 70%;
@@ -332,6 +348,19 @@
     transparent 100%
   );
   animation: skeleton-shimmer 1.6s infinite;
+}
+
+.skeleton.terminal-skeleton {
+  background-color: hsl(var(--terminal-skeleton-base));
+}
+
+.skeleton.terminal-skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--terminal-skeleton-shimmer)) 50%,
+    transparent 100%
+  );
 }
 
 .page-enter {

@@ -1,4 +1,8 @@
 import { queryOne } from '@/lib/db';
+import {
+  normalizePipelineEnvironmentDefinitions,
+  type PipelineEnvironmentDefinition,
+} from '@/services/pipelineTypes';
 import { DEFAULT_ORG_RUNTIME_SETTINGS, type OrgRuntimeSettings } from '@/services/runtimeSettings.shared';
 
 type RuntimeSettingsRow = {
@@ -13,6 +17,7 @@ type RuntimeSettingsRow = {
   analyze_backpressure_retry_after_sec: number | null;
   analyze_report_timeout_ms: number | null;
   codebase_file_max_bytes: number | null;
+  pipeline_environments: PipelineEnvironmentDefinition[] | null;
 };
 
 type CacheEntry = {
@@ -71,6 +76,9 @@ function normalizeSettings(row: RuntimeSettingsRow | null | undefined): OrgRunti
       row?.codebase_file_max_bytes,
       DEFAULT_ORG_RUNTIME_SETTINGS.codebaseFileMaxBytes
     ),
+    pipelineEnvironments: normalizePipelineEnvironmentDefinitions(
+      row?.pipeline_environments ?? DEFAULT_ORG_RUNTIME_SETTINGS.pipelineEnvironments
+    ),
   };
 }
 
@@ -92,7 +100,8 @@ export async function getOrgRuntimeSettings(orgId: string): Promise<OrgRuntimeSe
        analyze_backpressure_org_active_max,
        analyze_backpressure_retry_after_sec,
        analyze_report_timeout_ms,
-       codebase_file_max_bytes
+       codebase_file_max_bytes,
+       pipeline_environments
      from org_runtime_settings
      where org_id = $1`,
     [orgId]

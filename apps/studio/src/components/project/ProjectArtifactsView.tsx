@@ -43,7 +43,7 @@ export default function ProjectArtifactsView({
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [promoteRepositoryId, setPromoteRepositoryId] = useState<string | null>(null);
   const [promoteVersionId, setPromoteVersionId] = useState<string | null>(null);
-  const [promoteChannel, setPromoteChannel] = useState('staging');
+  const [promoteChannel, setPromoteChannel] = useState('preview');
   const [promoting, setPromoting] = useState(false);
 
   const loadRepositories = useCallback(async () => {
@@ -107,7 +107,7 @@ export default function ProjectArtifactsView({
       setPromoteOpen(false);
       setPromoteRepositoryId(null);
       setPromoteVersionId(null);
-      setPromoteChannel('staging');
+      setPromoteChannel('preview');
       await loadRepositories();
       toast.success(a.promoteSuccess);
     } catch (error) {
@@ -234,7 +234,7 @@ export default function ProjectArtifactsView({
                             onClick={() => {
                               setPromoteRepositoryId(repository.id);
                               setPromoteVersionId(version.id);
-                              setPromoteChannel(repository.channels[0]?.name || 'staging');
+                              setPromoteChannel(repository.channels[0]?.name || 'preview');
                               setPromoteOpen(true);
                             }}
                           >
@@ -286,7 +286,7 @@ export default function ProjectArtifactsView({
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              {['dev', 'staging', 'prod', 'latest'].map((value) => (
+              {['dev', 'preview', 'prod', 'latest'].map((value) => (
                 <Button
                   key={value}
                   type="button"
