@@ -40,6 +40,7 @@ export type PipelineStep = {
   id: string;
   name: string;
   script: string;
+  checkType?: 'ai_review' | 'static_analysis';
   artifactPaths?: string[];
   artifactInputs?: string[];
   artifactSource?: 'run' | 'registry';
@@ -54,7 +55,7 @@ export type PipelineStep = {
   workingDir?: string;
 };
 
-export type PipelineJobType = 'shell' | 'source_checkout' | 'review_gate';
+export type PipelineJobType = 'shell' | 'source_checkout' | 'quality_gate';
 
 export type PipelineJob = {
   id: string;
@@ -67,7 +68,7 @@ export type PipelineJob = {
   workingDir?: string;
   type?: PipelineJobType;
   branch?: string;
-  // Built-in review_gate field
+  // Built-in quality_gate field
   minScore?: number;
 };
 
@@ -202,6 +203,8 @@ export type PipelineBuildStepTemplate = {
 export type PipelineConfigDefaults = {
   buildImage?: string;
   buildSteps?: PipelineBuildStepTemplate[];
+  staticAnalysisCommand?: string;
+  staticAnalysisArtifactPaths?: string[];
 };
 
 export type PipelineInference = PipelineConfigDefaults & {
@@ -596,13 +599,48 @@ function normalizeSourceBranchValue(branch?: string): string {
   return normalized && normalized.length > 0 ? normalized : 'main';
 }
 
+function buildScopedStaticAnalysisCommand(command: string, matchers: string[]): string {
+  return [
+    'set -eu',
+    ': "${PIPELINE_CHANGED_FILES_MANIFEST:?PIPELINE_CHANGED_FILES_MANIFEST is required}"',
+    ': "${PIPELINE_CHANGED_FILES_COUNT:?PIPELINE_CHANGED_FILES_COUNT is required}"',
+    'if [ "${PIPELINE_CHANGED_FILES_COUNT}" -eq 0 ]; then',
+    '  echo "[analysis] No changed files detected; skipping static analysis."',
+    '  exit 0',
+    'fi',
+    'set --',
+    'while IFS= read -r file || [ -n "$file" ]; do',
+    '  [ -n "$file" ] || continue',
+    '  case "$file" in',
+    ...matchers.map((pattern) => `    ${pattern}) set -- "$@" "$file" ;;`),
+    '  esac',
+    'done < "$PIPELINE_CHANGED_FILES_MANIFEST"',
+    'if [ "$#" -eq 0 ]; then',
+    '  echo "[analysis] No changed source files detected; skipping static analysis."',
+    '  exit 0',
+    'fi',
+    `${command} "$@"`,
+  ].join('\n');
+}
+
+function buildDefaultStaticAnalysisCommand(): string {
+  return buildScopedStaticAnalysisCommand('npm exec -- eslint -f sarif -o quality-gate.sarif', [
+    '*.js',
+    '*.jsx',
+    '*.mjs',
+    '*.cjs',
+    '*.ts',
+    '*.tsx',
+  ]);
+}
+
 export function createDefaultPipelineConfig(
   name: string,
   defaultBranch = 'main',
   defaults?: PipelineConfigDefaults
 ): PipelineConfig {
   const sourceJobId = 'source';
-  const reviewJobId = 'review';
+  const qualityJobId = 'quality';
   const buildJobId = 'build';
   const sourceBranch = normalizeSourceBranchValue(defaultBranch);
   const buildSteps =
@@ -616,6 +654,30 @@ export function createDefaultPipelineConfig(
           { id: newId('step'), name: 'Install dependencies', script: 'npm install' },
           { id: newId('step'), name: 'Build', script: 'npm run build' },
         ];
+  const hasExplicitStaticAnalysisCommand = Boolean(defaults?.staticAnalysisCommand?.trim());
+  const staticAnalysisCommand = hasExplicitStaticAnalysisCommand
+    ? defaults!.staticAnalysisCommand!.trim()
+    : buildDefaultStaticAnalysisCommand();
+  const staticAnalysisArtifactPaths =
+    defaults?.staticAnalysisArtifactPaths
+      ?.map((item) => item.trim())
+      .filter((item) => item.length > 0) ??
+    (hasExplicitStaticAnalysisCommand ? [] : ['quality-gate.sarif']);
+  const qualitySteps = [
+    {
+      id: 'ai-review',
+      name: 'AI Review',
+      script: '',
+      checkType: 'ai_review' as const,
+    },
+    {
+        id: newId('step'),
+        name: 'Static Analysis',
+        script: staticAnalysisCommand,
+        checkType: 'static_analysis' as const,
+      ...(staticAnalysisArtifactPaths.length > 0 ? { artifactPaths: staticAnalysisArtifactPaths } : {}),
+    },
+  ];
 
   return {
     name,
@@ -639,20 +701,20 @@ export function createDefaultPipelineConfig(
         steps: [{ id: 'checkout', name: 'Checkout', script: '' }],
       },
       {
-        id: reviewJobId,
-        name: 'Code Review',
+        id: qualityJobId,
+        name: 'Quality Gate',
         stage: 'review',
-        type: 'review_gate',
+        type: 'quality_gate',
         minScore: 60,
         needs: [sourceJobId],
-        steps: [{ id: 'gate', name: 'Quality Gate', script: '' }],
+        steps: qualitySteps,
       },
       {
         id: buildJobId,
         name: 'Build',
         stage: 'build',
         type: 'shell',
-        needs: [reviewJobId],
+        needs: [qualityJobId],
         steps: buildSteps,
       },
       {
@@ -710,6 +772,111 @@ export function enforceProductionDeployManualGate(config: PipelineConfig): Pipel
   };
 }
 
+export type PipelineContractIssue = {
+  path: Array<string | number>;
+  message: string;
+};
+
+type PipelineContractStep = {
+  checkType?: string | undefined;
+  script: string;
+};
+
+type PipelineContractJob = {
+  type?: string | undefined;
+  stage?: string | undefined;
+  minScore?: number | undefined;
+  steps: PipelineContractStep[];
+};
+
+type PipelineContractStageConfig = {
+  entryMode?: PipelineStageEntryMode | undefined;
+  dispatchMode?: PipelineStageDispatchMode | undefined;
+};
+
+type PipelineContractConfig = {
+  environment?: string | undefined;
+  stages?: Partial<Record<PipelineStageKey, PipelineContractStageConfig | undefined>> | undefined;
+  jobs: PipelineContractJob[];
+};
+
+export function validatePipelineContract(
+  config: PipelineContractConfig,
+  emit: (issue: PipelineContractIssue) => void
+): void {
+  for (const [jobIndex, job] of config.jobs.entries()) {
+    const jobType = (job.type ?? 'shell').trim().toLowerCase();
+    const stage = job.stage?.trim();
+
+    if (jobType === 'quality_gate') {
+      if (stage !== undefined && stage !== 'review') {
+        emit({
+          path: ['jobs', jobIndex, 'stage'],
+          message: 'Quality gate jobs must use the review stage',
+        });
+      }
+
+      const [firstStep, secondStep] = job.steps;
+      if (
+        job.steps.length !== 2 ||
+        firstStep?.checkType !== 'ai_review' ||
+        secondStep?.checkType !== 'static_analysis'
+      ) {
+        emit({
+          path: ['jobs', jobIndex, 'steps'],
+          message: 'Quality gate jobs must contain an AI review step followed by a static analysis step',
+        });
+      }
+
+      if (firstStep && firstStep.checkType === 'ai_review' && firstStep.script.trim()) {
+        emit({
+          path: ['jobs', jobIndex, 'steps', 0, 'script'],
+          message: 'AI review step must not define a shell command',
+        });
+      }
+
+      if (!secondStep || secondStep.checkType !== 'static_analysis' || !secondStep.script.trim()) {
+        emit({
+          path: ['jobs', jobIndex, 'steps', 1, 'script'],
+          message: 'Static analysis step requires a shell command',
+        });
+      }
+
+      if (job.minScore === undefined) {
+        emit({
+          path: ['jobs', jobIndex, 'minScore'],
+          message: 'Quality gate jobs must define a minimum score',
+        });
+      } else if (job.minScore < 1 || job.minScore > 100) {
+        emit({
+          path: ['jobs', jobIndex, 'minScore'],
+          message: 'Quality gate minimum score must be between 1 and 100',
+        });
+      }
+      continue;
+    }
+
+    for (const [stepIndex, step] of job.steps.entries()) {
+      if (step.checkType) {
+        emit({
+          path: ['jobs', jobIndex, 'steps', stepIndex, 'checkType'],
+          message: 'Step checkType is only allowed on quality gate jobs',
+        });
+      }
+    }
+  }
+
+  if ((config.environment ?? DEFAULT_PIPELINE_ENVIRONMENT) === 'production') {
+    const deployEntryMode = config.stages?.deploy?.entryMode ?? 'auto';
+    if (deployEntryMode !== 'manual') {
+      emit({
+        path: ['stages', 'deploy', 'entryMode'],
+        message: 'Production pipelines must require a manual deploy gate',
+      });
+    }
+  }
+}
+
 export function durationLabel(startedAt?: string | null, finishedAt?: string | null): string {
   if (!startedAt) return '';
   const start = new Date(startedAt).getTime();
@@ -762,7 +929,7 @@ function hasCycle(jobs: PipelineJob[]): boolean {
 export function inferPipelineJobStage(job: PipelineJob, jobs: PipelineJob[]): PipelineStageKey {
   if (job.stage && PIPELINE_STAGE_SEQUENCE.includes(job.stage)) return job.stage;
   if (job.type === 'source_checkout') return 'source';
-  if (job.type === 'review_gate') return 'review';
+  if (job.type === 'quality_gate') return 'review';
 
   const normalizedName = `${job.id} ${job.name}`.toLowerCase();
   if (/(deploy|release|publish|rollout|ship)/.test(normalizedName)) return 'deploy';
@@ -774,7 +941,7 @@ export function inferPipelineJobStage(job: PipelineJob, jobs: PipelineJob[]): Pi
   const dependsOnReview = jobs.some(
     (candidate) =>
       dependencyIds.has(candidate.id) &&
-      (candidate.stage === 'review' || candidate.type === 'review_gate')
+      (candidate.stage === 'review' || candidate.type === 'quality_gate')
   );
   if (dependsOnReview) return 'build';
 
@@ -837,15 +1004,24 @@ export function createStageJob(
     };
   }
   if (stage === 'review') {
-    const reviewName = name?.trim() || 'Code Review';
+    const reviewName = name?.trim() || 'Quality Gate';
     return {
       id: createUniqueJobId(reviewName, existingIds),
       name: reviewName,
       stage,
-      type: 'review_gate',
+      type: 'quality_gate',
       minScore: 60,
       needs: [],
-      steps: [{ id: 'gate', name: 'Quality Gate', script: '' }],
+      steps: [
+        { id: 'ai-review', name: 'AI Review', script: '', checkType: 'ai_review' },
+        {
+          id: createDefaultStep('Static Analysis').id,
+          name: 'Static Analysis',
+          script: buildDefaultStaticAnalysisCommand(),
+          checkType: 'static_analysis',
+          artifactPaths: ['quality-gate.sarif'],
+        },
+      ],
     };
   }
   const shellName =
@@ -918,10 +1094,24 @@ export function normalizePipelineJobs(
         normalized.push({
           ...rawJob,
           stage,
-          type: 'review_gate',
-          minScore: Math.min(100, Math.max(0, rawJob.minScore ?? 60)),
+          type: 'quality_gate',
+          ...(rawJob.minScore !== undefined ? { minScore: Math.min(100, Math.max(1, rawJob.minScore)) } : {}),
           needs,
-          steps: rawJob.steps.length > 0 ? rawJob.steps : [{ id: 'gate', name: 'Quality Gate', script: '' }],
+          steps:
+            rawJob.steps.length > 0
+              ? rawJob.steps.map((step, index) => ({
+                  ...step,
+                  checkType: step.checkType ?? (index === 0 ? 'ai_review' : 'static_analysis'),
+                }))
+              : [
+                  { id: 'ai-review', name: 'AI Review', script: '', checkType: 'ai_review' },
+                  {
+                    id: 'static-analysis',
+                    name: 'Static Analysis',
+                    script: buildDefaultStaticAnalysisCommand(),
+                    checkType: 'static_analysis',
+                  },
+                ],
         });
         continue;
       }
@@ -1022,11 +1212,11 @@ export function analyzePipelineJobs(jobs: PipelineJob[]): PipelineJobDiagnostic[
     diagnostics.push({ level: 'error', message: 'Only one source job is allowed.' });
   }
 
-  const reviewGateCount = jobs.filter((job) => (job.type ?? 'shell') === 'review_gate').length;
-  if (reviewGateCount === 0) {
+  const qualityGateCount = jobs.filter((job) => (job.type ?? 'shell') === 'quality_gate').length;
+  if (qualityGateCount === 0) {
     diagnostics.push({
       level: 'suggestion',
-      message: 'Consider adding a review gate job for automated quality gating.',
+      message: 'Consider adding a quality gate job for automated AI review and static analysis.',
     });
   }
 
@@ -1057,6 +1247,12 @@ export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[
       message: 'CI build image is required.',
     });
   }
+  validatePipelineContract(config, (issue) => {
+    diagnostics.push({
+      level: 'error',
+      message: issue.message,
+    });
+  });
   let hasCiArtifactOutputs = false;
   for (const job of jobs) {
     const stage = inferPipelineJobStage(job, jobs);
@@ -1071,6 +1267,20 @@ export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[
             message: `Step "${step.name}" in job "${job.name}" cannot use Docker step mode in CI stages. Set the pipeline build image instead.`,
           });
         }
+      }
+    }
+    if ((job.type ?? 'shell') === 'quality_gate') {
+      const staticAnalysisStep = job.steps.find((step) => step.checkType === 'static_analysis');
+      if (
+        !staticAnalysisStep?.artifactPaths?.some((path) => {
+          const normalized = path.trim().toLowerCase();
+          return normalized.endsWith('.sarif') || normalized.endsWith('.static-analysis.json');
+        })
+      ) {
+        diagnostics.push({
+          level: 'suggestion',
+          message: `Static analysis step "${staticAnalysisStep?.name ?? 'Static Analysis'}" should export a SARIF or normalized JSON artifact so the pipeline can ingest structured findings.`,
+        });
       }
     }
   }

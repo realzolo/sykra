@@ -744,11 +744,15 @@ func (s *Service) UploadWorkerArtifact(ctx context.Context, input UploadWorkerAr
 		return nil, errors.New("artifact manager is not configured")
 	}
 
-	run, err := s.Store.GetPipelineRun(ctx, input.RunID)
+	run, version, err := s.Store.GetPipelineRunWithVersion(ctx, input.RunID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, errors.New("pipeline run not found")
 		}
+		return nil, err
+	}
+	var cfg PipelineConfig
+	if err := version.DecodeConfig(&cfg); err != nil {
 		return nil, err
 	}
 	step, err := s.Store.GetPipelineStepByKey(ctx, input.JobID, input.StepKey)
@@ -794,6 +798,22 @@ func (s *Service) UploadWorkerArtifact(ctx context.Context, input UploadWorkerAr
 		"maxAttempts": input.MaxAttempts,
 		"uploadedAt":  time.Now().UTC().Format(time.RFC3339),
 	})
+	if jobConfig, stepConfig, ok := findQualityGateStaticAnalysisStep(cfg, input.JobID, input.StepKey); ok {
+		if err := ingestStaticAnalysisArtifact(
+			ctx,
+			s.Store,
+			s.Artifacts,
+			run,
+			input.RunID,
+			jobConfig,
+			store.PipelineJob{ID: step.JobID, JobKey: input.JobID},
+			stepConfig,
+			step,
+			artifact,
+		); err != nil {
+			return nil, err
+		}
+	}
 	return &artifact, nil
 }
 

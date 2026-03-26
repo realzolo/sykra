@@ -1055,8 +1055,8 @@ func runStep(
 	switch message.JobType {
 	case "source_checkout":
 		exitCode, err = runSourceCheckoutStep(ctx, message, workingDir, writer)
-	case "review_gate":
-		exitCode, err = runReviewGateStep(ctx, message, writer)
+	case "quality_gate":
+		exitCode, err = 1, errors.New("deploy worker cannot execute quality gate jobs")
 	default:
 		if strings.EqualFold(step.Type, "docker") {
 			exitCode, err = runDockerStep(ctx, message, step, workingDir, writer)
@@ -1285,34 +1285,6 @@ func runSourceCheckoutStep(
 	return exitCode, err
 }
 
-func runReviewGateStep(ctx context.Context, message workerprotocol.ExecuteJobMessage, output io.Writer) (int, error) {
-	if strings.TrimSpace(message.ProjectID) == "" || strings.TrimSpace(message.StudioURL) == "" {
-		return 1, errors.New("projectId and studioUrl are required for review gate")
-	}
-	writeCommandHeader(output, "[command] review gate", "")
-	_, _ = io.WriteString(output, "[command] review gate (Conductor-native check)\n")
-	score, err := fetchLatestScore(ctx, message.StudioURL, message.StudioToken, message.ProjectID)
-	if err != nil {
-		_, _ = fmt.Fprintf(output, "[review] WARNING: %v\n", err)
-		_, _ = io.WriteString(output, "[review] Proceeding without quality gate check.\n")
-		writeCommandResult(output, 0, nil)
-		return 0, nil
-	}
-
-	_, _ = fmt.Fprintf(output, "[review] Latest review score: %d/100\n", score)
-	if message.MinScore > 0 && score < message.MinScore {
-		err := fmt.Errorf("quality gate failed: score %d < minimum %d", score, message.MinScore)
-		_, _ = fmt.Fprintf(output, "[review] BLOCKED: %v\n", err)
-		writeCommandResult(output, 1, err)
-		return 1, err
-	}
-	if message.MinScore > 0 {
-		_, _ = fmt.Fprintf(output, "[review] Quality gate passed (score %d >= %d)\n", score, message.MinScore)
-	}
-	writeCommandResult(output, 0, nil)
-	return 0, nil
-}
-
 func runCommand(
 	ctx context.Context,
 	name string,
@@ -1373,41 +1345,6 @@ func fetchProjectRepo(ctx context.Context, studioURL string, studioToken string,
 		return "", errors.New("project has no repository configured")
 	}
 	return payload.Repo, nil
-}
-
-func fetchLatestScore(ctx context.Context, studioURL string, studioToken string, projectID string) (int, error) {
-	endpoint := strings.TrimRight(studioURL, "/") + "/api/reports?projectId=" + projectID + "&limit=1"
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return 0, err
-	}
-	if token := strings.TrimSpace(studioToken); token != "" {
-		request.Header.Set("X-Conductor-Token", token)
-	}
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	response, err := client.Do(request)
-	if err != nil {
-		return 0, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("studio returned %d for review query", response.StatusCode)
-	}
-
-	var payload []struct {
-		Score  *int   `json:"score"`
-		Status string `json:"status"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return 0, err
-	}
-	for _, item := range payload {
-		if item.Status == "done" && item.Score != nil {
-			return *item.Score, nil
-		}
-	}
-	return 0, errors.New("no completed report found")
 }
 
 func shellCommand(script string) (string, []string) {

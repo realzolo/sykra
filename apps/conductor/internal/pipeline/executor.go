@@ -9,8 +9,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-
-	"sykra/conductor/internal/store"
 )
 
 // ── Executor interface ─────────────────────────────────────────────────────
@@ -140,59 +138,4 @@ func (e *DockerExecutor) Execute(ctx context.Context, step PipelineStep, env map
 		return exitErr.ExitCode(), err
 	}
 	return 1, err
-}
-
-// ── Review gate executor ───────────────────────────────────────────────────
-// Checks the latest persisted analysis score for the project directly from
-// Conductor's database view of reports. Fails if qualityGateEnabled and
-// score < minScore.
-
-type ReviewGateExecutor struct {
-	Store       *store.Store
-	ProjectID   string
-	MinScore    int
-	GateEnabled bool
-}
-
-func (e *ReviewGateExecutor) Execute(ctx context.Context, step PipelineStep, env map[string]string, workingDir string, log io.Writer) (int, error) {
-	fmt.Fprintf(log, "[review] Checking latest code review score for project %s\n", e.ProjectID)
-
-	score, err := e.fetchLatestScore(ctx)
-	if err != nil {
-		// If we can't fetch (no review done yet), warn but don't block
-		fmt.Fprintf(log, "[review] WARNING: could not fetch review score: %v\n", err)
-		fmt.Fprintf(log, "[review] Proceeding without quality gate check.\n")
-		return 0, nil
-	}
-
-	fmt.Fprintf(log, "[review] Latest review score: %d/100\n", score)
-
-	if e.GateEnabled && score < e.MinScore {
-		fmt.Fprintf(log, "[review] BLOCKED: score %d is below minimum %d\n", score, e.MinScore)
-		return 1, fmt.Errorf("quality gate failed: score %d < minimum %d", score, e.MinScore)
-	}
-
-	if e.GateEnabled {
-		fmt.Fprintf(log, "[review] Quality gate passed (score %d >= %d)\n", score, e.MinScore)
-	} else {
-		fmt.Fprintf(log, "[review] Review complete (quality gate not enforced)\n")
-	}
-	return 0, nil
-}
-
-func (e *ReviewGateExecutor) fetchLatestScore(ctx context.Context) (int, error) {
-	if e.Store == nil {
-		return 0, fmt.Errorf("store is required")
-	}
-	if strings.TrimSpace(e.ProjectID) == "" {
-		return 0, fmt.Errorf("projectId is required")
-	}
-	score, err := e.Store.GetLatestProjectReviewScore(ctx, e.ProjectID)
-	if err != nil {
-		return 0, fmt.Errorf("failed to load latest review score: %w", err)
-	}
-	if score == nil {
-		return 0, fmt.Errorf("no completed review found")
-	}
-	return *score, nil
 }

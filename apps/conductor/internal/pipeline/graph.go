@@ -6,18 +6,10 @@ import (
 	"sykra/conductor/internal/store"
 )
 
-// EnsureRunGraph creates the job and step records for a run if they don't exist.
+// EnsureRunGraph creates or repairs the job and step records for a run.
 // It uses the InternalPlan (built from the four-stage PipelineConfig) to determine
-// the jobs and steps to create.
+// the canonical jobs and steps that must exist for the run.
 func EnsureRunGraph(ctx context.Context, st *store.Store, runID string, cfg PipelineConfig, projectID string) error {
-	existing, err := st.ListPipelineJobs(ctx, runID)
-	if err != nil {
-		return err
-	}
-	if len(existing) > 0 {
-		return nil
-	}
-
 	plan := BuildInternalPlan(cfg, projectID)
 
 	for _, job := range plan.Jobs {

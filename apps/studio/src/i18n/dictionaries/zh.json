@@ -397,7 +397,7 @@
       "buildImagePresetHelp": "常见运行时优先使用内置预设；只有在需要非标准镜像时才切换为自定义。",
       "buildImagePresetCustom": "自定义镜像",
       "buildImagePlaceholder": "例如 node:22-bookworm",
-      "buildImageHelp": "所有 Source、Review、Build 作业都会在基于该镜像创建的隔离 runner 容器中执行。请选择官方运行时基础镜像；Conductor 会在需要时自动补装 git 和 corepack/pnpm 等次级工具。",
+      "buildImageHelp": "所有 Source、质量门禁、Build 作业都会在基于该镜像创建的隔离 runner 容器中执行。请选择已预装 git 以及仓库所需包管理工具的官方运行时基础镜像；Conductor 不会在运行时修改容器。",
       "autoDetected": "已应用仓库默认值",
       "autoDetectedHelp": "已根据仓库元数据自动推断，你仍然可以覆盖下面任意值。",
       "branch": "代码分支",
@@ -434,7 +434,7 @@
     },
     "stageTab": {
       "source": "数据源",
-      "review": "代码审查",
+      "review": "质量门禁",
       "build": "构建",
       "deploy": "部署"
     },
@@ -444,7 +444,7 @@
       "stageBuilderTitle": "阶段编排",
       "stageBuilderDescription": "按阶段组织执行列。依赖关系不再手工维护，而是由阶段顺序与调度模式自动推导。",
       "slotLabelAfterSource": "Source 后",
-      "slotLabelAfterReview": "Review 后",
+      "slotLabelAfterReview": "质量门禁后",
       "slotLabelAfterBuild": "Build 后",
       "slotLabelAfterDeploy": "Deploy 后",
       "slotDescription": "可选自动化插槽，用于在核心阶段之间插入脚本或工具任务。",
@@ -493,7 +493,7 @@
       "typeLabel": {
         "shell": "Shell",
         "source_checkout": "代码检出",
-        "review_gate": "评审门禁"
+        "quality_gate": "质量门禁"
       },
       "needs": "依赖（needs）",
       "needsHelp": "选择上游 Job。当前 Job 仅会在所有选中依赖成功后执行。",
@@ -507,7 +507,19 @@
       "addDialogNeedsHelp": "依赖选择会直接决定该节点在 DAG 中的层级位置。",
       "addDialogTargetLayer": "该 Job 将放置在第 {{layer}} 层。",
       "addDialogCreate": "创建 Job",
-      "reviewMinScore": "最低评审分",
+      "qualityGateTitle": "质量门禁",
+      "qualityGateDescription": "该门禁会先执行 AI 审核，再在同一份源码快照上执行静态分析。",
+      "qualityGateMinScore": "AI 审核最低分",
+      "qualityGateMinScoreHelp": "只有当 AI 审核分数达到阈值后，构建阶段才会继续。",
+      "qualityGateAiReviewLabel": "AI 审核",
+      "qualityGateAiReviewHelp": "读取当前运行提交对应的最新已完成评审分数，并在分数不足时阻断流水线。",
+      "qualityGateAiReviewRuntime": "该检查是固定逻辑，不会执行 Shell 命令。",
+      "qualityGateStaticAnalysisLabel": "静态分析",
+      "qualityGateStaticAnalysisHelp": "在 AI 审核通过后，于构建镜像内执行确定性的命令。",
+      "qualityGateStaticAnalysisCommand": "静态分析命令",
+      "qualityGateStaticAnalysisCommandPlaceholder": "npm run lint",
+      "qualityGateFixedOrder": "固定顺序：先执行 {{name}}，再执行静态分析。",
+      "qualityGateFixedOrderFallback": "质量门禁始终先执行 AI 审核，再执行静态分析。",
       "steps": "步骤",
       "addStep": "添加步骤",
       "builtinHint": "该内置 Job 类型由 Conductor 执行，不需要可编辑的 Shell 步骤。",
@@ -524,14 +536,14 @@
       "description": "从关联项目仓库的指定分支拉取代码"
     },
     "review": {
-      "title": "代码审查",
-      "description": "部署前由 AI 对代码进行质量分析",
-      "enabled": "启用代码审查",
+      "title": "质量门禁",
+      "description": "构建前执行 AI 评审和静态扫描",
+      "enabled": "启用质量门禁",
       "qualityGate": "质量门禁",
-      "qualityGateHelp": "评审分低于阈值时阻止部署",
-      "qualityGateEnabled": "低分时阻止部署",
-      "minScore": "最低分数",
-      "minScoreHelp": "评审分低于此值时，部署将被阻止"
+      "qualityGateHelp": "质量检查失败时阻断流水线",
+      "qualityGateEnabled": "失败时阻断",
+      "minScore": "AI 最低分数",
+      "minScoreHelp": "AI 评审分必须达到此分数才能继续"
     },
     "build": {
       "title": "构建",

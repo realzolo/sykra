@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -195,7 +196,8 @@ func (s *Store) GetReport(ctx context.Context, reportID string) (*Report, error)
 	return &report, nil
 }
 
-func (s *Store) GetLatestProjectReviewScore(ctx context.Context, projectID string) (*int, error) {
+func (s *Store) GetLatestProjectReviewScore(ctx context.Context, projectID string, commitSHA string) (*int, error) {
+	commitSHA = strings.TrimSpace(commitSHA)
 	row := s.pool.QueryRow(
 		ctx,
 		`select score
@@ -203,9 +205,25 @@ func (s *Store) GetLatestProjectReviewScore(ctx context.Context, projectID strin
 		 where project_id = $1
 		   and status = 'done'
 		   and score is not null
+		   and (
+		         $2 = ''
+		      or exists (
+		          select 1
+		            from jsonb_array_elements(commits) elem
+		           where (
+		             jsonb_typeof(elem) = 'string'
+		             and trim(both '"' from elem::text) = $2
+		           )
+		              or (
+		             jsonb_typeof(elem) = 'object'
+		             and elem->>'sha' = $2
+		           )
+		       )
+		   )
 		 order by created_at desc
 		 limit 1`,
 		projectID,
+		commitSHA,
 	)
 
 	var score pgtype.Int4

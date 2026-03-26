@@ -188,7 +188,7 @@
 The pipeline system follows a stage-based model inspired by enterprise DevOps platforms (Alibaba Cloud DevOps, etc.):
 
 ```
-Source Checkout → Code Review Gate → Build → Deploy
+Source Checkout → Quality Gate → Build → Deploy
 ```
 
 | Feature | Status | Notes |
@@ -196,7 +196,7 @@ Source Checkout → Code Review Gate → Build → Deploy
 | Stage-based pipeline profile | ✅ Done | Replaces the old free-form DAG builder |
 | 3-step creation wizard | ✅ Done | Basic Info → Configure Stages → Notifications |
 | Source stage — git clone / pull | ✅ Done | Repo URL fetched from Studio API via `source_checkout` executor |
-| Review stage — quality gate | ✅ Done | Fetches latest report score; blocks deploy if score < `minScore` |
+| Review stage — quality gate | ✅ Done | Fixed `review` stage; enforces AI review score threshold, scopes static analysis to the changed-file manifest, and ingests structured static-analysis/SARIF or normalized JSON evidence before build |
 | Build / Deploy — shell steps | ✅ Done | Custom scripts, step templates (Node.js, Python, Go) |
 | Per-step timeout | ✅ Done | `timeoutSeconds` field per step and per job |
 | Continue-on-error per step | ✅ Done | `continueOnError` flag |

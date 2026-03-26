@@ -35,7 +35,7 @@ func (e *Engine) runJobLocally(
 	job PipelineJob,
 	jobRecord store.PipelineJob,
 ) error {
-	jobWorkspaceRoot, err := prepareLocalJobWorkspace(ctx, e.SourceManager, source, workspaceRoot, job)
+	jobWorkspaceRoot, changedFilesCount, err := prepareLocalJobWorkspace(ctx, e.SourceManager, source, workspaceRoot, job)
 	if err != nil {
 		e.failJobWithoutStartedStep(ctx, runID, job, jobRecord, err.Error())
 		_ = e.Store.MarkPipelineJobFailed(ctx, jobRecord.ID, err.Error())
@@ -76,7 +76,7 @@ func (e *Engine) runJobLocally(
 			return fmt.Errorf("step record missing for %s", step.ID)
 		}
 
-		_, err = e.runStep(ctx, sandbox, run, runID, jobWorkspaceRoot, cfg, secrets, source, job, jobRecord, step, stepRecord)
+		_, err = e.runStep(ctx, sandbox, run, runID, jobWorkspaceRoot, changedFilesCount, cfg, secrets, source, job, jobRecord, step, stepRecord)
 		if err != nil && !step.ContinueOnError {
 			_ = e.Store.MarkPipelineJobFailed(ctx, jobRecord.ID, err.Error())
 			_ = e.Store.AppendRunEvent(ctx, runID, "job.failed", map[string]any{
@@ -105,6 +105,10 @@ func (e *Engine) runJobLocally(
 func (e *Engine) executeLocalStep(
 	ctx context.Context,
 	sandbox *jobSandbox,
+	run *store.PipelineRun,
+	runID string,
+	jobRecord store.PipelineJob,
+	stepRecord store.PipelineStep,
 	step PipelineStep,
 	env map[string]string,
 	workingDir string,
@@ -143,47 +147,117 @@ echo "[source] Local workspace snapshot is ready."
 		exitCode, err := sandbox.ExecScript(ctx, script, env, workingDir, logWriter)
 		writeCommandResult(logWriter, exitCode, err)
 		return exitCode, err
-	case "review_gate":
+	case "quality_gate":
 		if sandbox == nil {
-			return 1, errors.New("sandbox is required for review gate")
+			return 1, errors.New("sandbox is required for quality gate")
 		}
-		executor := &ReviewGateExecutor{
-			Store:       e.Store,
-			ProjectID:   job.ProjectID,
-			MinScore:    job.MinScore,
-			GateEnabled: job.MinScore > 0,
-		}
-		score, err := executor.fetchLatestScore(ctx)
-		if err != nil {
-			_, _ = fmt.Fprintf(logWriter, "[review] WARNING: could not fetch review score: %v\n", err)
-			_, _ = io.WriteString(logWriter, "[review] Proceeding without quality gate check.\n")
+		checkType := strings.TrimSpace(strings.ToLower(step.CheckType))
+		switch checkType {
+		case "ai_review":
+			commitSHA := ""
+			if run != nil && run.CommitSHA != nil {
+				commitSHA = strings.TrimSpace(*run.CommitSHA)
+			}
+			if commitSHA == "" {
+				e.recordQualityGateEvent(ctx, runID, run, jobRecord, stepRecord, job, step, "quality_gate.ai_review_failed", map[string]any{
+					"status":    StatusFailed,
+					"reason":    "missing_commit_sha",
+					"minScore":  job.MinScore,
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return 1, errors.New("quality gate requires a commit SHA for AI review")
+			}
+			if job.MinScore <= 0 {
+				e.recordQualityGateEvent(ctx, runID, run, jobRecord, stepRecord, job, step, "quality_gate.ai_review_failed", map[string]any{
+					"status":    StatusFailed,
+					"reason":    "missing_min_score",
+					"commitSha": commitSHA,
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return 1, errors.New("quality gate minScore is required and must be greater than 0")
+			}
+			score, err := e.Store.GetLatestProjectReviewScore(ctx, job.ProjectID, commitSHA)
+			if err != nil {
+				e.recordQualityGateEvent(ctx, runID, run, jobRecord, stepRecord, job, step, "quality_gate.ai_review_failed", map[string]any{
+					"status":    StatusFailed,
+					"reason":    "review_lookup_failed",
+					"commitSha": commitSHA,
+					"minScore":  job.MinScore,
+					"error":     err.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				return 1, fmt.Errorf("quality gate: failed to load review score: %w", err)
+			}
+			if score == nil {
+				e.recordQualityGateEvent(ctx, runID, run, jobRecord, stepRecord, job, step, "quality_gate.ai_review_failed", map[string]any{
+					"status":    StatusFailed,
+					"reason":    "review_not_found",
+					"commitSha": commitSHA,
+					"minScore":  job.MinScore,
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				if commitSHA != "" {
+					return 1, fmt.Errorf("quality gate: no completed review found for commit %s", commitSHA)
+				}
+				return 1, fmt.Errorf("quality gate: no completed review found")
+			}
+			writeCommandHeader(logWriter, "[quality] ai review", workingDir)
+			_, _ = fmt.Fprintf(logWriter, "[quality] AI review score: %d/100\n", *score)
+			if *score < job.MinScore {
+				err := fmt.Errorf("quality gate failed: score %d < minimum %d", *score, job.MinScore)
+				_, _ = fmt.Fprintf(logWriter, "[quality] BLOCKED: %v\n", err)
+				e.recordQualityGateEvent(ctx, runID, run, jobRecord, stepRecord, job, step, "quality_gate.ai_review_blocked", map[string]any{
+					"status":    StatusFailed,
+					"reason":    "below_threshold",
+					"commitSha": commitSHA,
+					"minScore":  job.MinScore,
+					"score":     *score,
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				})
+				writeCommandResult(logWriter, 1, err)
+				return 1, err
+			}
+			_, _ = fmt.Fprintf(logWriter, "[quality] Gate passed (score %d >= %d)\n", *score, job.MinScore)
+			e.recordQualityGateEvent(ctx, runID, run, jobRecord, stepRecord, job, step, "quality_gate.ai_review_completed", map[string]any{
+				"status":    StatusSuccess,
+				"reason":    "passed",
+				"commitSha": commitSHA,
+				"minScore":  job.MinScore,
+				"score":     *score,
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+			})
 			return 0, nil
+		case "static_analysis":
+			staticScript := strings.TrimSpace(step.Script)
+			if staticScript == "" {
+				return 1, fmt.Errorf("quality gate step %s requires a static analysis command", step.ID)
+			}
+			changedFilesCount := 0
+			if raw := strings.TrimSpace(env["PIPELINE_CHANGED_FILES_COUNT"]); raw != "" {
+				if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed >= 0 {
+					changedFilesCount = parsed
+				}
+			}
+			writeCommandHeader(logWriter, "[command] static analysis", workingDir)
+			writeScriptBlock(logWriter, "[command] /bin/sh -lc", staticScript)
+			exitCode, err := sandbox.ExecScript(ctx, staticScript, env, workingDir, logWriter)
+			eventPayload := map[string]any{
+				"status":            statusFromExit(exitCode, err),
+				"command":           staticScript,
+				"exitCode":          exitCode,
+				"changedFilesCount": changedFilesCount,
+				"timestamp":         time.Now().UTC().Format(time.RFC3339),
+			}
+			if err != nil {
+				eventPayload["error"] = err.Error()
+			}
+			e.recordQualityGateEvent(ctx, runID, run, jobRecord, stepRecord, job, step, "quality_gate.static_analysis_completed", eventPayload)
+			writeCommandResult(logWriter, exitCode, err)
+			return exitCode, err
+		default:
+			return 1, fmt.Errorf("quality gate step %s must define checkType ai_review or static_analysis", step.ID)
 		}
-		env["PIPELINE_REVIEW_SCORE"] = strconv.Itoa(score)
-		env["PIPELINE_REVIEW_MIN_SCORE"] = strconv.Itoa(job.MinScore)
-		if job.MinScore > 0 {
-			env["PIPELINE_REVIEW_GATE_ENABLED"] = "1"
-		} else {
-			env["PIPELINE_REVIEW_GATE_ENABLED"] = "0"
-		}
-		script := `
-set -eu
-echo "[review] Latest review score: ${PIPELINE_REVIEW_SCORE}/100"
-if [ "${PIPELINE_REVIEW_GATE_ENABLED}" = "1" ] && [ "${PIPELINE_REVIEW_SCORE}" -lt "${PIPELINE_REVIEW_MIN_SCORE}" ]; then
-  echo "[review] BLOCKED: score ${PIPELINE_REVIEW_SCORE} is below minimum ${PIPELINE_REVIEW_MIN_SCORE}"
-  exit 1
-fi
-if [ "${PIPELINE_REVIEW_GATE_ENABLED}" = "1" ]; then
-  echo "[review] Quality gate passed (score ${PIPELINE_REVIEW_SCORE} >= ${PIPELINE_REVIEW_MIN_SCORE})"
-else
-  echo "[review] Review complete (quality gate not enforced)"
-fi
-`
-		writeCommandHeader(logWriter, "[command] /bin/sh -lc", workingDir)
-		writeScriptBlock(logWriter, "[command] /bin/sh -lc", script)
-		exitCode, err := sandbox.ExecScript(ctx, script, env, workingDir, logWriter)
-		writeCommandResult(logWriter, exitCode, err)
-		return exitCode, err
+
 	default:
 		if strings.EqualFold(step.Type, "docker") {
 			return 1, fmt.Errorf("step %s cannot use docker type in CI sandbox jobs; use pipeline buildImage instead", step.ID)
@@ -230,6 +304,58 @@ func writeCommandResult(output io.Writer, exitCode int, err error) {
 		return
 	}
 	_, _ = fmt.Fprintf(output, "[command] status=failed exit=%d error=%s\n", exitCode, strings.TrimSpace(err.Error()))
+}
+
+func statusFromExit(exitCode int, err error) RunStatus {
+	if err == nil {
+		return StatusSuccess
+	}
+	if errors.Is(err, context.Canceled) {
+		return StatusCanceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return StatusTimedOut
+	}
+	if exitCode == 0 {
+		return StatusSuccess
+	}
+	return StatusFailed
+}
+
+func (e *Engine) recordQualityGateEvent(
+	ctx context.Context,
+	runID string,
+	run *store.PipelineRun,
+	jobRecord store.PipelineJob,
+	stepRecord store.PipelineStep,
+	job PipelineJob,
+	step PipelineStep,
+	eventType string,
+	extra map[string]any,
+) {
+	if e == nil || e.Store == nil {
+		return
+	}
+	payload := map[string]any{
+		"runId":     runID,
+		"jobId":     jobRecord.ID,
+		"jobKey":    job.ID,
+		"stepId":    stepRecord.ID,
+		"stepKey":   step.ID,
+		"checkType": strings.TrimSpace(strings.ToLower(step.CheckType)),
+	}
+	if run != nil {
+		if run.CommitSHA != nil && strings.TrimSpace(*run.CommitSHA) != "" {
+			payload["commitSha"] = strings.TrimSpace(*run.CommitSHA)
+		}
+		if run.ProjectID != nil && strings.TrimSpace(*run.ProjectID) != "" {
+			payload["projectId"] = strings.TrimSpace(*run.ProjectID)
+		}
+	}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	_ = e.Store.AppendRunEvent(ctx, runID, eventType, payload)
 }
 
 func writeScriptBlock(output io.Writer, label string, script string) {
@@ -786,6 +912,11 @@ func (e *Engine) uploadLocalStepArtifacts(
 			"sha256":      artifact.Sha256,
 			"uploadedAt":  time.Now().UTC().Format(time.RFC3339),
 		})
+		if strings.EqualFold(strings.TrimSpace(step.CheckType), "static_analysis") {
+			if err := ingestStaticAnalysisArtifact(ctx, e.Store, e.Artifacts, run, runID, job, jobRecord, step, stepRecord, artifact); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

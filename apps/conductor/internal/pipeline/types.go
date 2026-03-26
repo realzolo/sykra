@@ -92,6 +92,7 @@ type PipelineStep struct {
 	ID                 string            `json:"id"`
 	Name               string            `json:"name"`
 	Script             string            `json:"script"`
+	CheckType          string            `json:"checkType,omitempty"` // "ai_review" | "static_analysis"
 	ArtifactPaths      []string          `json:"artifactPaths,omitempty"`
 	ArtifactInputs     []string          `json:"artifactInputs,omitempty"`
 	ArtifactSource     string            `json:"artifactSource,omitempty"` // "run" | "registry"
@@ -118,11 +119,11 @@ type PipelineJob struct {
 	Env            map[string]string `json:"env,omitempty"`
 	WorkingDir     string            `json:"workingDir,omitempty"`
 	// Internal metadata for built-in step types
-	Type string `json:"type,omitempty"` // "shell" | "source_checkout" | "review_gate"
+	Type string `json:"type,omitempty"` // "shell" | "source_checkout" | "quality_gate"
 	// For source_checkout
 	Branch    string `json:"branch,omitempty"`
 	ProjectID string `json:"projectId,omitempty"`
-	// For review_gate
+	// For quality_gate
 	MinScore int `json:"minScore,omitempty"`
 }
 
@@ -166,11 +167,8 @@ func BuildInternalPlan(cfg PipelineConfig, projectID string) InternalPlan {
 			if len(job.Steps) == 0 {
 				job.Steps = []PipelineStep{{ID: "checkout", Name: "Checkout"}}
 			}
-		case "review_gate":
+		case "quality_gate":
 			job.ProjectID = projectID
-			if len(job.Steps) == 0 {
-				job.Steps = []PipelineStep{{ID: "gate", Name: "Quality Gate"}}
-			}
 		}
 		jobs = append(jobs, job)
 	}
@@ -198,7 +196,7 @@ func normalizeStageKey(raw string, job PipelineJob) PipelineStageKey {
 	switch strings.TrimSpace(strings.ToLower(job.Type)) {
 	case "source_checkout":
 		return StageSource
-	case "review_gate":
+	case "quality_gate":
 		return StageReview
 	}
 
@@ -277,6 +275,15 @@ func ValidateConfig(cfg PipelineConfig) error {
 		}
 	}
 
+	for _, job := range cfg.Jobs {
+		if strings.TrimSpace(strings.ToLower(job.Type)) == "quality_gate" {
+			stage := strings.TrimSpace(strings.ToLower(job.Stage))
+			if stage != "" && stage != string(StageReview) {
+				return fmt.Errorf("job %s of type quality_gate must use stage review", job.ID)
+			}
+		}
+	}
+
 	plan := BuildInternalPlan(cfg, "")
 	if len(plan.Jobs) == 0 {
 		return errors.New("pipeline must have at least one job")
@@ -310,6 +317,7 @@ func ValidateConfig(cfg PipelineConfig) error {
 				return fmt.Errorf("job %s depends on unknown job %s", job.ID, need)
 			}
 		}
+		stepIndex := map[string]struct{}{}
 		for _, step := range job.Steps {
 			if step.ID == "" {
 				return fmt.Errorf("job %s has a step with empty id", job.ID)
@@ -317,6 +325,10 @@ func ValidateConfig(cfg PipelineConfig) error {
 			if !isSafeID(step.ID) {
 				return fmt.Errorf("step id contains invalid characters: %s", step.ID)
 			}
+			if _, exists := stepIndex[step.ID]; exists {
+				return fmt.Errorf("job %s has duplicate step id %s", job.ID, step.ID)
+			}
+			stepIndex[step.ID] = struct{}{}
 			if strings.TrimSpace(step.Name) == "" {
 				return fmt.Errorf("step %s in job %s has empty name", step.ID, job.ID)
 			}
@@ -325,6 +337,13 @@ func ValidateConfig(cfg PipelineConfig) error {
 			}
 			if strings.EqualFold(strings.TrimSpace(step.Type), "docker") && strings.TrimSpace(step.DockerImage) == "" {
 				return fmt.Errorf("step %s in job %s requires dockerImage when type=docker", step.ID, job.ID)
+			}
+			if strings.TrimSpace(strings.ToLower(job.Type)) == "quality_gate" {
+				if step.CheckType != "ai_review" && step.CheckType != "static_analysis" {
+					return fmt.Errorf("step %s in job %s must define checkType ai_review or static_analysis", step.ID, job.ID)
+				}
+			} else if strings.TrimSpace(step.CheckType) != "" {
+				return fmt.Errorf("step %s in job %s cannot define checkType outside quality gate jobs", step.ID, job.ID)
 			}
 			if strings.EqualFold(strings.TrimSpace(step.ArtifactSource), "registry") {
 				if strings.TrimSpace(step.RegistryRepository) == "" {
@@ -335,6 +354,25 @@ func ValidateConfig(cfg PipelineConfig) error {
 				if hasVersion == hasChannel {
 					return fmt.Errorf("step %s in job %s must define exactly one of registryVersion or registryChannel", step.ID, job.ID)
 				}
+			}
+		}
+		if strings.TrimSpace(strings.ToLower(job.Type)) == "quality_gate" {
+			if len(job.Steps) != 2 {
+				return fmt.Errorf("job %s must include exactly two steps: ai_review and static_analysis", job.ID)
+			}
+			firstStep := job.Steps[0]
+			secondStep := job.Steps[1]
+			if firstStep.CheckType != "ai_review" || secondStep.CheckType != "static_analysis" {
+				return fmt.Errorf("job %s must order steps as ai_review then static_analysis", job.ID)
+			}
+			if strings.TrimSpace(firstStep.Script) != "" {
+				return fmt.Errorf("step %s in job %s must not define a shell command", firstStep.ID, job.ID)
+			}
+			if strings.TrimSpace(secondStep.Script) == "" {
+				return fmt.Errorf("step %s in job %s requires a static analysis command", secondStep.ID, job.ID)
+			}
+			if job.MinScore < 1 || job.MinScore > 100 {
+				return fmt.Errorf("job %s minScore must be between 1 and 100", job.ID)
 			}
 		}
 	}

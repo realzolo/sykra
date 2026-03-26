@@ -395,7 +395,7 @@
         "buildImagePresetHelp": "Presets are the recommended path for common runtimes. Switch to Custom only when you need a non-standard image.",
         "buildImagePresetCustom": "Custom image",
         "buildImagePlaceholder": "e.g. node:22-bookworm",
-        "buildImageHelp": "All source, review, and build jobs run inside isolated runner containers created from this image. Choose an official runtime base image; Conductor will bootstrap missing secondary tools such as git and corepack/pnpm when needed.",
+        "buildImageHelp": "All source, quality gate, and build jobs run inside isolated runner containers created from this image. Choose an official runtime base image that already includes git and any package-manager tooling your repo needs; Conductor does not modify the container at runtime.",
         "autoDetected": "Repository defaults applied",
         "autoDetectedHelp": "Detected from repository metadata. You can override any value below.",
         "branch": "Source Branch",
@@ -432,7 +432,7 @@
     },
     "stageTab": {
       "source": "Source",
-      "review": "Code Review",
+      "review": "Quality Gate",
       "build": "Build",
       "deploy": "Deploy"
     },
@@ -442,7 +442,7 @@
       "stageBuilderTitle": "Stage Builder",
       "stageBuilderDescription": "Define each stage as a controlled execution column. Dependencies are derived from stage order and dispatch mode.",
       "slotLabelAfterSource": "After Source",
-      "slotLabelAfterReview": "After Review",
+      "slotLabelAfterReview": "After Quality Gate",
       "slotLabelAfterBuild": "After Build",
       "slotLabelAfterDeploy": "After Deploy",
       "slotDescription": "Optional automation inserted between core stages.",
@@ -491,7 +491,7 @@
       "typeLabel": {
         "shell": "Shell",
         "source_checkout": "Source Checkout",
-        "review_gate": "Review Gate"
+        "quality_gate": "Quality Gate"
       },
       "needs": "Dependencies (needs)",
       "needsHelp": "Select upstream jobs. The current job runs only after all selected jobs succeed.",
@@ -505,7 +505,19 @@
       "addDialogNeedsHelp": "Dependency choices determine where this node is placed in the DAG.",
       "addDialogTargetLayer": "This job will be placed in Layer {{layer}}.",
       "addDialogCreate": "Create Job",
-      "reviewMinScore": "Minimum Review Score",
+      "qualityGateTitle": "Quality Gate",
+      "qualityGateDescription": "The gate runs AI review first, then static analysis on the same source snapshot.",
+      "qualityGateMinScore": "AI Review Minimum Score",
+      "qualityGateMinScoreHelp": "Build starts only when the AI review score meets this threshold.",
+      "qualityGateAiReviewLabel": "AI Review",
+      "qualityGateAiReviewHelp": "Reads the latest completed review score for the current run commit and blocks the pipeline when it falls short.",
+      "qualityGateAiReviewRuntime": "This check is fixed and does not run a shell command.",
+      "qualityGateStaticAnalysisLabel": "Static Analysis",
+      "qualityGateStaticAnalysisHelp": "Runs a deterministic command inside the build image after the AI review passes.",
+      "qualityGateStaticAnalysisCommand": "Static analysis command",
+      "qualityGateStaticAnalysisCommandPlaceholder": "npm run lint",
+      "qualityGateFixedOrder": "Fixed order: {{name}} runs first, then static analysis.",
+      "qualityGateFixedOrderFallback": "The quality gate always runs AI review first, then static analysis.",
       "steps": "Steps",
       "addStep": "Add Step",
       "builtinHint": "This built-in job type is executed by the Conductor and does not require editable shell steps.",
@@ -522,14 +534,14 @@
       "description": "Code is pulled from the project repository at the configured branch"
     },
     "review": {
-      "title": "Code Review",
-      "description": "AI analyzes the code before deployment",
-      "enabled": "Enable code review",
+      "title": "Quality Gate",
+      "description": "AI review and static analysis before build",
+      "enabled": "Enable quality gate",
       "qualityGate": "Quality Gate",
-      "qualityGateHelp": "Block deployment if the review score is below the threshold",
-      "qualityGateEnabled": "Block deployment on low score",
-      "minScore": "Minimum score",
-      "minScoreHelp": "Deployments will be blocked if the score is below this value"
+      "qualityGateHelp": "Block the pipeline when required quality checks fail",
+      "qualityGateEnabled": "Block on failed quality checks",
+      "minScore": "Minimum AI score",
+      "minScoreHelp": "AI review must meet or exceed this score to continue"
     },
     "build": {
       "title": "Build",

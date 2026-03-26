@@ -4,7 +4,10 @@
  */
 
 import { z } from 'zod';
-import { DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS } from '@/services/pipelineTypes';
+import {
+  DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS,
+  validatePipelineContract,
+} from '@/services/pipelineTypes';
 
 // Common schema
 export const projectIdSchema = z.string().uuid('Invalid project ID');
@@ -60,6 +63,7 @@ const pipelineStepSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   script: z.string(),
+  checkType: z.enum(['ai_review', 'static_analysis']).optional(),
   artifactPaths: z.array(z.string().min(1)).optional(),
   artifactInputs: z.array(z.string().min(1)).optional(),
   artifactSource: z.enum(['run', 'registry']).optional(),
@@ -114,9 +118,9 @@ const pipelineJobSchema = z.object({
   timeoutSeconds: z.number().int().positive().optional(),
   env: z.record(z.string(), z.string()).optional(),
   workingDir: z.string().optional(),
-  type: z.enum(['shell', 'source_checkout', 'review_gate']).optional(),
+  type: z.enum(['shell', 'source_checkout', 'quality_gate']).optional(),
   branch: z.string().min(1).optional(),
-  minScore: z.number().int().min(0).max(100).optional(),
+  minScore: z.number().int().min(1).max(100).optional(),
 });
 
 const pipelineTriggerSchema = z.object({
@@ -177,30 +181,36 @@ export const pipelineConfigSchema = z.object({
   stages: pipelineStagesSchema,
   jobs: z.array(pipelineJobSchema).min(1),
 }).superRefine((config, ctx) => {
-  for (const job of config.jobs) {
-    const stage = job.stage ?? (job.type === 'source_checkout' ? 'source' : job.type === 'review_gate' ? 'review' : 'build');
+  for (const [jobIndex, job] of config.jobs.entries()) {
+    const stage = job.stage ?? (job.type === 'source_checkout' ? 'source' : job.type === 'quality_gate' ? 'review' : 'build');
     const isDeployStage = stage === 'deploy' || stage === 'after_deploy';
+    const stepIds = new Set<string>();
     for (const step of job.steps) {
+      if (stepIds.has(step.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Job ${job.id} has duplicate step id ${step.id}`,
+          path: ['jobs', jobIndex, 'steps'],
+        });
+      }
+      stepIds.add(step.id);
       if (!isDeployStage && (step.type ?? 'shell') === 'docker') {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'CI stages must use the pipeline buildImage instead of step-level docker mode',
-          path: ['jobs', config.jobs.indexOf(job), 'steps', job.steps.indexOf(step), 'type'],
+          path: ['jobs', jobIndex, 'steps', job.steps.indexOf(step), 'type'],
         });
       }
     }
   }
 
-  if (config.environment === 'production') {
-    const deployEntryMode = config.stages?.deploy?.entryMode ?? 'auto';
-    if (deployEntryMode !== 'manual') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Production pipelines must require a manual deploy gate',
-        path: ['stages', 'deploy', 'entryMode'],
-      });
-    }
-  }
+  validatePipelineContract(config, (issue) => {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: issue.message,
+      path: issue.path,
+    });
+  });
 });
 
 export const createPipelineSchema = z.object({

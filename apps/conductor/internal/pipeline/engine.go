@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -123,19 +124,13 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 	}
 	sourceJob, hasSourceJob := findSourceJob(plan.Jobs)
 
-	// Ensure job/step records exist in DB
+	// Repair or create job/step records before reading the run graph.
+	if err := EnsureRunGraph(ctx, e.Store, runID, cfg, projectID); err != nil {
+		return err
+	}
 	jobRecords, err := e.Store.ListPipelineJobs(ctx, runID)
 	if err != nil {
 		return err
-	}
-	if len(jobRecords) == 0 {
-		if err := EnsureRunGraph(ctx, e.Store, runID, cfg, projectID); err != nil {
-			return err
-		}
-		jobRecords, err = e.Store.ListPipelineJobs(ctx, runID)
-		if err != nil {
-			return err
-		}
 	}
 
 	jobMap := map[string]store.PipelineJob{}
@@ -677,7 +672,7 @@ func (e *Engine) runJobOnWorker(
 			return fmt.Errorf("step record missing for %s", step.ID)
 		}
 		stepRecords[step.ID] = stepRecord
-		stepEnv := buildEnv(run, source, runID, cfg, secrets, job, step)
+		stepEnv := buildEnv(run, source, runID, cfg, secrets, job, step, "", 0)
 		registryFiles := []workerprotocol.RegistryArtifactFile{}
 		registryVersion := strings.TrimSpace(step.RegistryVersion)
 		registryChannel := strings.TrimSpace(step.RegistryChannel)
@@ -896,7 +891,6 @@ func (e *Engine) runJobOnWorker(
 		Environment:        cfg.Environment,
 		ProjectID:          job.ProjectID,
 		Branch:             job.Branch,
-		MinScore:           job.MinScore,
 		StudioURL:          e.StudioURL,
 		StudioToken:        e.StudioToken,
 		WorkspaceRoot:      "",
@@ -980,6 +974,7 @@ func (e *Engine) runStep(
 	run *store.PipelineRun,
 	runID string,
 	workspaceRoot string,
+	changedFilesCount int,
 	cfg PipelineConfig,
 	secrets map[string]string,
 	source *ResolvedSource,
@@ -1004,7 +999,7 @@ func (e *Engine) runStep(
 		})
 	}
 
-	env := buildEnv(run, source, runID, cfg, secrets, job, step)
+	env := buildEnv(run, source, runID, cfg, secrets, job, step, workspaceRoot, changedFilesCount)
 	if source != nil && strings.EqualFold(strings.TrimSpace(job.Type), "source_checkout") && strings.TrimSpace(source.MirrorPath) != "" {
 		env["PIPELINE_SOURCE_MIRROR"] = source.MirrorPath
 	}
@@ -1045,7 +1040,7 @@ func (e *Engine) runStep(
 		return StatusFailed, err
 	}
 
-	exitCode, err := e.executeLocalStep(execCtx, sandbox, step, env, workingDir, job, logWriter)
+	exitCode, err := e.executeLocalStep(execCtx, sandbox, run, runID, jobRecord, stepRecord, step, env, workingDir, job, logWriter)
 	if err != nil {
 		if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
 			status = StatusTimedOut
@@ -1201,6 +1196,8 @@ func buildEnv(
 	secrets map[string]string,
 	job PipelineJob,
 	step PipelineStep,
+	jobWorkspaceRoot string,
+	changedFilesCount int,
 ) map[string]string {
 	env := map[string]string{}
 	for k, v := range cfg.Variables {
@@ -1247,7 +1244,19 @@ func buildEnv(
 			env["PIPELINE_SOURCE_COMMIT_MESSAGE"] = strings.TrimSpace(*run.CommitMessage)
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(job.Type), "quality_gate") && strings.EqualFold(strings.TrimSpace(step.CheckType), "static_analysis") && strings.TrimSpace(jobWorkspaceRoot) != "" {
+		env["PIPELINE_CHANGED_FILES_MANIFEST"] = "/workspace/.conductor/changed-files.txt"
+		env["PIPELINE_CHANGED_FILES_COUNT"] = strconv.Itoa(maxInt(changedFilesCount, 0))
+		env["PIPELINE_CHANGED_FILES_SCOPE"] = "git-diff-first-parent"
+	}
 	return env
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func stringPointer(value string) *string {
@@ -1276,8 +1285,8 @@ func requiredCapabilities(job PipelineJob, steps []workerprotocol.ExecuteStep) [
 	switch strings.TrimSpace(strings.ToLower(job.Type)) {
 	case "source_checkout":
 		add("source_checkout")
-	case "review_gate":
-		add("review_gate")
+	case "quality_gate":
+		add("quality_gate")
 	}
 	for _, step := range steps {
 		if strings.EqualFold(step.Type, "docker") {

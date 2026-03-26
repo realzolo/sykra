@@ -31,7 +31,6 @@ type DispatchRequest struct {
 	Environment        string
 	ProjectID          string
 	Branch             string
-	MinScore           int
 	StudioURL          string
 	StudioToken        string
 	WorkspaceRoot      string
@@ -215,7 +214,6 @@ func (h *Hub) DispatchJob(ctx context.Context, req DispatchRequest, callbacks Di
 		Environment:     req.Environment,
 		ProjectID:       req.ProjectID,
 		Branch:          req.Branch,
-		MinScore:        req.MinScore,
 		StudioURL:       req.StudioURL,
 		StudioToken:     req.StudioToken,
 		WorkspaceRoot:   req.WorkspaceRoot,

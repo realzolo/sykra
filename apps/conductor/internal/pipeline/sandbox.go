@@ -50,7 +50,7 @@ func startJobSandbox(
 		return nil, fmt.Errorf("start sandbox container for image %s: %w (%s)", image, err, strings.TrimSpace(string(output)))
 	}
 
-	if err := bootstrapJobSandbox(ctx, containerName, image, absoluteWorkspacePath); err != nil {
+	if err := validateJobSandboxImage(ctx, containerName, image, absoluteWorkspacePath); err != nil {
 		_ = exec.Command("docker", "rm", "-f", containerName).Run()
 		return nil, err
 	}
@@ -61,8 +61,8 @@ func startJobSandbox(
 	}, nil
 }
 
-func bootstrapJobSandbox(ctx context.Context, containerName string, image string, workspacePath string) error {
-	script, err := buildSandboxBootstrapScript(workspacePath)
+func validateJobSandboxImage(ctx context.Context, containerName string, image string, workspacePath string) error {
+	script, err := buildSandboxValidationScript(workspacePath)
 	if err != nil {
 		return err
 	}
@@ -70,47 +70,32 @@ func bootstrapJobSandbox(ctx context.Context, containerName string, image string
 	cmd := exec.CommandContext(ctx, "docker", "exec", containerName, "/bin/sh", "-lc", script)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("bootstrap sandbox container for image %s: %w (%s)", image, err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("validate sandbox container for image %s: %w (%s)", image, err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
 
-func buildSandboxBootstrapScript(workspacePath string) (string, error) {
+func buildSandboxValidationScript(workspacePath string) (string, error) {
 	commands := []string{
-		installGitBootstrapScript(),
+		`if ! command -v git >/dev/null 2>&1; then
+  echo "[sandbox] git is required in the runner image; use an official base image with git preinstalled" >&2
+  exit 1
+fi`,
 	}
 
-	if pnpmVersion, ok := detectPinnedPnpmVersion(workspacePath); ok {
-		commands = append(commands, fmt.Sprintf(`
-if command -v node >/dev/null 2>&1 && command -v corepack >/dev/null 2>&1; then
-  corepack enable >/dev/null 2>&1 || {
-    echo "[bootstrap] corepack enable failed; use an official Node image with corepack support" >&2
-    exit 1
-  }
-  corepack prepare "pnpm@%s" --activate >/dev/null 2>&1 || {
-    echo "[bootstrap] failed to activate pnpm@%s via corepack" >&2
-    exit 1
-  }
-  if ! command -v pnpm >/dev/null 2>&1; then
-    echo "[bootstrap] pnpm is unavailable after corepack activation" >&2
-    exit 1
-  fi
-else
-  echo "[bootstrap] pnpm@%s is required by the repository but the selected build image does not provide node/corepack" >&2
+	switch detectWorkspacePackageManager(workspacePath) {
+	case "pnpm", "yarn":
+		commands = append(commands, `
+if ! command -v node >/dev/null 2>&1 || ! command -v corepack >/dev/null 2>&1; then
+  echo "[sandbox] a pnpm/yarn workspace requires node with corepack enabled in the runner image" >&2
   exit 1
 fi
-`, pnpmVersion, pnpmVersion, pnpmVersion))
-	} else {
+`)
+	case "bun":
 		commands = append(commands, `
-if command -v node >/dev/null 2>&1 && command -v corepack >/dev/null 2>&1; then
-  corepack enable >/dev/null 2>&1 || {
-    echo "[bootstrap] corepack enable failed; use an official Node image with corepack support" >&2
-    exit 1
-  }
-  if ! command -v pnpm >/dev/null 2>&1; then
-    echo "[bootstrap] pnpm is unavailable after corepack enable" >&2
-    exit 1
-  fi
+if ! command -v bun >/dev/null 2>&1; then
+  echo "[sandbox] a bun workspace requires bun to be installed in the runner image" >&2
+  exit 1
 fi
 `)
 	}
@@ -119,58 +104,48 @@ fi
 	return strings.Join(commands, "\n"), nil
 }
 
-func installGitBootstrapScript() string {
-	return `
-if ! command -v git >/dev/null 2>&1; then
-  if [ "$(id -u)" != "0" ]; then
-    echo "[bootstrap] git is missing and container is not root" >&2
-    exit 1
-  fi
-
-  if command -v apt-get >/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y --no-install-recommends git ca-certificates
-    rm -rf /var/lib/apt/lists/*
-  elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache git ca-certificates
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y git ca-certificates
-  elif command -v microdnf >/dev/null 2>&1; then
-    microdnf install -y git ca-certificates
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y git ca-certificates
-  else
-    echo "[bootstrap] unsupported base image: cannot install git" >&2
-    exit 1
-  fi
-fi
-`
-}
-
-func detectPinnedPnpmVersion(workspacePath string) (string, bool) {
+func detectWorkspacePackageManager(workspacePath string) string {
 	if strings.TrimSpace(workspacePath) == "" {
-		return "", false
+		return ""
 	}
 	raw, err := os.ReadFile(filepath.Join(workspacePath, "package.json"))
-	if err != nil {
-		return "", false
+	if err == nil {
+		var payload struct {
+			PackageManager string `json:"packageManager"`
+		}
+		if err := json.Unmarshal(raw, &payload); err == nil {
+			value := strings.TrimSpace(payload.PackageManager)
+			switch {
+			case strings.HasPrefix(value, "pnpm@"):
+				return "pnpm"
+			case strings.HasPrefix(value, "yarn@"):
+				return "yarn"
+			case strings.HasPrefix(value, "bun@"):
+				return "bun"
+			case strings.HasPrefix(value, "npm@"):
+				return "npm"
+			}
+		}
 	}
-	var payload struct {
-		PackageManager string `json:"packageManager"`
+	switch {
+	case fileExists(filepath.Join(workspacePath, "pnpm-lock.yaml")):
+		return "pnpm"
+	case fileExists(filepath.Join(workspacePath, "yarn.lock")):
+		return "yarn"
+	case fileExists(filepath.Join(workspacePath, "bun.lock")):
+		return "bun"
+	case fileExists(filepath.Join(workspacePath, "bun.lockb")):
+		return "bun"
+	case fileExists(filepath.Join(workspacePath, "package-lock.json")):
+		return "npm"
+	default:
+		return ""
 	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return "", false
-	}
-	value := strings.TrimSpace(payload.PackageManager)
-	if !strings.HasPrefix(value, "pnpm@") {
-		return "", false
-	}
-	version := strings.TrimSpace(strings.TrimPrefix(value, "pnpm@"))
-	if version == "" {
-		return "", false
-	}
-	return version, true
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (s *jobSandbox) Close() error {
@@ -274,22 +249,26 @@ func prepareLocalJobWorkspace(
 	source *ResolvedSource,
 	workspaceRoot string,
 	job PipelineJob,
-) (string, error) {
+) (string, int, error) {
 	if strings.TrimSpace(workspaceRoot) == "" {
-		return "", fmt.Errorf("workspace root is required")
+		return "", 0, fmt.Errorf("workspace root is required")
 	}
 	if sourceManager == nil {
-		return "", fmt.Errorf("source manager is required")
+		return "", 0, fmt.Errorf("source manager is required")
 	}
 	if source == nil {
-		return "", fmt.Errorf("source snapshot is required")
+		return "", 0, fmt.Errorf("source snapshot is required")
 	}
 	jobRoot := filepath.Join(workspaceRoot, "jobs", job.ID)
 	if err := os.MkdirAll(filepath.Dir(jobRoot), 0o755); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if err := sourceManager.MaterializeWorkspace(ctx, source, jobRoot); err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return jobRoot, nil
+	changedFilesCount, err := sourceManager.WriteChangedFilesManifest(ctx, source, jobRoot)
+	if err != nil {
+		return "", 0, err
+	}
+	return jobRoot, changedFilesCount, nil
 }

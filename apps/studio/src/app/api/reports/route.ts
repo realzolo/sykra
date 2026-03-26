@@ -30,13 +30,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Conductor: review gate fetches latest report score without a user session.
+    // Conductor: quality gate fetches the report score for the current run commit without a user session.
     if (isConductorAuthorized(request)) {
       const rawProjectId = request.nextUrl.searchParams.get('projectId');
       if (!rawProjectId) {
         return NextResponse.json({ error: 'projectId is required' }, { status: 400 });
       }
       const projectId = projectIdSchema.parse(rawProjectId);
+      const commitSha = request.nextUrl.searchParams.get('commitSha')?.trim() ?? '';
       const limitRaw = request.nextUrl.searchParams.get('limit') ?? '';
       const parsedLimit = Number(limitRaw);
       const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(50, Math.trunc(parsedLimit))) : 20;
@@ -48,9 +49,24 @@ export async function GET(request: NextRequest) {
            where project_id = $1
              and status in (${ANALYSIS_RESULT_READY_STATUSES_SQL})
              and score is not null
+             and (
+               $3 = ''
+               or exists (
+                 select 1
+                 from jsonb_array_elements(commits) as commit_item
+                 where (
+                   jsonb_typeof(commit_item) = 'string'
+                   and trim(both '"' from commit_item::text) = $3
+                 )
+                 or (
+                   jsonb_typeof(commit_item) = 'object'
+                   and commit_item->>'sha' = $3
+                 )
+               )
+             )
            order by created_at desc
            limit $2`,
-          [projectId, limit]
+          [projectId, limit, commitSha]
         )
       );
       return NextResponse.json(rows);

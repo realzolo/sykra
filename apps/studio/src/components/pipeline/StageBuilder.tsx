@@ -3,6 +3,7 @@
 import { type ReactNode, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ArrowDown, ArrowRight, Bot, GitBranch, Hand, ListOrdered, Plus, Trash2 } from "lucide-react";
 import type { Dictionary } from "@/i18n";
@@ -586,6 +587,9 @@ function StageJobInspector({
 }) {
   const { project } = useProject();
   const jobType = job.type ?? "shell";
+  const aiReviewStep = job.steps.find((step) => step.checkType === "ai_review") ?? job.steps[0] ?? null;
+  const staticAnalysisStep =
+    job.steps.find((step) => step.checkType === "static_analysis") ?? job.steps[1] ?? null;
 
   return (
     <div className="space-y-4 p-4">
@@ -605,24 +609,73 @@ function StageJobInspector({
         </div>
       </div>
 
-      {jobType === "review_gate" && (
-        <div className="space-y-1.5">
-          <label className="text-[13px] font-medium text-foreground">{dict.jobs.reviewMinScore}</label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              className="w-28"
-              value={job.minScore ?? 60}
-              onChange={(event) =>
-                onUpdateJob(job.id, {
-                  minScore: Math.min(100, Math.max(0, Number(event.target.value))),
-                })
-              }
-              disabled={!isAdmin}
-            />
-            <span className="text-[12px] text-[hsl(var(--ds-text-2))]">/ 100</span>
+      {jobType === "quality_gate" && (
+        <div className="space-y-4 rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-4">
+          <div className="space-y-1">
+            <div className="text-[13px] font-medium text-foreground">{dict.jobs.qualityGateTitle}</div>
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.jobs.qualityGateDescription}</div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[13px] font-medium text-foreground">{dict.jobs.qualityGateMinScore}</label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                className="w-28"
+                value={job.minScore !== undefined ? String(job.minScore) : ""}
+                onChange={(event) =>
+                  onUpdateJob(job.id, {
+                    minScore: Math.min(100, Math.max(1, Number(event.target.value))),
+                  })
+                }
+                disabled={!isAdmin}
+              />
+              <span className="text-[12px] text-[hsl(var(--ds-text-2))]">/ 100</span>
+            </div>
+            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{dict.jobs.qualityGateMinScoreHelp}</div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-3">
+              <div className="text-[13px] font-medium text-foreground">{dict.jobs.qualityGateAiReviewLabel}</div>
+              <div className="mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
+                {dict.jobs.qualityGateAiReviewHelp}
+              </div>
+              <div className="mt-3 rounded-[6px] border border-dashed border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+                {dict.jobs.qualityGateAiReviewRuntime}
+              </div>
+            </div>
+
+            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-3">
+              <div className="text-[13px] font-medium text-foreground">{dict.jobs.qualityGateStaticAnalysisLabel}</div>
+              <div className="mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
+                {dict.jobs.qualityGateStaticAnalysisHelp}
+              </div>
+              <div className="mt-3 space-y-1.5">
+                <label className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                  {dict.jobs.qualityGateStaticAnalysisCommand}
+                </label>
+                <Textarea
+                  value={staticAnalysisStep?.script ?? ""}
+                  onChange={(event) => {
+                    if (!staticAnalysisStep) return;
+                    onUpdateStep(job.id, staticAnalysisStep.id, { script: event.target.value });
+                  }}
+                  placeholder={dict.jobs.qualityGateStaticAnalysisCommandPlaceholder}
+                  rows={3}
+                  className="resize-none font-mono text-[12px]"
+                  disabled={!isAdmin || !staticAnalysisStep}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-[8px] border border-dashed border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))]/60 px-3 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+              {aiReviewStep
+                ? dict.jobs.qualityGateFixedOrder.replace("{{name}}", aiReviewStep.name)
+                : dict.jobs.qualityGateFixedOrderFallback}
+            </div>
           </div>
         </div>
       )}

@@ -15,6 +15,59 @@ const PYTHON_BUILD_IMAGE = 'python:3.12-bookworm';
 const GO_BUILD_IMAGE = 'golang:1.24-bookworm';
 const JAVA_BUILD_IMAGE = 'eclipse-temurin:21-jdk-jammy';
 
+function buildScopedStaticAnalysisCommand(command: string, matchers: string[]): string {
+  return [
+    'set -eu',
+    ': "${PIPELINE_CHANGED_FILES_MANIFEST:?PIPELINE_CHANGED_FILES_MANIFEST is required}"',
+    ': "${PIPELINE_CHANGED_FILES_COUNT:?PIPELINE_CHANGED_FILES_COUNT is required}"',
+    'if [ "${PIPELINE_CHANGED_FILES_COUNT}" -eq 0 ]; then',
+    '  echo "[analysis] No changed files detected; skipping static analysis."',
+    '  exit 0',
+    'fi',
+    'set --',
+    'while IFS= read -r file || [ -n "$file" ]; do',
+    '  [ -n "$file" ] || continue',
+    '  case "$file" in',
+    ...matchers.map((pattern) => `    ${pattern}) set -- "$@" "$file" ;;`),
+    '  esac',
+    'done < "$PIPELINE_CHANGED_FILES_MANIFEST"',
+    'if [ "$#" -eq 0 ]; then',
+    '  echo "[analysis] No changed source files detected; skipping static analysis."',
+    '  exit 0',
+    'fi',
+    `${command} "$@"`,
+  ].join('\n');
+}
+
+function buildScopedGoStaticAnalysisCommand(command: string): string {
+  return [
+    'set -eu',
+    ': "${PIPELINE_CHANGED_FILES_MANIFEST:?PIPELINE_CHANGED_FILES_MANIFEST is required}"',
+    ': "${PIPELINE_CHANGED_FILES_COUNT:?PIPELINE_CHANGED_FILES_COUNT is required}"',
+    'if [ "${PIPELINE_CHANGED_FILES_COUNT}" -eq 0 ]; then',
+    '  echo "[analysis] No changed files detected; skipping static analysis."',
+    '  exit 0',
+    'fi',
+    'workspace_root="$(dirname "$(dirname "$PIPELINE_CHANGED_FILES_MANIFEST")")"',
+    'cd "$workspace_root"',
+    'go_packages="$(while IFS= read -r file || [ -n "$file" ]; do',
+    '  [ -n "$file" ] || continue',
+    '  case "$file" in',
+    '    *.go)',
+    '      rel="${file#/workspace/}"',
+    '      dirname "$rel"',
+    '      ;;',
+    '  esac',
+    'done < "$PIPELINE_CHANGED_FILES_MANIFEST" | sort -u)"',
+    'if [ -z "$go_packages" ]; then',
+    '  echo "[analysis] No changed Go files detected; skipping static analysis."',
+    '  exit 0',
+    'fi',
+    'set -- $go_packages',
+    `${command} "$@"`,
+  ].join('\n');
+}
+
 export async function inferProjectPipelineDefaults(project: ProjectRef): Promise<PipelineInference> {
   const ref = normalizeRef(project.defaultBranch);
   const root = await codebaseService.listTree(
@@ -40,6 +93,15 @@ export async function inferProjectPipelineDefaults(project: ProjectRef): Promise
 
   const packageManager = detectPackageManager(packageJson, hasAnyFile);
   const projectKind = detectProjectKind(packageJson, hasAnyFile);
+  const pyproject = hasFile('pyproject.toml') ? await readTextFile(project, 'pyproject.toml') : null;
+  const hasEslintConfig = hasEslintConfigFiles(hasFile);
+  const hasRuffConfig = hasFile('ruff.toml') || hasFile('.ruff.toml') || hasRuffConfigured(pyproject);
+  const ruffConfig = hasRuffConfig
+    ? {
+        command: buildScopedStaticAnalysisCommand('python -m ruff check --output-format sarif --output-file quality-gate.sarif', ['*.py']),
+        artifactPaths: ['quality-gate.sarif'],
+      }
+    : null;
 
   if (hasFile('go.mod')) {
     return {
@@ -53,7 +115,12 @@ export async function inferProjectPipelineDefaults(project: ProjectRef): Promise
   }
 
   if (hasFile('pyproject.toml') || hasFile('requirements.txt') || hasFile('setup.py')) {
-    return buildPythonDefaults({ hasPyproject: hasFile('pyproject.toml'), hasRequirements: hasFile('requirements.txt') });
+    return buildPythonDefaults({
+      hasPyproject: hasFile('pyproject.toml'),
+      hasRequirements: hasFile('requirements.txt'),
+      staticAnalysisCommand: ruffConfig?.command ?? buildScopedStaticAnalysisCommand('python -m compileall', ['*.py']),
+      ...(ruffConfig?.artifactPaths ? { staticAnalysisArtifactPaths: ruffConfig.artifactPaths } : {}),
+    });
   }
 
   if (hasFile('pom.xml') || hasFile('build.gradle') || hasFile('build.gradle.kts') || hasFile('mvnw') || hasFile('gradlew')) {
@@ -71,6 +138,7 @@ export async function inferProjectPipelineDefaults(project: ProjectRef): Promise
     hasNextConfig: hasAnyFile('next.config.js', 'next.config.mjs', 'next.config.ts', 'next.config.cjs'),
     hasViteConfig: hasAnyFile('vite.config.js', 'vite.config.mjs', 'vite.config.ts', 'vite.config.cjs'),
     hasReactScripts: hasPackageDependency(packageJson, 'react-scripts'),
+    hasEslintConfig,
     hasLockFiles: hasAnyFile('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'),
   });
 }
@@ -82,6 +150,7 @@ function buildNodeDefaults(input: {
   hasNextConfig: boolean;
   hasViteConfig: boolean;
   hasReactScripts: boolean;
+  hasEslintConfig: boolean;
   hasLockFiles: boolean;
 }): PipelineInference {
   const runtime = 'node' as const;
@@ -91,6 +160,18 @@ function buildNodeDefaults(input: {
     hasNextConfig: input.hasNextConfig,
     hasViteConfig: input.hasViteConfig,
     hasReactScripts: input.hasReactScripts,
+  });
+  const staticAnalysisCommand = resolveNodeStaticAnalysisCommand(input.packageJson, input.packageManager, input.projectKind, {
+    hasNextConfig: input.hasNextConfig,
+    hasViteConfig: input.hasViteConfig,
+    hasReactScripts: input.hasReactScripts,
+    hasEslintConfig: input.hasEslintConfig,
+  });
+  const staticAnalysisArtifactPaths = resolveNodeStaticAnalysisArtifactPaths(input.packageJson, input.projectKind, {
+    hasNextConfig: input.hasNextConfig,
+    hasViteConfig: input.hasViteConfig,
+    hasReactScripts: input.hasReactScripts,
+    hasEslintConfig: input.hasEslintConfig,
   });
   const signals = collectSignals([
     input.projectKind !== 'node' ? input.projectKind : null,
@@ -103,6 +184,8 @@ function buildNodeDefaults(input: {
       { name: 'Install dependencies', script: installCommand },
       { name: 'Build', script: buildCommand },
     ],
+    staticAnalysisCommand,
+    ...(staticAnalysisArtifactPaths ? { staticAnalysisArtifactPaths } : {}),
     projectKind: input.projectKind,
     runtime,
     packageManager: input.packageManager,
@@ -111,7 +194,12 @@ function buildNodeDefaults(input: {
   };
 }
 
-function buildPythonDefaults(input: { hasPyproject: boolean; hasRequirements: boolean }): PipelineInference {
+function buildPythonDefaults(input: {
+  hasPyproject: boolean;
+  hasRequirements: boolean;
+  staticAnalysisCommand: string;
+  staticAnalysisArtifactPaths?: string[];
+}): PipelineInference {
   const installCommand = input.hasRequirements
     ? 'python -m pip install -r requirements.txt'
     : 'python -m pip install -U pip build';
@@ -122,6 +210,8 @@ function buildPythonDefaults(input: { hasPyproject: boolean; hasRequirements: bo
       { name: 'Install dependencies', script: installCommand },
       { name: 'Build', script: buildCommand },
     ],
+    staticAnalysisCommand: input.staticAnalysisCommand,
+    ...(input.staticAnalysisArtifactPaths ? { staticAnalysisArtifactPaths: input.staticAnalysisArtifactPaths } : {}),
     projectKind: 'python',
     runtime: 'python',
     packageManager: 'unknown',
@@ -137,6 +227,7 @@ function buildGoDefaults(): PipelineInference {
       { name: 'Download modules', script: 'go mod download' },
       { name: 'Build', script: 'go build ./...' },
     ],
+    staticAnalysisCommand: buildScopedGoStaticAnalysisCommand('go vet'),
     projectKind: 'go',
     runtime: 'go',
     packageManager: 'unknown',
@@ -157,7 +248,8 @@ function buildJavaDefaults(input: { hasMaven: boolean; hasGradle: boolean; hasGr
         : [
             { name: 'Download dependencies', script: 'gradle dependencies' },
             { name: 'Build', script: 'gradle build' },
-          ],
+      ],
+      staticAnalysisCommand: input.hasGradleWrapper ? './gradlew --no-daemon check' : 'gradle check',
       projectKind: 'java',
       runtime: 'java',
       packageManager: 'unknown',
@@ -179,7 +271,8 @@ function buildJavaDefaults(input: { hasMaven: boolean; hasGradle: boolean; hasGr
       : [
           { name: 'Download dependencies', script: 'mvn -q -DskipTests dependency:go-offline' },
           { name: 'Build', script: 'mvn -q -DskipTests package' },
-        ],
+    ],
+    staticAnalysisCommand: input.hasMaven ? './mvnw -q -DskipTests verify' : 'mvn -q -DskipTests verify',
     projectKind: 'java',
     runtime: 'java',
     packageManager: 'unknown',
@@ -191,9 +284,9 @@ function buildJavaDefaults(input: { hasMaven: boolean; hasGradle: boolean; hasGr
 function resolveNodeInstallCommand(packageManager: PipelinePackageManager, hasLockFiles: boolean): string {
   switch (packageManager) {
     case 'pnpm':
-      return 'pnpm install --frozen-lockfile';
+      return 'corepack pnpm install --frozen-lockfile';
     case 'yarn':
-      return 'yarn install --frozen-lockfile';
+      return 'corepack yarn install --frozen-lockfile';
     case 'bun':
       return 'bun install --frozen-lockfile';
     case 'npm':
@@ -225,6 +318,38 @@ function resolveNodeBuildCommand(
     return 'react-scripts build';
   }
   return packageManagerCommand(packageManager, 'run build');
+}
+
+function resolveNodeStaticAnalysisCommand(
+  packageJson: JsonObject | null,
+  packageManager: PipelinePackageManager,
+  projectKind: PipelineProjectKind,
+  input: { hasNextConfig: boolean; hasViteConfig: boolean; hasReactScripts: boolean; hasEslintConfig: boolean }
+): string {
+  if (projectKind === 'nextjs' || input.hasNextConfig || projectKind === 'vite' || input.hasViteConfig || input.hasReactScripts || input.hasEslintConfig) {
+    return buildScopedStaticAnalysisCommand(
+      packageManagerCommand(packageManager, 'exec eslint -f sarif -o quality-gate.sarif'),
+      ['*.js', '*.jsx', '*.mjs', '*.cjs', '*.ts', '*.tsx']
+    );
+  }
+  if (hasLintScript(packageJson)) {
+    return packageManagerCommand(packageManager, 'run lint');
+  }
+  return packageManagerCommand(packageManager, 'run lint');
+}
+
+function resolveNodeStaticAnalysisArtifactPaths(
+  packageJson: JsonObject | null,
+  projectKind: PipelineProjectKind,
+  input: { hasNextConfig: boolean; hasViteConfig: boolean; hasReactScripts: boolean; hasEslintConfig: boolean }
+): string[] | undefined {
+  if (projectKind === 'nextjs' || input.hasNextConfig || projectKind === 'vite' || input.hasViteConfig || input.hasReactScripts || input.hasEslintConfig) {
+    return ['quality-gate.sarif'];
+  }
+  if (hasLintScript(packageJson)) {
+    return undefined;
+  }
+  return undefined;
 }
 
 function detectPackageManager(
@@ -290,17 +415,48 @@ function hasBuildScript(packageJson: JsonObject | null): boolean {
   return typeof scriptsObject?.build === 'string' && Boolean(scriptsObject.build);
 }
 
+function hasLintScript(packageJson: JsonObject | null): boolean {
+  const scripts = packageJson ? packageJson['scripts'] : undefined;
+  const scriptsObject = asJsonObject(scripts);
+  return typeof scriptsObject?.lint === 'string' && Boolean(scriptsObject.lint);
+}
+
+function hasEslintConfigFiles(hasFile: (name: string) => boolean): boolean {
+  return [
+    'eslint.config.js',
+    'eslint.config.mjs',
+    'eslint.config.cjs',
+    'eslint.config.ts',
+    '.eslintrc',
+    '.eslintrc.js',
+    '.eslintrc.cjs',
+    '.eslintrc.mjs',
+    '.eslintrc.json',
+  ].some((name) => hasFile(name));
+}
+
+function hasRuffConfigured(pyproject: string | null): boolean {
+  if (!pyproject) return false;
+  return /\[tool\.ruff\]/i.test(pyproject) || /\bruff\b/i.test(pyproject);
+}
+
 function packageManagerCommand(packageManager: PipelinePackageManager, suffix: string): string {
   switch (packageManager) {
     case 'pnpm':
-      return `pnpm ${suffix}`;
+      return `corepack pnpm ${suffix}`;
     case 'yarn':
-      return `yarn ${suffix.replace(/^run\s+/, '')}`;
+      return `corepack yarn ${suffix.replace(/^run\s+/, '')}`;
     case 'bun':
       return `bun ${suffix}`;
     case 'npm':
+      if (suffix.startsWith('exec ')) {
+        return `npm exec -- ${suffix.slice(5)}`;
+      }
       return `npm ${suffix}`;
     default:
+      if (suffix.startsWith('exec ')) {
+        return `npm exec -- ${suffix.slice(5)}`;
+      }
       return `npm ${suffix}`;
   }
 }
@@ -330,6 +486,27 @@ async function readJsonFile(project: ProjectRef, filePath: string): Promise<Json
       return null;
     }
     return asJsonObject(JSON.parse(result.content));
+  } catch {
+    return null;
+  }
+}
+
+async function readTextFile(project: ProjectRef, filePath: string): Promise<string | null> {
+  try {
+    const result = await codebaseService.readFile(
+      {
+        orgId: project.orgId,
+        projectId: project.projectId,
+        repo: project.repo,
+        ...(project.defaultBranch?.trim() ? { ref: project.defaultBranch.trim() } : {}),
+      },
+      filePath,
+      { syncPolicy: 'auto' }
+    );
+    if (result.isBinary || result.truncated || !result.content.trim()) {
+      return null;
+    }
+    return result.content;
   } catch {
     return null;
   }

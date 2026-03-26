@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -201,6 +202,116 @@ func (m *SourceManager) MaterializeWorkspace(
 	}
 
 	return nil
+}
+
+func (m *SourceManager) WriteChangedFilesManifest(
+	ctx context.Context,
+	source *ResolvedSource,
+	workspacePath string,
+) (int, error) {
+	if source == nil {
+		return 0, fmt.Errorf("source snapshot is required")
+	}
+	workspaceAbs, err := filepath.Abs(workspacePath)
+	if err != nil {
+		return 0, err
+	}
+
+	files, err := m.resolveChangedFiles(ctx, source.MirrorPath, source.CommitSHA)
+	if err != nil {
+		return 0, err
+	}
+
+	manifestDir := filepath.Join(workspaceAbs, ".conductor")
+	if err := os.MkdirAll(manifestDir, 0o755); err != nil {
+		return 0, err
+	}
+	manifestPath := filepath.Join(manifestDir, "changed-files.txt")
+
+	paths := make([]string, 0, len(files))
+	for _, relativePath := range files {
+		relativePath = strings.TrimSpace(relativePath)
+		if relativePath == "" {
+			continue
+		}
+		paths = append(paths, "/workspace/"+filepath.ToSlash(relativePath))
+	}
+
+	content := strings.Join(paths, "\n")
+	if len(paths) > 0 {
+		content += "\n"
+	}
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		return 0, err
+	}
+
+	return len(paths), nil
+}
+
+func (m *SourceManager) resolveChangedFiles(ctx context.Context, mirrorPath string, commitSHA string) ([]string, error) {
+	if strings.TrimSpace(mirrorPath) == "" {
+		return nil, fmt.Errorf("mirror path is required")
+	}
+	commitSHA = strings.TrimSpace(commitSHA)
+	if commitSHA == "" {
+		return nil, fmt.Errorf("commit SHA is required")
+	}
+
+	output, err := m.runGitOutput(ctx, nil, "--git-dir", mirrorPath, "rev-list", "--parents", "-n", "1", commitSHA)
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Fields(strings.TrimSpace(output))
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("commit %s is not available in local mirror", commitSHA)
+	}
+
+	var diffOutput string
+	if len(fields) == 1 {
+		diffOutput, err = m.runGitOutput(
+			ctx,
+			nil,
+			"--git-dir",
+			mirrorPath,
+			"diff-tree",
+			"--no-commit-id",
+			"--root",
+			"--diff-filter=ACMR",
+			"--name-only",
+			"-r",
+			commitSHA,
+		)
+	} else {
+		parentSHA := fields[1]
+		diffOutput, err = m.runGitOutput(
+			ctx,
+			nil,
+			"--git-dir",
+			mirrorPath,
+			"diff",
+			"--name-only",
+			"--diff-filter=ACMR",
+			"--find-renames",
+			parentSHA,
+			commitSHA,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	seen := map[string]bool{}
+	files := make([]string, 0)
+	for _, line := range strings.Split(diffOutput, "\n") {
+		relativePath := filepath.ToSlash(strings.TrimSpace(line))
+		if relativePath == "" || seen[relativePath] {
+			continue
+		}
+		seen[relativePath] = true
+		files = append(files, relativePath)
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 func (m *SourceManager) WarmActivePipelineMirrors(ctx context.Context, st *store.Store) error {

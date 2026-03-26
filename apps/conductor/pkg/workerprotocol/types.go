@@ -114,7 +114,6 @@ type ExecuteJobMessage struct {
 	Environment     string        `json:"environment,omitempty"`
 	ProjectID       string        `json:"projectId,omitempty"`
 	Branch          string        `json:"branch,omitempty"`
-	MinScore        int           `json:"minScore,omitempty"`
 	StudioURL       string        `json:"studioUrl,omitempty"`
 	StudioToken     string        `json:"studioToken,omitempty"`
 	WorkspaceRoot   string        `json:"workspaceRoot,omitempty"`
