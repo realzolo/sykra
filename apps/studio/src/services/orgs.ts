@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { query, queryOne, exec } from '@/lib/db';
 import { logger } from '@/services/logger';
-import { organizationColumnList } from '@/services/sql/projections';
+import { aliasedColumnList, organizationColumnList, organizationColumns } from '@/services/sql/projections';
 
 export type OrgRole = 'owner' | 'admin' | 'reviewer' | 'member';
 export type OrgStatus = 'active' | 'invited' | 'suspended';
@@ -31,6 +31,8 @@ export interface Organization {
   owner_id: string | null;
   created_at: string;
 }
+
+const organizationColumnListWithAlias = aliasedColumnList(organizationColumns, 'o');
 
 function extractPersonalOrgHandle(email?: string | null) {
   const localPart = email?.trim().toLowerCase().split('@')[0]?.trim();
@@ -108,7 +110,7 @@ export async function getActiveOrgId(
 
 export async function getUserOrgs(userId: string): Promise<Organization[]> {
   return query<Organization>(
-    `select ${organizationColumnList}
+    `select ${organizationColumnListWithAlias}
      from org_members m
      join organizations o on o.id = m.org_id
      where m.user_id = $1 and m.status = 'active'`,
