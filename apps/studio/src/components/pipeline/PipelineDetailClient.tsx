@@ -74,13 +74,18 @@ import type {
   PipelineRunDetail,
   PipelineRunStatus,
   PipelineSummary,
+  PipelineVersion,
 } from "@/services/pipelineTypes";
+import type { RunArtifactReleaseSummary } from "@/services/artifactRegistry";
 import {
   analyzePipelineConfig,
+  buildPipelineRunExecutionSummary,
   DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS,
   createDefaultPipelineConfig,
   detectPipelineSchedulePreset,
   durationLabel,
+  diffPipelineConfigs,
+  enforceProductionDeployManualGate,
   getPipelineEnvironmentLabel,
   normalizePipelineEnvironmentDefinitions,
   getSourceBranch,
@@ -108,7 +113,7 @@ import PipelineScheduleField from "@/components/pipeline/PipelineScheduleField";
 import BuildImageField from "@/components/pipeline/BuildImageField";
 
 type Tab = "runs" | "configure";
-type ConfigureSection = "jobs" | "settings";
+type ConfigureSection = "jobs" | "settings" | "versions";
 
 // ── Status helpers ─────────────────────────────────────────────────────────
 
@@ -143,6 +148,16 @@ type StepLogCacheEntry = {
   complete: boolean;
 };
 type TerminalLineTone = "default" | "system" | "warning" | "error";
+
+function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "0s";
+  if (ms < 60000) {
+    return `${Math.max(1, Math.round(ms / 1000))}s`;
+  }
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.round((ms % 60000) / 1000);
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
 
 function normalizeArtifactRepositorySlug(value: string) {
   return value
@@ -314,6 +329,19 @@ function getRunActorLabel(run: PipelineRun, dict: Dictionary["pipelines"]): stri
   return dict.detail.trigger[run.trigger_type as keyof typeof dict.detail.trigger] ?? run.trigger_type;
 }
 
+function getVersionActorLabel(version: PipelineVersion): string {
+  if (version.created_by_name?.trim()) {
+    return version.created_by_name;
+  }
+  if (version.created_by_email?.trim()) {
+    return version.created_by_email;
+  }
+  if (version.created_by?.trim()) {
+    return version.created_by.slice(0, 8);
+  }
+  return "";
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function PipelineDetailClient({
@@ -328,12 +356,15 @@ export default function PipelineDetailClient({
   const searchParams = useSearchParams();
   const { project } = useProject();
   const p = dict.pipelines;
+  const a = dict.artifacts;
   const { isAdmin } = useOrgRole();
 
   const initialTab = (searchParams.get("tab") as Tab) ?? "runs";
   const [tab, setTab] = useState<Tab>(initialTab);
   const [pipeline, setPipeline] = useState<PipelineSummary | null>(null);
   const [config, setConfig] = useState<PipelineConfig | null>(null);
+  const [versions, setVersions] = useState<PipelineVersion[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [environmentOptions, setEnvironmentOptions] = useState<PipelineEnvironmentDefinition[]>(
     DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item }))
   );
@@ -380,6 +411,9 @@ export default function PipelineDetailClient({
   const [publishRepositorySlug, setPublishRepositorySlug] = useState(normalizeArtifactRepositorySlug(project.name));
   const [publishVersion, setPublishVersion] = useState("");
   const [publishChannels, setPublishChannels] = useState("");
+  const [artifactReleases, setArtifactReleases] = useState<RunArtifactReleaseSummary[]>([]);
+  const [promoteChannelName, setPromoteChannelName] = useState("");
+  const [promotingChannel, setPromotingChannel] = useState(false);
   const [runStreamNonce, setRunStreamNonce] = useState(0);
 
   const selectedRunIdRef = useRef<string | null>(initialRunId);
@@ -449,6 +483,14 @@ export default function PipelineDetailClient({
       const data = await res.json();
       const loadedPipeline = (data?.pipeline ?? null) as PipelineSummary | null;
       setPipeline(loadedPipeline);
+      const loadedVersions = Array.isArray(data?.versions) ? (data.versions as PipelineVersion[]) : [];
+      setVersions(loadedVersions);
+      setSelectedVersionId(
+        data?.pipeline?.current_version_id ??
+          loadedVersions.find((version) => version.id === data?.pipeline?.current_version_id)?.id ??
+          loadedVersions[loadedVersions.length - 1]?.id ??
+          null
+      );
       setConfig(normalizeLoadedPipelineConfig(data?.version?.config, loadedPipeline, project.default_branch));
     } catch {
       toast.error(p.loadFailed);
@@ -493,6 +535,7 @@ export default function PipelineDetailClient({
       if (!res.ok) return;
       const data = await res.json();
       setArtifacts(Array.isArray(data?.artifacts) ? data.artifacts : []);
+      setArtifactReleases(Array.isArray(data?.releases) ? data.releases : []);
     } catch {/* ignore */}
   }, []);
 
@@ -526,6 +569,22 @@ export default function PipelineDetailClient({
   }, [loadPipeline, loadRuns]);
 
   useEffect(() => {
+    if (versions.length === 0) {
+      setSelectedVersionId(null);
+      return;
+    }
+    if (selectedVersionId && versions.some((version) => version.id === selectedVersionId)) {
+      return;
+    }
+    const currentVersionId = pipeline?.current_version_id ?? null;
+    const nextVersion =
+      versions.find((version) => version.id === currentVersionId) ??
+      versions[0] ??
+      null;
+    setSelectedVersionId(nextVersion?.id ?? null);
+  }, [pipeline?.current_version_id, selectedVersionId, versions]);
+
+  useEffect(() => {
     let active = true;
     const controller = new AbortController();
     void (async () => {
@@ -557,10 +616,10 @@ export default function PipelineDetailClient({
     if (!config.environment || !environmentKeys.includes(config.environment)) {
       setConfig((current) =>
         current
-          ? {
+          ? enforceProductionDeployManualGate({
               ...current,
               environment: environmentKeys[0] ?? "production",
-            }
+            })
           : current
       );
     }
@@ -602,6 +661,7 @@ export default function PipelineDetailClient({
     setLogLoading(false);
     setLogError(null);
     setArtifacts([]);
+    setArtifactReleases([]);
     void loadArtifacts(selectedRunId);
   }, [selectedRunId, loadArtifacts]);
 
@@ -1098,12 +1158,45 @@ export default function PipelineDetailClient({
         throw new Error(payload?.error ?? p.publishFailed);
       }
       toast.success(p.publishSuccess);
+      if (selectedRunId) {
+        await loadArtifacts(selectedRunId);
+      }
       setPublishDialogOpen(false);
       setPublishChannels("");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : p.publishFailed);
     } finally {
       setPublishingArtifacts(false);
+    }
+  }
+
+  async function promoteSelectedRelease() {
+    const latestRelease = selectedRunArtifactReleases[selectedRunArtifactReleases.length - 1];
+    if (!latestRelease || !project.id || !promoteChannelName.trim()) return;
+    setPromotingChannel(true);
+    try {
+      const response = await fetch(`/api/projects/${project.id}/artifacts/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repositoryId: latestRelease.repository_id,
+          versionId: latestRelease.version_id,
+          channelName: promoteChannelName.trim(),
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error ?? p.publishFailed);
+      }
+      toast.success(p.detail.publishChannelSuccess);
+      setPromoteChannelName("");
+      if (selectedRunId) {
+        await loadArtifacts(selectedRunId);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : p.publishFailed);
+    } finally {
+      setPromotingChannel(false);
     }
   }
 
@@ -1361,18 +1454,61 @@ export default function PipelineDetailClient({
   const runtimeStageCardWidth = runtimeStageCount >= 5 ? 252 : 288;
   const runtimeConnectorWidth = runtimeStageCount >= 5 ? 48 : 72;
   const sourceBranch = useMemo(() => getSourceBranch(config?.jobs ?? []), [config?.jobs]);
+  const runExecutionSummary = useMemo(
+    () => buildPipelineRunExecutionSummary(runtimeJobs, runDetail),
+    [runtimeJobs, runDetail]
+  );
   const currentEnvironment = (pipeline?.environment ?? config?.environment ?? "production") as PipelineEnvironment;
   const currentRun =
     selectedRunId && runDetail?.run.id === selectedRunId
       ? runDetail.run
       : runs.find((r) => r.id === selectedRunId);
   const currentRunStatus = isPipelineRunStatus(currentRun?.status) ? currentRun.status : null;
+  const currentRunIsTerminalFailure =
+    currentRunStatus === "failed" || currentRunStatus === "canceled" || currentRunStatus === "timed_out";
   const currentRunLabel = currentRun
     ? p.detail.runId.replace(
         "{{num}}",
         String(runs.length - runs.findIndex((r) => r.id === selectedRunId))
       )
     : "";
+  const orderedVersions = useMemo(
+    () => [...versions].sort((a, b) => a.version - b.version),
+    [versions]
+  );
+  const selectedVersion = useMemo(
+    () =>
+      orderedVersions.find((version) => version.id === selectedVersionId) ??
+      orderedVersions[orderedVersions.length - 1] ??
+      null,
+    [orderedVersions, selectedVersionId]
+  );
+  const selectedVersionIndex = useMemo(
+    () => orderedVersions.findIndex((version) => version.id === selectedVersion?.id),
+    [orderedVersions, selectedVersion?.id]
+  );
+  const comparisonVersion = selectedVersionIndex > 0 ? orderedVersions[selectedVersionIndex - 1] ?? null : null;
+  const selectedVersionConfig = useMemo(
+    () =>
+      selectedVersion
+        ? normalizeLoadedPipelineConfig(selectedVersion.config, pipeline, project.default_branch)
+        : null,
+    [pipeline, project.default_branch, selectedVersion]
+  );
+  const comparisonVersionConfig = useMemo(
+    () =>
+      comparisonVersion
+        ? normalizeLoadedPipelineConfig(comparisonVersion.config, pipeline, project.default_branch)
+        : null,
+    [comparisonVersion, pipeline, project.default_branch]
+  );
+  const versionChanges = useMemo(
+    () =>
+      selectedVersionConfig && comparisonVersionConfig
+        ? diffPipelineConfigs(comparisonVersionConfig, selectedVersionConfig)
+        : [],
+    [comparisonVersionConfig, selectedVersionConfig]
+  );
 
   useEffect(() => {
     const previousSelectedRunId = previousSelectedRunIdRef.current;
@@ -1547,6 +1683,7 @@ export default function PipelineDetailClient({
     );
   }
   const selectedRunArtifacts = artifacts;
+  const selectedRunArtifactReleases = artifactReleases;
 
   useEffect(() => {
     setPublishRepositoryName(project.name);
@@ -1835,15 +1972,109 @@ export default function PipelineDetailClient({
 
                       {/* Rollback / retry */}
                       {currentRun && currentRun.status === "success" && (
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setPublishDialogOpen(true)}
-                            disabled={selectedRunArtifacts.length === 0}
-                          >
-                            {p.publishArtifacts}
-                          </Button>
+                        <div className="flex flex-col items-end gap-3">
+                          <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-[12px] font-medium text-foreground">
+                                  {p.detail.releaseStatusTitle}
+                                </div>
+                                <div className="mt-0.5 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                  {selectedRunArtifactReleases.length > 0
+                                    ? p.detail.releaseStatusPublished
+                                    : p.detail.releaseStatusPending}
+                                </div>
+                              </div>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setPublishDialogOpen(true)}
+                                disabled={selectedRunArtifacts.length === 0}
+                              >
+                                {selectedRunArtifactReleases.length > 0
+                                  ? p.detail.releaseStatusManage
+                                  : p.publishArtifacts}
+                              </Button>
+                            </div>
+                            {selectedRunArtifactReleases.length > 0 ? (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {selectedRunArtifactReleases.map((release) => (
+                                  <div
+                                    key={release.version_id}
+                                    className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background px-3 py-2"
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <div className="truncate text-[11px] font-medium text-foreground">
+                                          {release.repository_name}
+                                        </div>
+                                        <div className="mt-0.5 text-[10px] text-[hsl(var(--ds-text-2))]">
+                                          {release.version}
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-wrap gap-1 justify-end">
+                                        {release.channel_names.length > 0 ? (
+                                          release.channel_names.map((channel) => (
+                                            <Badge key={`${release.version_id}-${channel}`} variant="muted" size="sm">
+                                              {channel}
+                                            </Badge>
+                                          ))
+                                        ) : (
+                                          <Badge variant="outline" size="sm">
+                                            {p.detail.releaseStatusUnchanneled}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="mt-2 grid gap-1 text-[10px] text-[hsl(var(--ds-text-2))] md:grid-cols-2">
+                                      <div className="truncate">
+                                        {p.versionsTab.savedBy}:{" "}
+                                        <span className="text-foreground">
+                                          {release.published_by_name ?? release.published_by_email ?? release.published_by?.slice(0, 8) ?? p.versionsTab.unknownAuthor}
+                                        </span>
+                                      </div>
+                                      <div className="truncate md:text-right">
+                                        {p.versionsTab.savedAt}:{" "}
+                                        <span className="text-foreground">{formatLocalDateTime(release.published_at)}</span>
+                                      </div>
+                                      <div className="truncate">
+                                        {p.detail.branch}:{" "}
+                                        <span className="text-foreground">{release.source_branch ?? a.unknownBranch}</span>
+                                      </div>
+                                      <div className="truncate md:text-right">
+                                        {p.detail.commit}:{" "}
+                                        <span className="text-foreground">
+                                          {release.source_commit_sha ? release.source_commit_sha.slice(0, 12) : a.unknownCommit}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="mt-2 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                {p.detail.releaseStatusPendingHelp}
+                              </div>
+                            )}
+                            {selectedRunArtifactReleases.length > 0 && (
+                              <div className="mt-3 flex items-center gap-2">
+                                <Input
+                                  value={promoteChannelName}
+                                  onChange={(event) => setPromoteChannelName(event.target.value)}
+                                  placeholder={p.publishChannelsPlaceholder}
+                                  className="h-8 w-40"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void promoteSelectedRelease()}
+                                  disabled={promotingChannel || !promoteChannelName.trim()}
+                                >
+                                  {promotingChannel ? dict.common.loading : p.detail.publishChannelAction}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
                           <Button
                             variant="outline"
                             size="sm"
@@ -1884,7 +2115,7 @@ export default function PipelineDetailClient({
                           </TooltipProvider>
                         </div>
                       )}
-                      {currentRun &&
+                  {currentRun &&
                         (currentRun.status === "queued" ||
                           currentRun.status === "running" ||
                           currentRun.status === "waiting_manual") && (
@@ -1899,6 +2130,114 @@ export default function PipelineDetailClient({
                           </Button>
                         )}
                     </div>
+                  </div>
+
+                  <div className="px-6 pb-4">
+                    {runExecutionSummary ? (
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)]">
+                        <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-background p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-[13px] font-medium text-foreground">{p.detail.executionSummaryTitle}</div>
+                              <div className="mt-0.5 text-[12px] text-[hsl(var(--ds-text-2))]">
+                                {p.detail.executionSummaryDescription}
+                              </div>
+                            </div>
+                            <Badge variant="muted" size="sm">
+                              {formatDurationMs(runExecutionSummary.critical_path_duration_ms)}
+                            </Badge>
+                          </div>
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            {runExecutionSummary.critical_path.map((node, index) => (
+                              <div key={node.id} className="contents">
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-2 rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                                    <div className="min-w-0">
+                                      <div className="truncate text-[13px] font-medium text-foreground">{node.name}</div>
+                                      <div className="text-[11px] text-[hsl(var(--ds-text-2))]">
+                                        {stageLabel(node.stage ?? 'build')}
+                                      </div>
+                                    </div>
+                                    <Badge variant={STATUS_VARIANTS[node.status]} size="sm">
+                                      {p.status[node.status]}
+                                    </Badge>
+                                  </div>
+                                  <div className="text-[11px] text-[hsl(var(--ds-text-2))] px-1">
+                                    {formatDurationMs(node.duration_ms)}
+                                  </div>
+                                </div>
+                                {index < runExecutionSummary.critical_path.length - 1 && (
+                                  <ArrowRight className="size-4 shrink-0 text-[hsl(var(--ds-text-2))]" />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-background p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-[13px] font-medium text-foreground">{p.detail.failureSummaryTitle}</div>
+                              <div className="mt-0.5 text-[12px] text-[hsl(var(--ds-text-2))]">
+                                {p.detail.failureSummaryDescription}
+                              </div>
+                            </div>
+                            {runExecutionSummary.failure_summary || currentRunIsTerminalFailure ? (
+                              <Badge variant="danger" size="sm">
+                                {p.status[(currentRunStatus ?? "failed") as PipelineRunStatus]}
+                              </Badge>
+                            ) : (
+                              <Badge variant="success" size="sm">
+                                {p.detail.successSummary}
+                              </Badge>
+                            )}
+                          </div>
+                          {runExecutionSummary.failure_summary || currentRunIsTerminalFailure ? (
+                            <div className="mt-4 space-y-2">
+                              <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                                <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.detail.failureJob}</div>
+                                <div className="text-[13px] font-medium text-foreground">
+                                  {runExecutionSummary.failure_summary?.job_name ?? p.detail.failureSummaryTitle}
+                                </div>
+                                <div className="mt-0.5 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                  {runExecutionSummary.failure_summary?.step_name
+                                    ? p.detail.failureStep.replace("{{name}}", runExecutionSummary.failure_summary.step_name)
+                                    : p.detail.failureNoStep}
+                                </div>
+                              </div>
+                              {(runExecutionSummary.failure_summary?.message ?? runDetail?.run.error_message) && (
+                                <div className="rounded-[10px] border border-danger/20 bg-danger/5 px-3 py-2 text-[12px] text-danger">
+                                  {runExecutionSummary.failure_summary?.message ?? runDetail?.run.error_message}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="mt-4 rounded-[10px] border border-success/20 bg-success/5 px-3 py-3 text-[12px] text-success">
+                              {p.detail.failureNone}
+                            </div>
+                          )}
+                          <div className="mt-4 grid grid-cols-2 gap-2 text-[12px] text-[hsl(var(--ds-text-2))]">
+                            <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                              <div>{p.detail.totalDuration}</div>
+                              <div className="text-[13px] font-medium text-foreground">
+                                {formatDurationMs(runExecutionSummary.total_duration_ms)}
+                              </div>
+                            </div>
+                            <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                              <div>{p.detail.criticalPathDuration}</div>
+                              <div className="text-[13px] font-medium text-foreground">
+                                {formatDurationMs(runExecutionSummary.critical_path_duration_ms)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)]">
+                        <Skeleton className="h-40 rounded-[12px]" />
+                        <Skeleton className="h-40 rounded-[12px]" />
+                      </div>
+                    )}
                   </div>
 
                   {/* Runtime board */}
@@ -2415,11 +2754,25 @@ export default function PipelineDetailClient({
                       ? "bg-muted text-foreground font-medium"
                       : "text-[hsl(var(--ds-text-2))] hover:bg-[hsl(var(--ds-surface-1))] hover:text-foreground"
                   }`}
-                >
+                  >
                   <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-muted/80 text-[11px]">
                     S
                   </span>
                   {p.settingsTab.title}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfigSection("versions")}
+                  className={`w-full flex items-center gap-2 rounded-[6px] px-3 py-2 text-left text-[13px] transition-colors ${
+                    configSection === "versions"
+                      ? "bg-muted text-foreground font-medium"
+                      : "text-[hsl(var(--ds-text-2))] hover:bg-[hsl(var(--ds-surface-1))] hover:text-foreground"
+                  }`}
+                >
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-muted/80 text-[11px]">
+                    V
+                  </span>
+                  {p.versionsTab.title}
                 </button>
               </div>
 
@@ -2432,7 +2785,12 @@ export default function PipelineDetailClient({
                       <Select
                         value={config.environment ?? "production"}
                         onValueChange={(value) =>
-                          setConfig({ ...config, environment: value as PipelineEnvironment })
+                          setConfig(
+                            enforceProductionDeployManualGate({
+                              ...config,
+                              environment: value as PipelineEnvironment,
+                            })
+                          )
                         }
                       >
                         <SelectTrigger>
@@ -2499,6 +2857,222 @@ export default function PipelineDetailClient({
                       onJobsChange={(jobs) => setConfig({ ...config, jobs })}
                       onStageSettingsChange={(stages) => setConfig({ ...config, stages })}
                     />
+                  </div>
+                )}
+
+                {configSection === "versions" && (
+                  <div className="space-y-6 pb-8">
+                    <div className="max-w-6xl grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+                      <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-4">
+                        <div>
+                          <div className="text-sm font-medium">{p.versionsTab.title}</div>
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
+                            {p.versionsTab.description}
+                          </div>
+                        </div>
+                        <div className="mt-4 space-y-2">
+                          {orderedVersions.length === 0 ? (
+                            <div className="rounded-[8px] border border-dashed border-[hsl(var(--ds-border-1))] px-3 py-4 text-[12px] text-[hsl(var(--ds-text-2))]">
+                              {p.versionsTab.noVersions}
+                            </div>
+                          ) : (
+                            [...orderedVersions].reverse().map((version) => {
+                              const isCurrent = pipeline?.current_version_id === version.id;
+                              const isSelected = selectedVersion?.id === version.id;
+                              return (
+                                <button
+                                  type="button"
+                                  key={version.id}
+                                  onClick={() => setSelectedVersionId(version.id)}
+                                  className={`w-full rounded-[8px] border px-3 py-3 text-left transition-colors ${
+                                    isSelected
+                                      ? "border-foreground bg-muted"
+                                      : "border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] hover:border-foreground/40"
+                                  }`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <div className="text-[13px] font-medium text-foreground">
+                                          v{version.version}
+                                        </div>
+                                        {isCurrent && (
+                                          <Badge variant="accent" size="sm">
+                                            {p.versionsTab.current}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <div className="mt-1 text-[12px] text-[hsl(var(--ds-text-2))]">
+                                        {getVersionActorLabel(version) || p.versionsTab.unknownAuthor}
+                                      </div>
+                                    </div>
+                                    <div className="text-right text-[11px] text-[hsl(var(--ds-text-2))]">
+                                      <div>{formatLocalDateTime(version.created_at)}</div>
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-medium">{p.versionsTab.diffTitle}</div>
+                            <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
+                              {comparisonVersion
+                                ? p.versionsTab.compareTo.replace("{{version}}", String(comparisonVersion.version))
+                                : p.versionsTab.firstVersion}
+                            </div>
+                          </div>
+                          {selectedVersion && (
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="muted" size="sm">
+                                v{selectedVersion.version}
+                              </Badge>
+                              {pipeline?.current_version_id === selectedVersion.id && (
+                                <Badge variant="accent" size="sm">
+                                  {p.versionsTab.current}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {selectedVersionConfig && (
+                          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2.5">
+                              <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.basic.environment}</div>
+                              <div className="mt-1 text-[13px] font-medium text-foreground">
+                                {getPipelineEnvironmentLabel(selectedVersionConfig.environment ?? "production", environmentOptions)}
+                              </div>
+                            </div>
+                            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2.5">
+                              <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.basic.buildImage}</div>
+                              <div className="mt-1 truncate text-[13px] font-medium text-foreground">
+                                {selectedVersionConfig.buildImage || p.versionsTab.emptyBuildImage}
+                              </div>
+                            </div>
+                            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2.5">
+                              <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.basic.autoTrigger}</div>
+                              <div className="mt-1 text-[13px] font-medium text-foreground">
+                                {selectedVersionConfig.trigger.autoTrigger
+                                  ? p.versionsTab.enabled
+                                  : p.versionsTab.disabled}
+                              </div>
+                            </div>
+                            <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2.5">
+                              <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{p.versionsTab.jobsCountLabel}</div>
+                              <div className="mt-1 text-[13px] font-medium text-foreground">
+                                {p.versionsTab.jobsCount.replace("{{count}}", String(selectedVersionConfig.jobs.length))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="mt-4 border-t border-[hsl(var(--ds-border-1))] pt-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-[13px] font-medium text-foreground">
+                                {p.versionsTab.changesTitle}
+                              </div>
+                              <div className="mt-0.5 text-[12px] text-[hsl(var(--ds-text-2))]">
+                                {p.versionsTab.changesDescription}
+                              </div>
+                            </div>
+                            {selectedVersion && (
+                              <div className="text-right text-[12px] text-[hsl(var(--ds-text-2))]">
+                                <div>
+                                  {p.versionsTab.savedBy}:{" "}
+                                  <span className="text-foreground">
+                                    {getVersionActorLabel(selectedVersion) || p.versionsTab.unknownAuthor}
+                                  </span>
+                                </div>
+                                <div>
+                                  {p.versionsTab.savedAt}:{" "}
+                                  <span className="text-foreground">{formatLocalDateTime(selectedVersion.created_at)}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {!selectedVersion || orderedVersions.length === 0 ? (
+                            <div className="mt-4 rounded-[8px] border border-dashed border-[hsl(var(--ds-border-1))] px-3 py-4 text-[12px] text-[hsl(var(--ds-text-2))]">
+                              {p.versionsTab.noVersions}
+                            </div>
+                          ) : comparisonVersion ? (
+                            versionChanges.length > 0 ? (
+                              <div className="mt-4 space-y-2">
+                                {versionChanges.map((change) => {
+                                  const tone =
+                                    change.kind === "added"
+                                      ? "success"
+                                      : change.kind === "removed"
+                                        ? "danger"
+                                        : "warning";
+                                  return (
+                                    <div
+                                      key={change.path.join(".")}
+                                      className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-3"
+                                    >
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <div className="text-[13px] font-medium text-foreground">
+                                            {change.label}
+                                          </div>
+                                          <div className="mt-0.5 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                            {change.kind === "added"
+                                              ? p.versionsTab.added
+                                              : change.kind === "removed"
+                                                ? p.versionsTab.removed
+                                                : p.versionsTab.changed}
+                                          </div>
+                                        </div>
+                                        <Badge variant={tone} size="sm">
+                                          {change.kind === "added"
+                                            ? p.versionsTab.added
+                                            : change.kind === "removed"
+                                              ? p.versionsTab.removed
+                                              : p.versionsTab.changed}
+                                        </Badge>
+                                      </div>
+                                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                        <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background px-3 py-2">
+                                          <div className="text-[11px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
+                                            {comparisonVersion.version}
+                                          </div>
+                                          <div className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px] text-[hsl(var(--ds-text-2))]">
+                                            {change.before || "—"}
+                                          </div>
+                                        </div>
+                                        <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background px-3 py-2">
+                                          <div className="text-[11px] uppercase tracking-wide text-[hsl(var(--ds-text-2))]">
+                                            {selectedVersion.version}
+                                          </div>
+                                          <div className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px] text-foreground">
+                                            {change.after || "—"}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="mt-4 rounded-[8px] border border-dashed border-success/30 bg-success/5 px-3 py-4 text-[12px] text-success">
+                                {p.versionsTab.noChanges}
+                              </div>
+                            )
+                          ) : (
+                            <div className="mt-4 rounded-[8px] border border-dashed border-[hsl(var(--ds-border-1))] px-3 py-4 text-[12px] text-[hsl(var(--ds-text-2))]">
+                              {p.versionsTab.firstVersion}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -3100,16 +3674,17 @@ function normalizeLoadedPipelineConfig(
 }
 
 function normalizePipelineConfigForSave(config: PipelineConfig, defaultBranch: string): PipelineConfig {
-  const schedule = config.trigger.schedule?.trim();
+  const gatedConfig = enforceProductionDeployManualGate(config);
+  const schedule = gatedConfig.trigger.schedule?.trim();
   return {
-    ...config,
-    buildImage: config.buildImage?.trim() ?? "",
+    ...gatedConfig,
+    buildImage: gatedConfig.buildImage?.trim() ?? "",
     trigger: {
-      autoTrigger: config.trigger.autoTrigger,
+      autoTrigger: gatedConfig.trigger.autoTrigger,
       ...(schedule ? { schedule } : {}),
     },
-    stages: normalizeStageSettings(config.stages),
-    jobs: normalizePipelineJobs(config.jobs, config.stages, defaultBranch),
+    stages: normalizeStageSettings(gatedConfig.stages),
+    jobs: normalizePipelineJobs(gatedConfig.jobs, gatedConfig.stages, defaultBranch),
   };
 }
 

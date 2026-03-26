@@ -7,6 +7,7 @@ import { formatErrorResponse } from '@/services/retry';
 import { createPipelineSchema, projectIdSchema, validateRequest } from '@/services/validation';
 import { createPipeline, listPipelines } from '@/services/conductorGateway';
 import { query } from '@/lib/db';
+import { PIPELINE_ACTIVE_STATUSES_SQL } from '@/services/statuses';
 import type { ConductorCreatePipelineRequest } from '@sykra/contracts/conductor';
 
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,8 @@ export async function GET(request: NextRequest) {
     }
 
     const pipelineIds = pipelines.map((item) => item.id);
+    const trendWindowDays = 7;
+    const defaultDailySeries = Array.from({ length: trendWindowDays }, () => 0);
     const triggeredByIds = Array.from(
       new Set(
         pipelines
@@ -44,7 +47,7 @@ export async function GET(request: NextRequest) {
       )
     );
 
-    const [runStatsRows, userRows] = await Promise.all([
+    const [runStatsRows, runDailyRows, activeRunRows, userRows] = await Promise.all([
       query<{
         pipeline_id: string;
         total_runs_7d: string;
@@ -63,6 +66,42 @@ export async function GET(request: NextRequest) {
          group by pipeline_id`,
         [orgId, pipelineIds]
       ),
+      query<{
+        pipeline_id: string;
+        total_runs: string;
+        success_runs: string;
+      }>(
+        `select
+           p.pipeline_id::text as pipeline_id,
+           count(r.id)::text as total_runs,
+           count(r.id) filter (where r.status = 'success')::text as success_runs
+         from unnest($2::uuid[]) as p(pipeline_id)
+         cross join generate_series(
+           date_trunc('day', now()) - interval '6 days',
+           date_trunc('day', now()),
+           interval '1 day'
+         ) as d(day_bucket)
+         left join pipeline_runs r
+           on r.org_id = $1
+          and r.pipeline_id = p.pipeline_id
+          and r.created_at >= d.day_bucket
+          and r.created_at < d.day_bucket + interval '1 day'
+         group by p.pipeline_id, d.day_bucket
+         order by p.pipeline_id, d.day_bucket`,
+        [orgId, pipelineIds]
+      ),
+      query<{
+        pipeline_id: string;
+        active_runs: string;
+      }>(
+        `select pipeline_id, count(*)::text as active_runs
+         from pipeline_runs
+         where org_id = $1
+           and pipeline_id = any($2::uuid[])
+           and status in (${PIPELINE_ACTIVE_STATUSES_SQL})
+         group by pipeline_id`,
+        [orgId, pipelineIds]
+      ),
       triggeredByIds.length > 0
         ? query<{ id: string; email: string | null; display_name: string | null }>(
             `select id, email, display_name
@@ -73,6 +112,21 @@ export async function GET(request: NextRequest) {
         : Promise.resolve([]),
     ]);
 
+    const dailyTotalRunsByPipelineId = new Map<string, number[]>();
+    const dailySuccessRunsByPipelineId = new Map<string, number[]>();
+    for (const row of runDailyRows) {
+      const totalRuns = Number.parseInt(row.total_runs, 10);
+      const successRuns = Number.parseInt(row.success_runs, 10);
+      const totalSeries = dailyTotalRunsByPipelineId.get(row.pipeline_id) ?? [];
+      totalSeries.push(Number.isFinite(totalRuns) ? totalRuns : 0);
+      dailyTotalRunsByPipelineId.set(row.pipeline_id, totalSeries);
+      const successSeries = dailySuccessRunsByPipelineId.get(row.pipeline_id) ?? [];
+      successSeries.push(Number.isFinite(successRuns) ? successRuns : 0);
+      dailySuccessRunsByPipelineId.set(row.pipeline_id, successSeries);
+    }
+    const activeRunsByPipelineId = new Map(
+      activeRunRows.map((row) => [row.pipeline_id, Number.parseInt(row.active_runs, 10) || 0])
+    );
     const runStatsByPipelineId = new Map(
       runStatsRows.map((row) => {
         const totalRuns = Number.parseInt(row.total_runs_7d, 10);
@@ -86,6 +140,9 @@ export async function GET(request: NextRequest) {
             success_runs: successRuns,
             failed_runs: failedRuns,
             success_rate: successRate,
+            active_runs: activeRunsByPipelineId.get(row.pipeline_id) ?? 0,
+            daily_total_runs: dailyTotalRunsByPipelineId.get(row.pipeline_id) ?? [...defaultDailySeries],
+            daily_success_runs: dailySuccessRunsByPipelineId.get(row.pipeline_id) ?? [...defaultDailySeries],
           },
         ];
       })
@@ -109,6 +166,9 @@ export async function GET(request: NextRequest) {
           success_runs: 0,
           failed_runs: 0,
           success_rate: 0,
+          active_runs: 0,
+          daily_total_runs: [...defaultDailySeries],
+          daily_success_runs: [...defaultDailySeries],
         },
       };
     });

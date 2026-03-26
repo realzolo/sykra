@@ -8,7 +8,12 @@ import { formatErrorResponse } from '@/services/retry';
 import { updatePipelineSchema, validateRequest } from '@/services/validation';
 import { deletePipeline, getPipeline, updatePipeline } from '@/services/conductorGateway';
 import { query as dbQuery } from '@/lib/db';
-import type { ConductorUpdatePipelineRequest } from '@sykra/contracts/conductor';
+import type { ConductorGetPipelineResponse, ConductorUpdatePipelineRequest } from '@sykra/contracts/conductor';
+
+type HydratedPipelineVersion = NonNullable<ConductorGetPipelineResponse['version']> & {
+  created_by_name?: string | null;
+  created_by_email?: string | null;
+};
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +38,42 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (pipeline.org_id && pipeline.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+    const response = data as ConductorGetPipelineResponse & {
+      version: HydratedPipelineVersion | null;
+      versions: HydratedPipelineVersion[];
+    };
+    const versionAuthorIds = Array.from(
+      new Set(
+        [
+          response.version?.created_by,
+          ...(Array.isArray(response.versions) ? response.versions.map((version) => version.created_by) : []),
+        ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      )
+    );
+    if (versionAuthorIds.length > 0) {
+      const authors = await dbQuery<{ id: string; email: string | null; display_name: string | null }>(
+        `SELECT id, email, display_name
+           FROM auth_users
+          WHERE id = ANY($1::uuid[])`,
+        [versionAuthorIds]
+      );
+      const authorById = new Map(authors.map((item) => [item.id, item]));
+      response.version = response.version
+        ? {
+            ...response.version,
+            created_by_name: response.version.created_by ? authorById.get(response.version.created_by)?.display_name ?? null : null,
+            created_by_email: response.version.created_by ? authorById.get(response.version.created_by)?.email ?? null : null,
+          }
+        : response.version;
+      response.versions = response.versions.map((version) => {
+        const author = version.created_by ? authorById.get(version.created_by) : undefined;
+        return {
+          ...version,
+          created_by_name: author?.display_name ?? null,
+          created_by_email: author?.email ?? null,
+        };
+      });
+    }
     // Augment with concurrency_mode from Studio DB (must exist; schema is treated as required).
     const rows = await dbQuery<{ concurrency_mode: 'allow' | 'queue' | 'cancel_previous' }>(
       `SELECT concurrency_mode FROM pipelines WHERE id = $1`,
@@ -42,7 +83,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (concurrencyRow) {
       pipeline.concurrency_mode = concurrencyRow.concurrency_mode;
     }
-    return NextResponse.json(data);
+    return NextResponse.json(response);
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     return NextResponse.json({ error }, { status: statusCode });

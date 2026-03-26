@@ -43,6 +43,7 @@ type PipelineLastRun struct {
 	Branch        *string    `json:"branch,omitempty"`
 	CommitSHA     *string    `json:"commit_sha,omitempty"`
 	CommitMessage *string    `json:"commit_message,omitempty"`
+	ErrorMessage  *string    `json:"error_message,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 	FinishedAt    *time.Time `json:"finished_at,omitempty"`
@@ -371,13 +372,13 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 		        coalesce((select max(version) from pipeline_versions where pipeline_id=p.id), 0) as latest_version,
 		        coalesce(cp.default_branch, 'main') as project_default_branch,
 		        cv.config as current_config,
-		        lr.id, lr.status, lr.trigger_type, lr.triggered_by, lr.rollback_of, lr.branch, lr.commit_sha, lr.commit_message,
+		        lr.id, lr.status, lr.trigger_type, lr.triggered_by, lr.rollback_of, lr.branch, lr.commit_sha, lr.commit_message, lr.error_message,
 		        lr.created_at, lr.started_at, lr.finished_at
 		 from pipelines p
 		 left join code_projects cp on cp.id = p.project_id
 		 left join pipeline_versions cv on cv.id = p.current_version_id
 		 left join lateral (
-			select r.id, r.status, r.trigger_type, r.triggered_by, r.rollback_of, r.branch, r.commit_sha, r.commit_message,
+			select r.id, r.status, r.trigger_type, r.triggered_by, r.rollback_of, r.branch, r.commit_sha, r.commit_message, r.error_message,
 			       r.created_at, r.started_at, r.finished_at
 			from pipeline_runs r
 			where r.pipeline_id = p.id
@@ -405,6 +406,7 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 	var lastRunBranch pgtype.Text
 	var lastRunCommitSHA pgtype.Text
 	var lastRunCommitMessage pgtype.Text
+	var lastRunErrorMessage pgtype.Text
 	var lastRunCreatedAt pgtype.Timestamptz
 	var lastRunStartedAt pgtype.Timestamptz
 	var lastRunFinishedAt pgtype.Timestamptz
@@ -435,6 +437,7 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 		&lastRunBranch,
 		&lastRunCommitSHA,
 		&lastRunCommitMessage,
+		&lastRunErrorMessage,
 		&lastRunCreatedAt,
 		&lastRunStartedAt,
 		&lastRunFinishedAt,
@@ -497,6 +500,10 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID string) (*Pipeline, 
 		if lastRunCommitMessage.Valid {
 			val := lastRunCommitMessage.String
 			lastRun.CommitMessage = &val
+		}
+		if lastRunErrorMessage.Valid {
+			val := lastRunErrorMessage.String
+			lastRun.ErrorMessage = &val
 		}
 		if lastRunStartedAt.Valid {
 			lastRun.StartedAt = &lastRunStartedAt.Time
@@ -657,6 +664,43 @@ func (s *Store) GetPipelineVersion(ctx context.Context, versionID string) (*Pipe
 	return &out, nil
 }
 
+func (s *Store) ListPipelineVersions(ctx context.Context, pipelineID string) ([]PipelineVersion, error) {
+	rows, err := s.pool.Query(
+		ctx,
+		`select id, pipeline_id, version, config, created_by, created_at
+     from pipeline_versions
+     where pipeline_id = $1
+     order by version desc`,
+		pipelineID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PipelineVersion
+	for rows.Next() {
+		var createdBy pgtype.UUID
+		var row PipelineVersion
+		if err := rows.Scan(
+			&row.ID,
+			&row.PipelineID,
+			&row.Version,
+			&row.Config,
+			&createdBy,
+			&row.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if createdBy.Valid {
+			val := createdBy.String()
+			row.CreatedBy = &val
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *string) ([]Pipeline, error) {
 	var (
 		rows pgx.Rows
@@ -667,7 +711,7 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		        coalesce((select max(version) from pipeline_versions where pipeline_id=p.id), 0) as latest_version,
 		        coalesce(cp.default_branch, 'main') as project_default_branch,
 		        cv.config as current_config,
-		        lr.id, lr.status, lr.trigger_type, lr.triggered_by, lr.rollback_of, lr.branch, lr.commit_sha, lr.commit_message,
+		        lr.id, lr.status, lr.trigger_type, lr.triggered_by, lr.rollback_of, lr.branch, lr.commit_sha, lr.commit_message, lr.error_message,
 		        lr.created_at, lr.started_at, lr.finished_at`
 	if projectID != nil && *projectID != "" {
 		rows, err = s.pool.Query(
@@ -677,7 +721,7 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 			 left join code_projects cp on cp.id = p.project_id
 			 left join pipeline_versions cv on cv.id = p.current_version_id
 			 left join lateral (
-				select r.id, r.status, r.trigger_type, r.triggered_by, r.rollback_of, r.branch, r.commit_sha, r.commit_message,
+				select r.id, r.status, r.trigger_type, r.triggered_by, r.rollback_of, r.branch, r.commit_sha, r.commit_message, r.error_message,
 				       r.created_at, r.started_at, r.finished_at
 				from pipeline_runs r
 				where r.pipeline_id = p.id
@@ -697,7 +741,7 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 			 left join code_projects cp on cp.id = p.project_id
 			 left join pipeline_versions cv on cv.id = p.current_version_id
 			 left join lateral (
-				select r.id, r.status, r.trigger_type, r.triggered_by, r.rollback_of, r.branch, r.commit_sha, r.commit_message,
+				select r.id, r.status, r.trigger_type, r.triggered_by, r.rollback_of, r.branch, r.commit_sha, r.commit_message, r.error_message,
 				       r.created_at, r.started_at, r.finished_at
 				from pipeline_runs r
 				where r.pipeline_id = p.id
@@ -733,6 +777,7 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 		var lastRunBranch pgtype.Text
 		var lastRunCommitSHA pgtype.Text
 		var lastRunCommitMessage pgtype.Text
+		var lastRunErrorMessage pgtype.Text
 		var lastRunCreatedAt pgtype.Timestamptz
 		var lastRunStartedAt pgtype.Timestamptz
 		var lastRunFinishedAt pgtype.Timestamptz
@@ -763,6 +808,7 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 			&lastRunBranch,
 			&lastRunCommitSHA,
 			&lastRunCommitMessage,
+			&lastRunErrorMessage,
 			&lastRunCreatedAt,
 			&lastRunStartedAt,
 			&lastRunFinishedAt,
@@ -825,6 +871,10 @@ func (s *Store) ListPipelines(ctx context.Context, orgID string, projectID *stri
 			if lastRunCommitMessage.Valid {
 				val := lastRunCommitMessage.String
 				lastRun.CommitMessage = &val
+			}
+			if lastRunErrorMessage.Valid {
+				val := lastRunErrorMessage.String
+				lastRun.ErrorMessage = &val
 			}
 			if lastRunStartedAt.Valid {
 				lastRun.StartedAt = &lastRunStartedAt.Time

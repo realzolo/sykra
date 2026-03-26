@@ -112,9 +112,18 @@ func (a *API) handlePipelineByID(w http.ResponseWriter, r *http.Request) {
 				httpx.WriteError(w, http.StatusNotFound, "pipeline not found")
 				return
 			}
+			versions, err := a.service.ListPipelineVersions(r.Context(), pipelineID)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if versions == nil {
+				versions = []store.PipelineVersion{}
+			}
 			httpx.WriteJSON(w, http.StatusOK, map[string]any{
 				"pipeline": pipeline,
 				"version":  version,
+				"versions": versions,
 			})
 		case http.MethodPut:
 			var payload struct {

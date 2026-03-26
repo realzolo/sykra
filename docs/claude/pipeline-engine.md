@@ -9,6 +9,7 @@
 - Pipeline runtime views should subscribe to `/api/pipeline-runs/[runId]/stream` for live run snapshot updates driven by Conductor run events; client-side polling is only a fallback when the stream cannot be established.
 - The runtime board horizontal scrollbar is rendered as a dedicated bottom rail, while the main runtime viewport keeps only vertical scrolling; the board itself should also support drag-to-pan for horizontal navigation.
 - Pipeline runtime and settings loading states should render skeleton placeholders instead of inline "Loading..." text so the page keeps a uniform loading language.
+- Pipeline authoring views should expose version history from `pipeline_versions` and compare a selected snapshot against the previous snapshot so operators can review config drift before saving a new revision or triggering a run.
 - While dragging the runtime board to pan horizontally, text selection must be suppressed so node cards and log content do not get highlighted.
 - Runtime board node clicks must only clear selection when the viewport background itself is clicked; child node clicks should open the node dialog without being canceled by the board-level click handler.
 - Runtime board drag-to-pan must only start from blank canvas regions; pointer interaction that begins on a node card must never move the board.
@@ -86,6 +87,7 @@
   - `artifact_files` maps logical file paths to deduplicated `artifact_blobs`.
   - `artifact_channels` maps mutable channels like `dev`, `preview`, `prod`, `latest` onto immutable versions.
   - `artifact_version_usages` records promotion / download / deployment consumption events for traceability and future retention protection.
+- Pipeline run artifact release cards should surface source run, source commit, source branch, publish timestamp, publisher identity, and channels so release provenance stays visible in the run detail workflow.
 - Artifact blob storage is deduplicated by `(org_id, sha256)` in `artifact_blobs`; Conductor cleanup must not delete storage objects that are referenced by published registry versions.
 - Artifact deployment flow is pull-based for remote workers: workers should fetch immutable artifact versions from Conductor-backed artifact storage rather than receiving binary payloads over the WebSocket control channel; deployment/promotion provenance is recorded in `artifact_version_usages`.
 - Deploy steps can choose their artifact source explicitly: `run` consumes same-run outputs while `registry` consumes an immutable published repository version or deployment channel, and Conductor resolves the selected registry version before handing the step to Worker.

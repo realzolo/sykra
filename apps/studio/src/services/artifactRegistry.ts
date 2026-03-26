@@ -50,6 +50,23 @@ export type ArtifactChannelSummary = {
   updated_at: string;
 };
 
+export type RunArtifactReleaseSummary = {
+  repository_id: string;
+  repository_name: string;
+  repository_slug: string;
+  version_id: string;
+  version: string;
+  source_run_id: string | null;
+  source_pipeline_id: string | null;
+  source_commit_sha: string | null;
+  source_branch: string | null;
+  published_by: string | null;
+  published_by_name?: string | null;
+  published_by_email?: string | null;
+  published_at: string;
+  channel_names: string[];
+};
+
 export type ArtifactRepositorySummary = {
   id: string;
   org_id: string;
@@ -438,6 +455,26 @@ export async function publishProjectArtifacts(input: PublishProjectArtifactsInpu
       versionId: createdVersion.id,
     };
   });
+}
+
+export async function listRunArtifactReleases(runId: string, orgId: string) {
+  return query<RunArtifactReleaseSummary>(
+    `select v.repository_id, r.name as repository_name, r.slug as repository_slug,
+            v.id as version_id, v.version,
+            v.source_run_id, v.source_pipeline_id, v.source_commit_sha, v.source_branch,
+            v.published_by, v.created_at as published_at,
+            coalesce(array_agg(c.name order by c.name) filter (where c.name is not null), '{}'::text[]) as channel_names
+       from artifact_versions v
+       join artifact_repositories r on r.id = v.repository_id
+       join pipeline_runs pr on pr.id = v.source_run_id and pr.org_id = $2
+       left join artifact_channels c on c.version_id = v.id
+      where v.source_run_id = $1
+        and v.org_id = $2
+        and v.status = 'published'
+      group by v.id, r.id, pr.id
+      order by v.created_at asc`,
+    [runId, orgId]
+  );
 }
 
 export async function promoteProjectArtifactChannel(input: PromoteArtifactChannelInput) {

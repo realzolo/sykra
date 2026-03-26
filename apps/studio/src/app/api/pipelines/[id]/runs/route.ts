@@ -92,6 +92,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (pipeline.org_id && pipeline.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+    if (body?.rollbackOf) {
+      if (!pipeline.project_id) {
+        return NextResponse.json({ error: 'Rollback requires a project-scoped pipeline' }, { status: 409 });
+      }
+      const publishedArtifactVersion = await queryOne<{ id: string }>(
+        `select id
+         from artifact_versions
+         where org_id = $1
+           and project_id = $2
+           and source_run_id = $3
+           and source_pipeline_id = $4
+           and status = 'published'
+         order by created_at desc
+         limit 1`,
+        [orgId, pipeline.project_id, body.rollbackOf, id]
+      );
+      if (!publishedArtifactVersion) {
+        return NextResponse.json(
+          { error: 'Rollback requires a published artifact version for the source run' },
+          { status: 409 }
+        );
+      }
+    }
 
     // Check concurrency mode from Studio DB
     const pipelineRow = await queryOne<{ concurrency_mode: string }>(

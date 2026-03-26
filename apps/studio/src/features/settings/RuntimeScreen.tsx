@@ -45,6 +45,10 @@ function createPipelineEnvironmentCandidate(existing: PipelineEnvironmentDefinit
   return { key: `env-${existing.length + 1}`, label: '', order: existing.length + 1 };
 }
 
+const IMMUTABLE_PIPELINE_ENVIRONMENT_KEYS = new Set(
+  DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => item.key)
+);
+
 function PageSkeleton() {
   return (
     <SettingsPageShell
@@ -141,6 +145,15 @@ export default function RuntimeScreen() {
     });
   }, [state.pipelineEnvironments]);
 
+  const environmentRows = useMemo(
+    () =>
+      state.pipelineEnvironments.map((item) => ({
+        ...item,
+        immutable: IMMUTABLE_PIPELINE_ENVIRONMENT_KEYS.has(item.key),
+      })),
+    [state.pipelineEnvironments]
+  );
+
   const hasEnvironmentIssues = useMemo(
     () => environmentIssues.some((item) => item.invalidKey || item.duplicateKey || item.emptyLabel),
     [environmentIssues]
@@ -177,6 +190,11 @@ export default function RuntimeScreen() {
     patch: Partial<Pick<PipelineEnvironmentDefinition, 'key' | 'label'>>
   ) {
     setState((current) => {
+      const currentItem = current.pipelineEnvironments[index];
+      if (!currentItem) return current;
+      if (IMMUTABLE_PIPELINE_ENVIRONMENT_KEYS.has(currentItem.key)) {
+        return current;
+      }
       const next = current.pipelineEnvironments.map((item, itemIndex) => {
         if (itemIndex !== index) return item;
         const nextKey = patch.key === undefined ? item.key : patch.key.slice(0, 32);
@@ -213,6 +231,8 @@ export default function RuntimeScreen() {
   function removePipelineEnvironment(index: number) {
     setState((current) => {
       if (current.pipelineEnvironments.length <= 1) return current;
+      const item = current.pipelineEnvironments[index];
+      if (!item || IMMUTABLE_PIPELINE_ENVIRONMENT_KEYS.has(item.key)) return current;
       const list = current.pipelineEnvironments.filter((_, itemIndex) => itemIndex !== index);
       return {
         ...current,
@@ -373,8 +393,8 @@ export default function RuntimeScreen() {
             </>
           }
           right={
-            <div className="w-full max-w-[420px] space-y-2">
-              {state.pipelineEnvironments.map((item, index) => {
+              <div className="w-full max-w-[420px] space-y-2">
+              {environmentRows.map((item, index) => {
                 const issue = environmentIssues[index];
                 return (
                   <div
@@ -385,14 +405,14 @@ export default function RuntimeScreen() {
                       value={item.key}
                       onChange={(event) => updatePipelineEnvironment(index, { key: event.target.value })}
                       placeholder={i18n.pipelineEnvironmentsKeyPlaceholder}
-                      disabled={!isAdmin}
+                      disabled={!isAdmin || item.immutable}
                       className="font-mono text-[12px]"
                     />
                     <Input
                       value={item.label}
                       onChange={(event) => updatePipelineEnvironment(index, { label: event.target.value })}
                       placeholder={i18n.pipelineEnvironmentsLabelPlaceholder}
-                      disabled={!isAdmin}
+                      disabled={!isAdmin || item.immutable}
                       className="text-[12px]"
                     />
                     <div className="flex items-center gap-1">
@@ -420,13 +440,18 @@ export default function RuntimeScreen() {
                         variant="ghost"
                         size="icon"
                         onClick={() => removePipelineEnvironment(index)}
-                        disabled={!isAdmin || state.pipelineEnvironments.length <= 1}
+                        disabled={!isAdmin || state.pipelineEnvironments.length <= 1 || item.immutable}
                         className="size-8 text-danger"
                         aria-label={i18n.pipelineEnvironmentsRemove}
                       >
                         <Trash2 className="size-4" />
                       </Button>
                     </div>
+                    {item.immutable && (
+                      <div className="col-span-3 text-[11px] text-[hsl(var(--ds-text-2))]">
+                        {i18n.pipelineEnvironmentsImmutable}
+                      </div>
+                    )}
                     {issue && (issue.invalidKey || issue.duplicateKey || issue.emptyLabel) && (
                       <div className="col-span-3 text-[11px] text-danger">
                         {issue.invalidKey

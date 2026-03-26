@@ -14,6 +14,7 @@ const conductorPipelineLastRunSchema = z.object({
   branch: z.string().nullable().optional(),
   commit_sha: z.string().nullable().optional(),
   commit_message: z.string().nullable().optional(),
+  error_message: z.string().nullable().optional(),
   created_at: isoDateString,
   started_at: isoDateString.nullable().optional(),
   finished_at: isoDateString.nullable().optional(),
@@ -54,6 +55,7 @@ export const conductorPipelineVersionSchema = z.object({
 export const conductorGetPipelineResponseSchema = z.object({
   pipeline: conductorPipelineSchema,
   version: conductorPipelineVersionSchema.nullable(),
+  versions: z.array(conductorPipelineVersionSchema),
 });
 
 export const conductorCreatePipelineResponseSchema = conductorGetPipelineResponseSchema;

@@ -243,6 +243,9 @@ export type PipelineSummary = {
     success_runs: number;
     failed_runs: number;
     success_rate: number;
+    active_runs: number;
+    daily_total_runs: number[];
+    daily_success_runs: number[];
   };
   concurrency_mode: 'allow' | 'queue' | 'cancel_previous';
   trigger_schedule?: string | null;
@@ -264,6 +267,7 @@ export type PipelineRunSummary = {
   branch?: string | null;
   commit_sha?: string | null;
   commit_message?: string | null;
+  error_message?: string | null;
   rollback_of?: string | null;
   created_at: string;
   started_at?: string | null;
@@ -292,11 +296,15 @@ export type PipelineVersion = {
   pipeline_id: string;
   version: number;
   config: PipelineConfig;
+  created_by?: string | null;
+  created_by_name?: string | null;
+  created_by_email?: string | null;
   created_at: string;
 };
 
 export type PipelineDetail = PipelineSummary & {
   version?: PipelineVersion;
+  versions?: PipelineVersion[];
 };
 
 export type PipelineRunDetail = {
@@ -327,6 +335,7 @@ export type PipelineRunDetail = {
     name: string;
     status: PipelineRunStatus;
     exit_code?: number | null;
+    error_message?: string | null;
     log_path?: string | null;
     started_at?: string | null;
     finished_at?: string | null;
@@ -338,6 +347,182 @@ export type PipelineJobDiagnostic = {
   level: 'error' | 'warning' | 'suggestion';
   message: string;
 };
+
+export type PipelineRunCriticalPathNode = {
+  id: string;
+  name: string;
+  job_key: string;
+  stage?: PipelineStageKey;
+  status: PipelineRunStatus;
+  duration_ms: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+};
+
+export type PipelineRunFailureSummary = {
+  job_id: string;
+  job_name: string;
+  job_key: string;
+  step_name?: string | null;
+  message?: string | null;
+};
+
+export type PipelineRunExecutionSummary = {
+  total_duration_ms: number;
+  critical_path_duration_ms: number;
+  critical_path: PipelineRunCriticalPathNode[];
+  failure_summary: PipelineRunFailureSummary | null;
+};
+
+export type PipelineConfigChange = {
+  path: string[];
+  label: string;
+  kind: 'added' | 'removed' | 'changed';
+  before: string;
+  after: string;
+};
+
+function humanizePathSegment(value: string): string {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function formatConfigValue(value: unknown): string {
+  if (value === null) return 'null';
+  if (value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value.length === 0 ? '[]' : JSON.stringify(value);
+  }
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function formatConfigPath(path: string[]): string {
+  if (path.length === 0) {
+    return 'Config';
+  }
+  return path.map((segment) => humanizePathSegment(segment)).join(' / ');
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasStableIdArrayShape(values: unknown[]): values is Array<Record<string, unknown>> {
+  return values.every((item) => isPlainObject(item) && typeof item.id === 'string' && item.id.trim().length > 0);
+}
+
+function compareAny(path: string[], previous: unknown, current: unknown, changes: PipelineConfigChange[]) {
+  if (previous === current) {
+    return;
+  }
+
+  if (previous === undefined) {
+    changes.push({
+      path,
+      label: formatConfigPath(path),
+      kind: 'added',
+      before: '',
+      after: formatConfigValue(current),
+    });
+    return;
+  }
+
+  if (current === undefined) {
+    changes.push({
+      path,
+      label: formatConfigPath(path),
+      kind: 'removed',
+      before: formatConfigValue(previous),
+      after: '',
+    });
+    return;
+  }
+
+  if (Array.isArray(previous) && Array.isArray(current)) {
+    if (hasStableIdArrayShape(previous) && hasStableIdArrayShape(current)) {
+      const previousById = new Map(previous.map((item) => [String(item.id), item]));
+      const currentById = new Map(current.map((item) => [String(item.id), item]));
+      const ids = new Set<string>([...previousById.keys(), ...currentById.keys()]);
+      for (const id of ids) {
+        const nextPath = [...path, id];
+        const prevItem = previousById.get(id);
+        const nextItem = currentById.get(id);
+        if (!prevItem) {
+          changes.push({
+            path: nextPath,
+            label: formatConfigPath(nextPath),
+            kind: 'added',
+            before: '',
+            after: formatConfigValue(nextItem),
+          });
+          continue;
+        }
+        if (!nextItem) {
+          changes.push({
+            path: nextPath,
+            label: formatConfigPath(nextPath),
+            kind: 'removed',
+            before: formatConfigValue(prevItem),
+            after: '',
+          });
+          continue;
+        }
+        compareObject(nextPath, prevItem, nextItem, changes);
+      }
+      return;
+    }
+    const previousValue = formatConfigValue(previous);
+    const currentValue = formatConfigValue(current);
+    if (previousValue !== currentValue) {
+      changes.push({
+        path,
+        label: formatConfigPath(path),
+        kind: 'changed',
+        before: previousValue,
+        after: currentValue,
+      });
+    }
+    return;
+  }
+
+  if (isPlainObject(previous) && isPlainObject(current)) {
+    compareObject(path, previous, current, changes);
+    return;
+  }
+
+  const previousValue = formatConfigValue(previous);
+  const currentValue = formatConfigValue(current);
+  if (previousValue !== currentValue) {
+    changes.push({
+      path,
+      label: formatConfigPath(path),
+      kind: 'changed',
+      before: previousValue,
+      after: currentValue,
+    });
+  }
+}
+
+function compareObject(path: string[], previous: Record<string, unknown>, current: Record<string, unknown>, changes: PipelineConfigChange[]) {
+  const keys = new Set([...Object.keys(previous), ...Object.keys(current)]);
+  for (const key of keys) {
+    compareAny([...path, key], previous[key], current[key], changes);
+  }
+}
+
+export function diffPipelineConfigs(previous: PipelineConfig, current: PipelineConfig): PipelineConfigChange[] {
+  const changes: PipelineConfigChange[] = [];
+  compareObject([], previous as unknown as Record<string, unknown>, current as unknown as Record<string, unknown>, changes);
+  return changes;
+}
 
 function isAutomationStage(stage: PipelineStageKey): boolean {
   return stage.startsWith('after_');
@@ -505,6 +690,26 @@ export function normalizeStageSettings(settings?: PipelineStageSettings): Record
   };
 }
 
+export function enforceProductionDeployManualGate(config: PipelineConfig): PipelineConfig {
+  if ((config.environment ?? DEFAULT_PIPELINE_ENVIRONMENT) !== 'production') {
+    return config;
+  }
+  const deployStage = getStageConfig(config.stages, 'deploy');
+  if (deployStage.entryMode === 'manual') {
+    return config;
+  }
+  return {
+    ...config,
+    stages: {
+      ...(config.stages ?? {}),
+      deploy: {
+        ...deployStage,
+        entryMode: 'manual',
+      },
+    },
+  };
+}
+
 export function durationLabel(startedAt?: string | null, finishedAt?: string | null): string {
   if (!startedAt) return '';
   const start = new Date(startedAt).getTime();
@@ -514,6 +719,14 @@ export function durationLabel(startedAt?: string | null, finishedAt?: string | n
   const m = Math.floor(ms / 60000);
   const s = Math.round((ms % 60000) / 1000);
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+function durationMs(startedAt?: string | null, finishedAt?: string | null, fallback = 0): number {
+  if (!startedAt) return fallback;
+  const start = new Date(startedAt).getTime();
+  const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();
+  const value = end - start;
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function hasCycle(jobs: PipelineJob[]): boolean {
@@ -868,6 +1081,118 @@ export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[
     });
   }
   return diagnostics;
+}
+
+export function buildPipelineRunExecutionSummary(
+  jobs: PipelineJob[],
+  runDetail: PipelineRunDetail | null | undefined
+): PipelineRunExecutionSummary | null {
+  if (!runDetail || jobs.length === 0) return null;
+
+  const runJobByKey = new Map((runDetail.jobs ?? []).map((job) => [job.job_key, job]));
+  const stepsByJobId = new Map<string, PipelineRunDetail['steps']>();
+  for (const step of runDetail.steps ?? []) {
+    const list = stepsByJobId.get(step.job_id) ?? [];
+    list.push(step);
+    stepsByJobId.set(step.job_id, list);
+  }
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
+  const jobOrder = new Map(jobs.map((job, index) => [job.id, index]));
+  const memo = new Map<string, { duration: number; total: number; path: PipelineRunCriticalPathNode[] }>();
+  const failureStatusSet = new Set<PipelineRunStatus>(['failed', 'canceled', 'timed_out']);
+
+  function resolve(jobId: string) {
+    const cached = memo.get(jobId);
+    if (cached) return cached;
+    const job = jobById.get(jobId);
+    if (!job) {
+      const empty = { duration: 0, total: 0, path: [] as PipelineRunCriticalPathNode[] };
+      memo.set(jobId, empty);
+      return empty;
+    }
+
+    const runtimeJob = runJobByKey.get(job.id);
+    const duration = runtimeJob
+      ? runtimeJob.duration_ms ?? durationMs(runtimeJob.started_at, runtimeJob.finished_at, 0)
+      : 0;
+    const dependencies = (job.needs ?? []).filter((dependencyId) => jobById.has(dependencyId));
+    let best = { duration: 0, total: 0, path: [] as PipelineRunCriticalPathNode[] };
+    for (const dep of dependencies) {
+      const resolved = resolve(dep);
+      const bestTailId = best.path.length > 0 ? best.path[best.path.length - 1]!.id : dep;
+      if (resolved.total > best.total) {
+        best = resolved;
+      } else if (resolved.total === best.total && resolved.path.length > best.path.length) {
+        best = resolved;
+      } else if (
+        resolved.total === best.total &&
+        resolved.path.length === best.path.length &&
+        (jobOrder.get(dep) ?? 0) > (jobOrder.get(bestTailId) ?? 0)
+      ) {
+        best = resolved;
+      }
+    }
+
+    const current: PipelineRunCriticalPathNode = {
+      id: job.id,
+      name: job.name,
+      job_key: job.id,
+      status: (runtimeJob?.status as PipelineRunStatus) ?? 'queued',
+      duration_ms: duration,
+      started_at: runtimeJob?.started_at ?? null,
+      finished_at: runtimeJob?.finished_at ?? null,
+      ...(job.stage ? { stage: job.stage } : {}),
+    };
+    const total = best.total + duration;
+    const path = [...best.path, current];
+    const value = { duration, total, path };
+    memo.set(jobId, value);
+    return value;
+  }
+
+  let criticalPath: PipelineRunCriticalPathNode[] = [];
+  let criticalPathDurationMs = 0;
+  for (const job of jobs) {
+    const resolved = resolve(job.id);
+    if (
+      resolved.total > criticalPathDurationMs ||
+      (resolved.total === criticalPathDurationMs && resolved.path.length > criticalPath.length)
+    ) {
+      criticalPath = resolved.path;
+      criticalPathDurationMs = resolved.total;
+    }
+  }
+
+  const totalDurationMs = durationMs(
+    runDetail.run.started_at ?? null,
+    runDetail.run.finished_at ?? null,
+    criticalPathDurationMs
+  );
+
+  let failureSummary: PipelineRunFailureSummary | null = null;
+  for (const job of jobs) {
+    const runtimeJob = runJobByKey.get(job.id);
+    if (!runtimeJob || !failureStatusSet.has(runtimeJob.status as PipelineRunStatus)) {
+      continue;
+    }
+    const steps = stepsByJobId.get(runtimeJob.id) ?? [];
+    const failedStep = steps.find((step) => failureStatusSet.has(step.status as PipelineRunStatus));
+    failureSummary = {
+      job_id: job.id,
+      job_name: job.name,
+      job_key: job.id,
+      step_name: failedStep?.name ?? null,
+      message: failedStep?.error_message ?? runtimeJob.error_message ?? runDetail.run.error_message ?? null,
+    };
+    break;
+  }
+
+  return {
+    total_duration_ms: totalDurationMs,
+    critical_path_duration_ms: criticalPathDurationMs,
+    critical_path: criticalPath,
+    failure_summary: failureSummary,
+  };
 }
 
 export const STATUS_VARIANTS: Record<PipelineRunStatus, 'success' | 'danger' | 'warning' | 'default'> = {

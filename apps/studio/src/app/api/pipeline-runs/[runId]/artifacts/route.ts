@@ -5,6 +5,7 @@ import { getActiveOrgId } from '@/services/orgs';
 import { query } from '@/lib/db';
 import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
+import { listRunArtifactReleases } from '@/services/artifactRegistry';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,8 @@ export async function GET(
     if (!orgId) return unauthorized();
 
     // Verify the run belongs to this org
-    const artifacts = await query<{
+    const [artifacts, releases] = await Promise.all([
+      query<{
       id: string;
       job_id: string | null;
       step_id: string | null;
@@ -46,9 +48,33 @@ export async function GET(
          and (a.expires_at is null or a.expires_at > now())
        order by a.created_at asc`,
       [runId, orgId]
-    );
+      ),
+      listRunArtifactReleases(runId, orgId),
+    ]);
 
-    return NextResponse.json({ artifacts });
+    const releasePublisherIds = Array.from(
+      new Set(
+        releases
+          .map((release) => release.published_by)
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      )
+    );
+    if (releasePublisherIds.length > 0) {
+      const publishers = await query<{ id: string; email: string | null; display_name: string | null }>(
+        `select id, email, display_name
+           from auth_users
+          where id = any($1::uuid[])`,
+        [releasePublisherIds]
+      );
+      const publisherById = new Map(publishers.map((publisher) => [publisher.id, publisher]));
+      for (const release of releases) {
+        const publisher = release.published_by ? publisherById.get(release.published_by) : undefined;
+        release.published_by_name = publisher?.display_name ?? null;
+        release.published_by_email = publisher?.email ?? null;
+      }
+    }
+
+    return NextResponse.json({ artifacts, releases });
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     return NextResponse.json({ error }, { status: statusCode });

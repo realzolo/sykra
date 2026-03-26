@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   CheckCircle,
@@ -51,25 +51,6 @@ const ENV_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'mute
   development: 'muted',
 };
 
-type ArtifactDownloadStats = {
-  days: number;
-  summary: {
-    totalDownloads: number;
-    successfulDownloads: number;
-    failedDownloads: number;
-    successRate: number;
-    p95DurationMs: number;
-  };
-  topErrors: Array<{ category: string; count: number }>;
-  recentFailures: Array<{
-    createdAt: string;
-    artifactPath: string | null;
-    errorCategory: string | null;
-    errorMessage: string | null;
-    durationMs: number;
-  }>;
-};
-
 function getRunActorLabel(run: PipelineSummary['last_run'], fallbackLabel: string): string {
   if (!run) return fallbackLabel;
   if (run.triggered_by_name?.trim()) return run.triggered_by_name;
@@ -97,8 +78,21 @@ export default function ProjectPipelinesView({
   const [environmentOptions, setEnvironmentOptions] = useState<PipelineEnvironmentDefinition[]>(
     DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item }))
   );
-  const [downloadStats, setDownloadStats] = useState<ArtifactDownloadStats | null>(null);
-  const [downloadStatsLoading, setDownloadStatsLoading] = useState(true);
+  const runStatsSummary = useMemo(() => {
+    const totals = pipelines.reduce(
+      (acc, pipeline) => {
+        const stats = pipeline.run_stats_7d;
+        acc.totalRuns += stats?.total_runs ?? 0;
+        acc.successRuns += stats?.success_runs ?? 0;
+        acc.failedRuns += stats?.failed_runs ?? 0;
+        acc.activeRuns += stats?.active_runs ?? 0;
+        return acc;
+      },
+      { totalRuns: 0, successRuns: 0, failedRuns: 0, activeRuns: 0 }
+    );
+    const successRate = totals.totalRuns > 0 ? Math.round((totals.successRuns * 1000) / totals.totalRuns) / 10 : 0;
+    return { ...totals, successRate };
+  }, [pipelines]);
 
   useEffect(() => {
     let alive = true;
@@ -127,26 +121,6 @@ export default function ProjectPipelinesView({
       controller.abort();
     };
   }, []);
-
-  useEffect(() => {
-    let alive = true;
-    setDownloadStatsLoading(true);
-    fetch(`/api/projects/${projectId}/artifact-download-stats?days=7`)
-      .then(async (response) => (response.ok ? response.json() : null))
-      .then((payload) => {
-        if (!alive) return;
-        setDownloadStats(payload as ArtifactDownloadStats | null);
-        setDownloadStatsLoading(false);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setDownloadStats(null);
-        setDownloadStatsLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [projectId]);
 
   function handleCreated(pipelineId: string) {
     router.push(withOrgPrefix(pathname, `/projects/${projectId}/pipelines/${pipelineId}`));
@@ -193,86 +167,35 @@ export default function ProjectPipelinesView({
       </div>
 
       <div className="px-6 py-3 border-b border-[hsl(var(--ds-border-1))] bg-background shrink-0">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-[13px] font-medium text-foreground">{p.artifactAuditTitle}</div>
-            <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
-              {p.artifactAuditDescription}
-            </div>
-          </div>
-          {downloadStats && (
-            <Badge variant="muted" size="sm">
-              {p.artifactAuditWindow.replace('{{days}}', String(downloadStats.days))}
-            </Badge>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {loading ? (
+            <>
+              <Skeleton className="h-16 rounded-[10px]" />
+              <Skeleton className="h-16 rounded-[10px]" />
+              <Skeleton className="h-16 rounded-[10px]" />
+              <Skeleton className="h-16 rounded-[10px]" />
+            </>
+          ) : (
+            <>
+              <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.totalRuns7d}</div>
+                <div className="text-[16px] font-semibold text-foreground">{runStatsSummary.totalRuns}</div>
+              </div>
+              <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.successRate7d}</div>
+                <div className="text-[16px] font-semibold text-success">{runStatsSummary.successRate.toFixed(1)}%</div>
+              </div>
+              <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.failedRuns7d}</div>
+                <div className="text-[16px] font-semibold text-danger">{runStatsSummary.failedRuns}</div>
+              </div>
+              <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.activeRuns}</div>
+                <div className="text-[16px] font-semibold text-foreground">{runStatsSummary.activeRuns}</div>
+              </div>
+            </>
           )}
         </div>
-        {downloadStatsLoading ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
-            <Skeleton className="h-16 rounded-[8px]" />
-            <Skeleton className="h-16 rounded-[8px]" />
-            <Skeleton className="h-16 rounded-[8px]" />
-            <Skeleton className="h-16 rounded-[8px]" />
-          </div>
-        ) : downloadStats ? (
-          <div className="mt-3 space-y-2">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
-                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditTotal}</div>
-                <div className="text-[16px] font-semibold text-foreground">{downloadStats.summary.totalDownloads}</div>
-              </div>
-              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
-                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditSuccessRate}</div>
-                <div className="text-[16px] font-semibold text-success">{downloadStats.summary.successRate.toFixed(1)}%</div>
-              </div>
-              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
-                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditP95Latency}</div>
-                <div className="text-[16px] font-semibold text-foreground">{downloadStats.summary.p95DurationMs} ms</div>
-              </div>
-              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
-                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditFailures}</div>
-                <div className="text-[16px] font-semibold text-danger">{downloadStats.summary.failedDownloads}</div>
-              </div>
-            </div>
-            {downloadStats.topErrors.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditTopErrors}</span>
-                {downloadStats.topErrors.map((item) => (
-                  <Badge key={item.category} variant="warning" size="sm">
-                    {item.category} · {item.count}
-                  </Badge>
-                ))}
-              </div>
-            )}
-            {downloadStats.recentFailures.length > 0 && (
-              <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] overflow-hidden">
-                <div className="px-3 py-2 bg-[hsl(var(--ds-surface-1))] text-[12px] font-medium text-[hsl(var(--ds-text-2))]">
-                  {p.artifactAuditRecentFailures}
-                </div>
-                <div className="max-h-28 overflow-auto">
-                  {downloadStats.recentFailures.map((item, index) => (
-                    <div
-                      key={`${item.createdAt}-${item.errorCategory ?? 'unknown'}-${index}`}
-                      className="px-3 py-2 border-t border-[hsl(var(--ds-border-1))] text-[12px] text-foreground flex items-center gap-3"
-                    >
-                      <span className="w-40 shrink-0 text-[hsl(var(--ds-text-2))]">
-                        {formatLocalDateTime(item.createdAt)}
-                      </span>
-                      <span className="flex-1 truncate" title={item.artifactPath ?? 'unknown'}>
-                        {item.artifactPath ?? 'unknown'}
-                      </span>
-                      <Badge variant="danger" size="sm">
-                        {item.errorCategory ?? 'unknown'}
-                      </Badge>
-                      <span className="w-20 text-right text-[hsl(var(--ds-text-2))]">{item.durationMs} ms</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="mt-3 text-[12px] text-[hsl(var(--ds-text-2))]">{p.artifactAuditEmpty}</div>
-        )}
       </div>
 
       {/* Column headers */}
@@ -280,6 +203,7 @@ export default function ProjectPipelinesView({
         <div className="flex-1">{dict.common.name}</div>
         <div className="w-24 text-center">{p.environment}</div>
         <div className="w-20 text-center">{p.list.status}</div>
+        <div className="w-28 text-center">{p.list.trend}</div>
         <div className="w-28 text-center">{p.lastRun}</div>
         <div className="w-24 text-right">{dict.common.actions}</div>
       </div>
@@ -293,6 +217,7 @@ export default function ProjectPipelinesView({
                 <Skeleton className="h-4 flex-1" />
                 <Skeleton className="h-5 w-24 rounded-[4px]" />
                 <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-28" />
                 <Skeleton className="h-4 w-28" />
                 <Skeleton className="h-7 w-16 rounded-[6px]" />
               </div>
@@ -310,20 +235,24 @@ export default function ProjectPipelinesView({
             </Button>
           </div>
           ) : (
-	        pipelines.map(pipeline => {
-	            const run = pipeline.last_run;
-	            const status = run?.status;
-	            const env = pipeline.environment ?? 'production';
-	            const sourceBranch = pipeline.source_branch ?? project.default_branch;
-	            const sourceBranchSource =
-	              pipeline.source_branch_source ?? (sourceBranch === project.default_branch ? 'project_default' : 'custom');
+          pipelines.map((pipeline) => {
+            const run = pipeline.last_run;
+            const status = run?.status;
+            const env = pipeline.environment ?? 'production';
+            const sourceBranch = pipeline.source_branch ?? project.default_branch;
+            const sourceBranchSource =
+              pipeline.source_branch_source ?? (sourceBranch === project.default_branch ? 'project_default' : 'custom');
               const schedulePreset = detectPipelineSchedulePreset(pipeline.trigger_schedule);
               const scheduleLabel = schedulePreset
                 ? schedulePreset === 'custom'
                   ? p.schedule.customPreset
                   : p.schedule.presets[schedulePreset]
                 : null;
-	            return (
+            const stats = pipeline.run_stats_7d;
+            const failedReason = run?.status && ['failed', 'timed_out', 'canceled'].includes(run.status)
+              ? run.error_message ?? null
+              : null;
+            return (
               <div
                 key={pipeline.id}
                 className="flex items-center px-6 py-4 gap-4 border-b border-[hsl(var(--ds-border-1))] hover:bg-[hsl(var(--ds-surface-1))] cursor-pointer group transition-colors duration-100"
@@ -376,12 +305,14 @@ export default function ProjectPipelinesView({
                     )}
                     <span className="truncate">
                       {p.list.statsRuns7d
-                        .replace('{{count}}', String(pipeline.run_stats_7d?.total_runs ?? 0))
-                        .replace(
-                          '{{rate}}',
-                          (pipeline.run_stats_7d?.success_rate ?? 0).toFixed(1)
-                        )}
+                        .replace('{{count}}', String(stats?.total_runs ?? 0))
+                        .replace('{{rate}}', (stats?.success_rate ?? 0).toFixed(1))}
                     </span>
+                    {failedReason && (
+                      <span className="max-w-[24rem] truncate text-danger" title={failedReason}>
+                        {failedReason}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="w-24 flex justify-center">
@@ -400,6 +331,12 @@ export default function ProjectPipelinesView({
                   ) : (
                     <span className="text-[12px] text-[hsl(var(--ds-text-2))]">—</span>
                   )}
+                </div>
+                <div className="w-28 flex justify-center">
+                  <PipelineTrendSparkline
+                    totalRuns={stats?.daily_total_runs ?? []}
+                    successRuns={stats?.daily_success_runs ?? []}
+                  />
                 </div>
                 <div className="w-28 text-[12px] text-[hsl(var(--ds-text-2))]">
                   {run ? (
@@ -438,6 +375,39 @@ export default function ProjectPipelinesView({
         dict={dict}
         projectId={projectId}
       />
+    </div>
+  );
+}
+
+function PipelineTrendSparkline({
+  totalRuns,
+  successRuns,
+}: {
+  totalRuns: number[];
+  successRuns: number[];
+}) {
+  const width = 84;
+  const height = 24;
+  const points = totalRuns.length > 0 ? totalRuns : [0];
+  const maxValue = Math.max(...points, 1);
+  const step = points.length > 1 ? width / (points.length - 1) : width;
+  const path = points
+    .map((value, index) => {
+      const x = Math.round(index * step * 10) / 10;
+      const y = Math.round((height - (value / maxValue) * (height - 2)) * 10) / 10;
+      return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+    })
+    .join(' ');
+  const total = totalRuns.reduce((acc, value) => acc + value, 0);
+  const success = successRuns.reduce((acc, value) => acc + value, 0);
+  const rate = total > 0 ? Math.round((success * 1000) / total) / 10 : 0;
+
+  return (
+    <div className="flex items-center gap-2">
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="text-[hsl(var(--ds-text-2))]">
+        <path d={path} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className="text-[11px] text-[hsl(var(--ds-text-2))]">{rate.toFixed(0)}%</span>
     </div>
   );
 }

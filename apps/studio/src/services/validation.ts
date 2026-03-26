@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS } from '@/services/pipelineTypes';
 
 // Common schema
 export const projectIdSchema = z.string().uuid('Invalid project ID');
@@ -189,6 +190,17 @@ export const pipelineConfigSchema = z.object({
       }
     }
   }
+
+  if (config.environment === 'production') {
+    const deployEntryMode = config.stages?.deploy?.entryMode ?? 'auto';
+    if (deployEntryMode !== 'manual') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Production pipelines must require a manual deploy gate',
+        path: ['stages', 'deploy', 'entryMode'],
+      });
+    }
+  }
 });
 
 export const createPipelineSchema = z.object({
@@ -256,6 +268,24 @@ export const runtimeSettingsSchema = z.object({
       path: ['pipelineEnvironments'],
       message: 'pipelineEnvironments contains duplicate order values',
     });
+  }
+  for (const defaultEnv of DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS) {
+    const matched = value.pipelineEnvironments.find((item) => item.key === defaultEnv.key);
+    if (!matched) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['pipelineEnvironments'],
+        message: `Default environment ${defaultEnv.key} is required`,
+      });
+      continue;
+    }
+    if (matched.label !== defaultEnv.label) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['pipelineEnvironments'],
+        message: `Default environment ${defaultEnv.key} must keep label ${defaultEnv.label}`,
+      });
+    }
   }
 });
 

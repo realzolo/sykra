@@ -32,6 +32,7 @@ import {
   analyzePipelineConfig,
   DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS,
   createDefaultPipelineConfig,
+  enforceProductionDeployManualGate,
   normalizePipelineEnvironmentDefinitions,
   normalizePipelineJobs,
   normalizeStageSettings,
@@ -67,7 +68,9 @@ export default function CreatePipelineWizard({
   const [submitting, setSubmitting] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [config, setConfig] = useState<PipelineConfig>(() => createDefaultPipelineConfig("", project.default_branch));
+  const [config, setConfig] = useState<PipelineConfig>(() =>
+    enforceProductionDeployManualGate(createDefaultPipelineConfig("", project.default_branch))
+  );
   const [inferredDefaults, setInferredDefaults] = useState<PipelineConfigDefaults | null>(null);
   const [environmentOptions, setEnvironmentOptions] = useState<PipelineEnvironmentDefinition[]>(
     DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item }))
@@ -113,7 +116,7 @@ export default function CreatePipelineWizard({
 
         setInferredDefaults(defaults);
         if (!configDirtyRef.current) {
-          setConfig(createDefaultPipelineConfig("", project.default_branch, defaults));
+          setConfig(enforceProductionDeployManualGate(createDefaultPipelineConfig("", project.default_branch, defaults)));
         }
       } catch {
         // ignore inference failures and fall back to the generic template
@@ -161,16 +164,18 @@ export default function CreatePipelineWizard({
     if (environmentOptions.length === 0) return;
     const environmentKeys = environmentOptions.map((item) => item.key);
     if (!config.environment || !environmentKeys.includes(config.environment)) {
-      setConfig((current) => ({
-        ...current,
-        environment: environmentKeys[0] ?? "production",
-      }));
+      setConfig((current) =>
+        enforceProductionDeployManualGate({
+          ...current,
+          environment: environmentKeys[0] ?? "production",
+        })
+      );
     }
   }, [config.environment, environmentOptions]);
 
   function updateConfig(updater: (current: PipelineConfig) => PipelineConfig) {
     configDirtyRef.current = true;
-    setConfig(updater);
+    setConfig((current) => enforceProductionDeployManualGate(updater(current)));
   }
 
   function resetForm() {
@@ -179,7 +184,9 @@ export default function CreatePipelineWizard({
     setSubmitting(false);
     setName("");
     setDescription("");
-    const initialConfig = createDefaultPipelineConfig("", project.default_branch, inferredDefaults ?? undefined);
+    const initialConfig = enforceProductionDeployManualGate(
+      createDefaultPipelineConfig("", project.default_branch, inferredDefaults ?? undefined)
+    );
     setConfig(initialConfig);
     setSelectedJobId(initialConfig.jobs[0]?.id ?? null);
   }
@@ -210,8 +217,9 @@ export default function CreatePipelineWizard({
     try {
       const trimmedName = name.trim();
       const trimmedDescription = description.trim();
-      const finalJobs = normalizePipelineJobs(config.jobs, config.stages, project.default_branch);
-      const jobDiagnostics = analyzePipelineConfig(config, finalJobs);
+      const gatedConfig = enforceProductionDeployManualGate(config);
+      const finalJobs = normalizePipelineJobs(gatedConfig.jobs, gatedConfig.stages, project.default_branch);
+      const jobDiagnostics = analyzePipelineConfig(gatedConfig, finalJobs);
       const firstError = jobDiagnostics.find((item) => item.level === "error");
 
       if (!trimmedName) {
@@ -226,15 +234,16 @@ export default function CreatePipelineWizard({
 
       const finalConfig: PipelineConfig = {
         ...config,
+        ...gatedConfig,
         name: trimmedName,
-        buildImage: config.buildImage?.trim() ?? "",
+        buildImage: gatedConfig.buildImage?.trim() ?? "",
         trigger: {
-          autoTrigger: config.trigger.autoTrigger,
-          ...(config.trigger.schedule?.trim()
-            ? { schedule: config.trigger.schedule.trim() }
+          autoTrigger: gatedConfig.trigger.autoTrigger,
+          ...(gatedConfig.trigger.schedule?.trim()
+            ? { schedule: gatedConfig.trigger.schedule.trim() }
             : {}),
         },
-        stages: normalizeStageSettings(config.stages),
+        stages: normalizeStageSettings(gatedConfig.stages),
         jobs: finalJobs,
         ...(trimmedDescription ? { description: trimmedDescription } : {}),
       };

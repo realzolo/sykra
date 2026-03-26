@@ -356,6 +356,10 @@ func (s *Service) GetPipeline(ctx context.Context, pipelineID string) (*store.Pi
 	return s.Store.GetPipelineWithCurrentVersion(ctx, pipelineID)
 }
 
+func (s *Service) ListPipelineVersions(ctx context.Context, pipelineID string) ([]store.PipelineVersion, error) {
+	return s.Store.ListPipelineVersions(ctx, pipelineID)
+}
+
 func (s *Service) ListPipelines(ctx context.Context, orgID string, projectID string) ([]store.Pipeline, error) {
 	var project *string
 	if projectID != "" {

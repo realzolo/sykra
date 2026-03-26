@@ -24,6 +24,8 @@ Unless stated otherwise, paths in this guide are relative to `apps/studio`.
 - Project configuration selectors that are effectively searchable single-value bindings, such as AI integration selection, should also use the shared combobox.
 - Pipeline environment is execution-semantic, not decorative: `config.environment` is sent through Conductor dispatch for worker selection and exposed to steps as `PIPELINE_ENVIRONMENT`.
 - Pipeline trigger scheduling is first-class: `config.trigger.schedule` stores a UTC cron expression, Conductor persists `pipelines.trigger_schedule` / `last_scheduled_at` / `next_scheduled_at`, and the schedule loop owns due-run enqueueing.
+- Pipeline version history is part of the product contract: Studio renders saved `pipeline_versions` snapshots and config diffs directly in the pipeline detail view, rather than reconstructing history from UI edits.
+- Artifact release provenance is first-class: published run artifacts carry source run, commit, branch, publish timestamp, and publisher identity so run-detail UX can show immutable lineage inline.
 - Notification settings UI at `/o/:orgId/settings/notifications` is delivery-aware and backed by `/api/notification-settings`; it exposes only shipped email preferences (`pipeline run results`, `analysis report ready`, optional report score threshold) and surfaces provider health (`live`, `development console`, `misconfigured`)
 - Dashboard org home page (`/o/:orgId`) shows 4 stat cards (projects, avg score, open issues, pipeline success rate), quick actions, per-project score list, and recent activity
 - Integration deletion is non-blocking: deleting an integration does not check `code_projects` usage references.
