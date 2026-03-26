@@ -39,7 +39,7 @@ function buildScopedStaticAnalysisCommand(command: string, matchers: string[]): 
   ].join('\n');
 }
 
-function buildScopedGoStaticAnalysisCommand(command: string): string {
+function buildScopedGoStaticAnalysisCommand(command: string, artifactPath: string): string {
   return [
     'set -eu',
     ': "${PIPELINE_CHANGED_FILES_MANIFEST:?PIPELINE_CHANGED_FILES_MANIFEST is required}"',
@@ -64,7 +64,7 @@ function buildScopedGoStaticAnalysisCommand(command: string): string {
     '  exit 0',
     'fi',
     'set -- $go_packages',
-    `${command} "$@"`,
+    `${command} "$@" > ${artifactPath}`,
   ].join('\n');
 }
 
@@ -173,6 +173,7 @@ function buildNodeDefaults(input: {
     hasReactScripts: input.hasReactScripts,
     hasEslintConfig: input.hasEslintConfig,
   });
+  const staticAnalysisPreset = staticAnalysisArtifactPaths?.length ? 'eslint' : 'custom';
   const signals = collectSignals([
     input.projectKind !== 'node' ? input.projectKind : null,
     input.packageManager !== 'unknown' ? `packageManager:${input.packageManager}` : null,
@@ -186,6 +187,7 @@ function buildNodeDefaults(input: {
     ],
     staticAnalysisCommand,
     ...(staticAnalysisArtifactPaths ? { staticAnalysisArtifactPaths } : {}),
+    staticAnalysisPreset,
     projectKind: input.projectKind,
     runtime,
     packageManager: input.packageManager,
@@ -212,6 +214,7 @@ function buildPythonDefaults(input: {
     ],
     staticAnalysisCommand: input.staticAnalysisCommand,
     ...(input.staticAnalysisArtifactPaths ? { staticAnalysisArtifactPaths: input.staticAnalysisArtifactPaths } : {}),
+    staticAnalysisPreset: input.staticAnalysisArtifactPaths?.length ? 'ruff' : 'custom',
     projectKind: 'python',
     runtime: 'python',
     packageManager: 'unknown',
@@ -227,7 +230,9 @@ function buildGoDefaults(): PipelineInference {
       { name: 'Download modules', script: 'go mod download' },
       { name: 'Build', script: 'go build ./...' },
     ],
-    staticAnalysisCommand: buildScopedGoStaticAnalysisCommand('go vet'),
+    staticAnalysisCommand: buildScopedGoStaticAnalysisCommand('go vet -json', 'quality-gate.vet.json'),
+    staticAnalysisArtifactPaths: ['quality-gate.vet.json'],
+    staticAnalysisPreset: 'go_vet',
     projectKind: 'go',
     runtime: 'go',
     packageManager: 'unknown',
@@ -250,6 +255,7 @@ function buildJavaDefaults(input: { hasMaven: boolean; hasGradle: boolean; hasGr
             { name: 'Build', script: 'gradle build' },
       ],
       staticAnalysisCommand: input.hasGradleWrapper ? './gradlew --no-daemon check' : 'gradle check',
+      staticAnalysisPreset: 'custom',
       projectKind: 'java',
       runtime: 'java',
       packageManager: 'unknown',
@@ -273,6 +279,7 @@ function buildJavaDefaults(input: { hasMaven: boolean; hasGradle: boolean; hasGr
           { name: 'Build', script: 'mvn -q -DskipTests package' },
     ],
     staticAnalysisCommand: input.hasMaven ? './mvnw -q -DskipTests verify' : 'mvn -q -DskipTests verify',
+    staticAnalysisPreset: 'custom',
     projectKind: 'java',
     runtime: 'java',
     packageManager: 'unknown',

@@ -1041,6 +1041,10 @@ func (e *Engine) runStep(
 	}
 
 	exitCode, err := e.executeLocalStep(execCtx, sandbox, run, runID, jobRecord, stepRecord, step, env, workingDir, job, logWriter)
+	uploadErr := error(nil)
+	if len(step.ArtifactPaths) > 0 {
+		uploadErr = e.uploadLocalStepArtifacts(ctx, run, runID, job, jobRecord, step, stepRecord, workingDir)
+	}
 	if err != nil {
 		if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
 			status = StatusTimedOut
@@ -1061,25 +1065,26 @@ func (e *Engine) runStep(
 			"exitCode":   exitCode,
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
 		})
+		if uploadErr != nil {
+			log.Printf("pipeline artifact upload ignored after failed step: run=%s job=%s step=%s error=%v", runID, job.ID, step.ID, uploadErr)
+		}
 		return status, err
 	}
 
-	if len(step.ArtifactPaths) > 0 {
-		if err := e.uploadLocalStepArtifacts(ctx, run, runID, job, jobRecord, step, stepRecord, workingDir); err != nil {
-			_ = e.Store.MarkPipelineStepFailed(ctx, stepRecord.ID, string(StatusFailed), 1, err.Error())
-			_ = e.Store.AppendRunEvent(ctx, runID, "step.failed", map[string]any{
-				"runId":      runID,
-				"jobId":      jobRecord.ID,
-				"jobKey":     job.ID,
-				"stepId":     stepRecord.ID,
-				"stepKey":    step.ID,
-				"status":     StatusFailed,
-				"exitCode":   1,
-				"finishedAt": time.Now().UTC().Format(time.RFC3339),
-				"error":      err.Error(),
-			})
-			return StatusFailed, err
-		}
+	if uploadErr != nil {
+		_ = e.Store.MarkPipelineStepFailed(ctx, stepRecord.ID, string(StatusFailed), 1, uploadErr.Error())
+		_ = e.Store.AppendRunEvent(ctx, runID, "step.failed", map[string]any{
+			"runId":      runID,
+			"jobId":      jobRecord.ID,
+			"jobKey":     job.ID,
+			"stepId":     stepRecord.ID,
+			"stepKey":    step.ID,
+			"status":     StatusFailed,
+			"exitCode":   1,
+			"finishedAt": time.Now().UTC().Format(time.RFC3339),
+			"error":      uploadErr.Error(),
+		})
+		return StatusFailed, uploadErr
 	}
 
 	_ = e.Store.MarkPipelineStepSuccess(ctx, stepRecord.ID, exitCode)

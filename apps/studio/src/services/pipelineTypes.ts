@@ -28,6 +28,7 @@ export const PIPELINE_STAGE_SEQUENCE: PipelineStageKey[] = [
 ];
 export type PipelineStageEntryMode = 'auto' | 'manual';
 export type PipelineStageDispatchMode = 'parallel' | 'serial';
+export type StaticAnalysisPreset = 'eslint' | 'ruff' | 'go_vet' | 'custom';
 
 export type PipelineStageConfig = {
   entryMode?: PipelineStageEntryMode;
@@ -41,6 +42,7 @@ export type PipelineStep = {
   name: string;
   script: string;
   checkType?: 'ai_review' | 'static_analysis';
+  staticAnalysisPreset?: StaticAnalysisPreset;
   artifactPaths?: string[];
   artifactInputs?: string[];
   artifactSource?: 'run' | 'registry';
@@ -205,6 +207,7 @@ export type PipelineConfigDefaults = {
   buildSteps?: PipelineBuildStepTemplate[];
   staticAnalysisCommand?: string;
   staticAnalysisArtifactPaths?: string[];
+  staticAnalysisPreset?: StaticAnalysisPreset;
 };
 
 export type PipelineInference = PipelineConfigDefaults & {
@@ -624,14 +627,74 @@ function buildScopedStaticAnalysisCommand(command: string, matchers: string[]): 
 }
 
 function buildDefaultStaticAnalysisCommand(): string {
-  return buildScopedStaticAnalysisCommand('npm exec -- eslint -f sarif -o quality-gate.sarif', [
-    '*.js',
-    '*.jsx',
-    '*.mjs',
-    '*.cjs',
-    '*.ts',
-    '*.tsx',
-  ]);
+  return buildStaticAnalysisPresetCommand('eslint');
+}
+
+function buildScopedGoStaticAnalysisCommand(command: string, artifactPath: string): string {
+  return [
+    'set -eu',
+    ': "${PIPELINE_CHANGED_FILES_MANIFEST:?PIPELINE_CHANGED_FILES_MANIFEST is required}"',
+    ': "${PIPELINE_CHANGED_FILES_COUNT:?PIPELINE_CHANGED_FILES_COUNT is required}"',
+    'if [ "${PIPELINE_CHANGED_FILES_COUNT}" -eq 0 ]; then',
+    '  echo "[analysis] No changed files detected; skipping static analysis."',
+    '  exit 0',
+    'fi',
+    'workspace_root="$(dirname "$(dirname "$PIPELINE_CHANGED_FILES_MANIFEST")")"',
+    'cd "$workspace_root"',
+    'go_packages="$(while IFS= read -r file || [ -n "$file" ]; do',
+    '  [ -n "$file" ] || continue',
+    '  case "$file" in',
+    '    *.go)',
+    '      rel="${file#/workspace/}"',
+    '      dirname "$rel"',
+    '      ;;',
+    '  esac',
+    'done < "$PIPELINE_CHANGED_FILES_MANIFEST" | sort -u)"',
+    'if [ -z "$go_packages" ]; then',
+    '  echo "[analysis] No changed Go files detected; skipping static analysis."',
+    '  exit 0',
+    'fi',
+    'set -- $go_packages',
+    `${command} "$@" > ${artifactPath}`,
+  ].join('\n');
+}
+
+export function buildStaticAnalysisPresetCommand(preset: StaticAnalysisPreset): string {
+  switch (preset) {
+    case 'eslint':
+      return buildScopedStaticAnalysisCommand('npm exec -- eslint -f sarif -o quality-gate.sarif', [
+        '*.js',
+        '*.jsx',
+        '*.mjs',
+        '*.cjs',
+        '*.ts',
+        '*.tsx',
+      ]);
+    case 'ruff':
+      return buildScopedStaticAnalysisCommand(
+        'python -m ruff check --output-format sarif --output-file quality-gate.sarif',
+        ['*.py']
+      );
+    case 'go_vet':
+      return buildScopedGoStaticAnalysisCommand('go vet -json', 'quality-gate.vet.json');
+    default:
+      return '';
+  }
+}
+
+function normalizeArtifactPaths(values?: string[] | null): string[] {
+  const deduped = new Set<string>();
+  for (const value of values ?? []) {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      deduped.add(trimmed);
+    }
+  }
+  return [...deduped];
+}
+
+function hasStructuredStaticAnalysisArtifactPath(values?: string[] | null): boolean {
+  return normalizeArtifactPaths(values).some((value) => isStructuredStaticAnalysisArtifactPath(value));
 }
 
 export function createDefaultPipelineConfig(
@@ -655,14 +718,18 @@ export function createDefaultPipelineConfig(
           { id: newId('step'), name: 'Build', script: 'npm run build' },
         ];
   const hasExplicitStaticAnalysisCommand = Boolean(defaults?.staticAnalysisCommand?.trim());
+  const staticAnalysisPreset: StaticAnalysisPreset =
+    defaults?.staticAnalysisPreset ?? (hasExplicitStaticAnalysisCommand ? 'custom' : 'eslint');
   const staticAnalysisCommand = hasExplicitStaticAnalysisCommand
     ? defaults!.staticAnalysisCommand!.trim()
-    : buildDefaultStaticAnalysisCommand();
+    : staticAnalysisPreset === 'custom'
+      ? ''
+      : buildStaticAnalysisPresetCommand(staticAnalysisPreset);
   const staticAnalysisArtifactPaths =
     defaults?.staticAnalysisArtifactPaths
       ?.map((item) => item.trim())
       .filter((item) => item.length > 0) ??
-    (hasExplicitStaticAnalysisCommand ? [] : ['quality-gate.sarif']);
+    getStaticAnalysisPresetArtifactPaths(staticAnalysisPreset);
   const qualitySteps = [
     {
       id: 'ai-review',
@@ -675,6 +742,7 @@ export function createDefaultPipelineConfig(
         name: 'Static Analysis',
         script: staticAnalysisCommand,
         checkType: 'static_analysis' as const,
+        staticAnalysisPreset,
       ...(staticAnalysisArtifactPaths.length > 0 ? { artifactPaths: staticAnalysisArtifactPaths } : {}),
     },
   ];
@@ -777,9 +845,44 @@ export type PipelineContractIssue = {
   message: string;
 };
 
+export function getStaticAnalysisPresetLabel(preset: StaticAnalysisPreset): string {
+  switch (preset) {
+    case 'eslint':
+      return 'ESLint';
+    case 'ruff':
+      return 'Ruff';
+    case 'go_vet':
+      return 'Go vet';
+    default:
+      return 'Custom';
+  }
+}
+
+export function getStaticAnalysisPresetArtifactPaths(preset: StaticAnalysisPreset): string[] {
+  switch (preset) {
+    case 'eslint':
+    case 'ruff':
+      return ['quality-gate.sarif'];
+    case 'go_vet':
+      return ['quality-gate.vet.json'];
+    default:
+      return [];
+  }
+}
+
+export function isStructuredStaticAnalysisArtifactPath(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.endsWith('.sarif') ||
+    normalized.endsWith('.static-analysis.json') ||
+    normalized.endsWith('.vet.json')
+  );
+}
+
 type PipelineContractStep = {
   checkType?: string | undefined;
   script: string;
+  artifactPaths?: string[] | undefined;
 };
 
 type PipelineContractJob = {
@@ -839,6 +942,30 @@ export function validatePipelineContract(
         emit({
           path: ['jobs', jobIndex, 'steps', 1, 'script'],
           message: 'Static analysis step requires a shell command',
+        });
+      }
+
+      if (
+        secondStep &&
+        secondStep.checkType === 'static_analysis' &&
+        normalizeArtifactPaths(secondStep.artifactPaths).length === 0
+      ) {
+        emit({
+          path: ['jobs', jobIndex, 'steps', 1, 'artifactPaths'],
+          message: 'Static analysis step requires a report artifact path',
+        });
+      }
+
+      if (
+        secondStep &&
+        secondStep.checkType === 'static_analysis' &&
+        normalizeArtifactPaths(secondStep.artifactPaths).length > 0 &&
+        !hasStructuredStaticAnalysisArtifactPath(secondStep.artifactPaths)
+      ) {
+        emit({
+          path: ['jobs', jobIndex, 'steps', 1, 'artifactPaths'],
+          message:
+            'Static analysis artifact paths must include a SARIF, normalized JSON, or Go vet JSON report',
         });
       }
 
@@ -1019,6 +1146,7 @@ export function createStageJob(
           name: 'Static Analysis',
           script: buildDefaultStaticAnalysisCommand(),
           checkType: 'static_analysis',
+          staticAnalysisPreset: 'eslint',
           artifactPaths: ['quality-gate.sarif'],
         },
       ],
@@ -1110,6 +1238,8 @@ export function normalizePipelineJobs(
                     name: 'Static Analysis',
                     script: buildDefaultStaticAnalysisCommand(),
                     checkType: 'static_analysis',
+                    staticAnalysisPreset: 'eslint',
+                    artifactPaths: ['quality-gate.sarif'],
                   },
                 ],
         });
@@ -1256,7 +1386,7 @@ export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[
   let hasCiArtifactOutputs = false;
   for (const job of jobs) {
     const stage = inferPipelineJobStage(job, jobs);
-    if (stage !== 'deploy' && stage !== 'after_deploy') {
+    if (stage !== 'deploy' && stage !== 'after_deploy' && stage !== 'review' && stage !== 'after_review') {
       for (const step of job.steps) {
         if ((step.artifactPaths ?? []).some((path) => path.trim().length > 0)) {
           hasCiArtifactOutputs = true;
@@ -1271,16 +1401,26 @@ export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[
     }
     if ((job.type ?? 'shell') === 'quality_gate') {
       const staticAnalysisStep = job.steps.find((step) => step.checkType === 'static_analysis');
-      if (
-        !staticAnalysisStep?.artifactPaths?.some((path) => {
-          const normalized = path.trim().toLowerCase();
-          return normalized.endsWith('.sarif') || normalized.endsWith('.static-analysis.json');
-        })
-      ) {
-        diagnostics.push({
-          level: 'suggestion',
-          message: `Static analysis step "${staticAnalysisStep?.name ?? 'Static Analysis'}" should export a SARIF or normalized JSON artifact so the pipeline can ingest structured findings.`,
-        });
+      if (staticAnalysisStep) {
+        const artifactPaths = normalizeArtifactPaths(staticAnalysisStep.artifactPaths);
+        const preset = staticAnalysisStep.staticAnalysisPreset ?? 'custom';
+        const presetArtifactPaths = getStaticAnalysisPresetArtifactPaths(preset);
+        if (artifactPaths.length === 0) {
+          diagnostics.push({
+            level: 'error',
+            message: `Static analysis preset "${getStaticAnalysisPresetLabel(preset)}" must declare its report artifact path.`,
+          });
+        } else if (!hasStructuredStaticAnalysisArtifactPath(artifactPaths)) {
+          diagnostics.push({
+            level: 'error',
+            message: `Static analysis step "${staticAnalysisStep.name}" must include at least one SARIF, normalized JSON, or Go vet JSON artifact path.`,
+          });
+        } else if (presetArtifactPaths.length > 0 && !presetArtifactPaths.every((path) => artifactPaths.includes(path))) {
+          diagnostics.push({
+            level: 'error',
+            message: `Static analysis preset "${getStaticAnalysisPresetLabel(preset)}" must include the canonical report artifact path ${presetArtifactPaths.join(', ')}.`,
+          });
+        }
       }
     }
   }

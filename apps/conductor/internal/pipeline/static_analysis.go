@@ -2,10 +2,14 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"path"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,14 +71,17 @@ type sarifRegion struct {
 const normalizedStaticAnalysisSchema = "sykra.static-analysis.v1"
 
 type staticAnalysisFinding struct {
-	RuleID   string `json:"ruleId,omitempty"`
-	Level    string `json:"level,omitempty"`
-	Severity string `json:"severity,omitempty"`
-	Message  string `json:"message,omitempty"`
-	File     string `json:"file,omitempty"`
-	Line     int    `json:"line,omitempty"`
-	Column   int    `json:"column,omitempty"`
-	Blocking bool   `json:"blocking,omitempty"`
+	RuleID      string `json:"ruleId,omitempty"`
+	Level       string `json:"level,omitempty"`
+	Severity    string `json:"severity,omitempty"`
+	Message     string `json:"message,omitempty"`
+	File        string `json:"file,omitempty"`
+	Line        int    `json:"line,omitempty"`
+	Column      int    `json:"column,omitempty"`
+	Package     string `json:"package,omitempty"`
+	Analyzer    string `json:"analyzer,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	Blocking    bool   `json:"blocking,omitempty"`
 }
 
 type staticAnalysisSummary struct {
@@ -96,7 +103,10 @@ func isStaticAnalysisArtifactPath(relativePath string) bool {
 	if trimmed == "" {
 		return false
 	}
-	return strings.EqualFold(path.Ext(trimmed), ".sarif") || strings.HasSuffix(strings.ToLower(trimmed), ".static-analysis.json")
+	lower := strings.ToLower(trimmed)
+	return strings.EqualFold(path.Ext(trimmed), ".sarif") ||
+		strings.HasSuffix(lower, ".static-analysis.json") ||
+		strings.HasSuffix(lower, ".vet.json")
 }
 
 func ingestStaticAnalysisArtifact(
@@ -249,6 +259,15 @@ func summarizeStaticAnalysisArtifact(artifactPath string, raw []byte) (staticAna
 		summary.ReportFormat = "normalized_json"
 		return summary, nil
 	}
+	if strings.HasSuffix(strings.ToLower(trimmedPath), ".vet.json") {
+		var doc goVetReport
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return staticAnalysisSummary{}, fmt.Errorf("parse Go vet static analysis report %s: %w", artifactPath, err)
+		}
+		summary := summarizeGoVetStaticAnalysis(doc)
+		summary.ReportFormat = "go_vet_json"
+		return summary, nil
+	}
 	return staticAnalysisSummary{}, fmt.Errorf("unsupported static analysis artifact path %s", artifactPath)
 }
 
@@ -289,6 +308,7 @@ func summarizeStaticAnalysisSARIF(doc sarifDocument) staticAnalysisSummary {
 		}
 	}
 
+	sortStaticAnalysisFindings(findings)
 	summary.Findings = findings
 	return summary
 }
@@ -314,6 +334,29 @@ type normalizedStaticAnalysisFinding struct {
 	Blocking *bool  `json:"blocking,omitempty"`
 }
 
+type goVetReport map[string]map[string]json.RawMessage
+
+type goVetDiagnostic struct {
+	Posn           string              `json:"posn"`
+	Message        string              `json:"message"`
+	Category       string              `json:"category"`
+	SuggestedFixes []goVetSuggestedFix `json:"suggested_fixes,omitempty"`
+	Related        []goVetRelated      `json:"related,omitempty"`
+}
+
+type goVetAnalysisError struct {
+	Error string `json:"error"`
+}
+
+type goVetSuggestedFix struct {
+	Message string `json:"message"`
+}
+
+type goVetRelated struct {
+	Posn    string `json:"posn"`
+	Message string `json:"message"`
+}
+
 func summarizeNormalizedStaticAnalysis(doc normalizedStaticAnalysisDocument) (staticAnalysisSummary, error) {
 	if strings.TrimSpace(doc.Schema) != normalizedStaticAnalysisSchema {
 		return staticAnalysisSummary{}, fmt.Errorf("normalized static analysis report must declare schema %q", normalizedStaticAnalysisSchema)
@@ -337,18 +380,124 @@ func summarizeNormalizedStaticAnalysis(doc normalizedStaticAnalysisDocument) (st
 			continue
 		}
 		findings = append(findings, staticAnalysisFinding{
-			RuleID:   strings.TrimSpace(finding.RuleID),
-			Level:    severity,
-			Severity: severity,
-			Message:  strings.TrimSpace(finding.Message),
-			File:     strings.TrimSpace(finding.File),
-			Line:     finding.Line,
-			Column:   finding.Column,
-			Blocking: blocking,
+			RuleID:      strings.TrimSpace(finding.RuleID),
+			Level:       severity,
+			Severity:    severity,
+			Message:     strings.TrimSpace(finding.Message),
+			File:        strings.TrimSpace(finding.File),
+			Line:        finding.Line,
+			Column:      finding.Column,
+			Fingerprint: buildStaticAnalysisFingerprint(strings.TrimSpace(doc.Tool.Name), strings.TrimSpace(finding.RuleID), strings.TrimSpace(finding.File), finding.Line, finding.Column, severity, strings.TrimSpace(finding.Message), "", ""),
+			Blocking:    blocking,
 		})
 	}
+	sortStaticAnalysisFindings(findings)
 	summary.Findings = findings
 	return summary, nil
+}
+
+func summarizeGoVetStaticAnalysis(doc goVetReport) staticAnalysisSummary {
+	summary := staticAnalysisSummary{
+		ToolName: "go vet",
+	}
+	findings := make([]staticAnalysisFinding, 0, 10)
+
+	for pkg, analyzers := range doc {
+		packageName := strings.TrimSpace(pkg)
+		for analyzer, raw := range analyzers {
+			analyzerName := strings.TrimSpace(analyzer)
+			var analysisErr goVetAnalysisError
+			if err := json.Unmarshal(raw, &analysisErr); err == nil && strings.TrimSpace(analysisErr.Error) != "" {
+				summary.ResultCount++
+				severity := "high"
+				blocking := true
+				summary.applySeverity(severity, blocking)
+				message := strings.TrimSpace(analysisErr.Error)
+				ruleID := analyzerName
+				if ruleID == "" {
+					ruleID = packageName
+				}
+				if len(findings) >= 10 {
+					continue
+				}
+				findings = append(findings, staticAnalysisFinding{
+					RuleID:      ruleID,
+					Level:       "error",
+					Severity:    severity,
+					Message:     message,
+					Package:     packageName,
+					Analyzer:    analyzerName,
+					Fingerprint: buildStaticAnalysisFingerprint(summary.ToolName, ruleID, "", 0, 0, severity, message, packageName, analyzerName),
+					Blocking:    blocking,
+				})
+				continue
+			}
+
+			var diagnostics []goVetDiagnostic
+			if err := json.Unmarshal(raw, &diagnostics); err != nil {
+				summary.ResultCount++
+				severity := "high"
+				blocking := true
+				summary.applySeverity(severity, blocking)
+				message := strings.TrimSpace(err.Error())
+				ruleID := analyzerName
+				if ruleID == "" {
+					ruleID = packageName
+				}
+				if len(findings) >= 10 {
+					continue
+				}
+				findings = append(findings, staticAnalysisFinding{
+					RuleID:      ruleID,
+					Level:       "error",
+					Severity:    severity,
+					Message:     message,
+					Package:     packageName,
+					Analyzer:    analyzerName,
+					Fingerprint: buildStaticAnalysisFingerprint(summary.ToolName, ruleID, "", 0, 0, severity, message, packageName, analyzerName),
+					Blocking:    blocking,
+				})
+				continue
+			}
+
+			for _, diagnostic := range diagnostics {
+				summary.ResultCount++
+				severity := "high"
+				blocking := true
+				summary.applySeverity(severity, blocking)
+
+				if len(findings) >= 10 {
+					continue
+				}
+				file, line, column := parseGoVetPosn(diagnostic.Posn)
+				ruleID := analyzerName
+				if ruleID == "" {
+					ruleID = strings.TrimSpace(diagnostic.Category)
+				}
+				if ruleID == "" {
+					ruleID = packageName
+				}
+				message := strings.TrimSpace(diagnostic.Message)
+				findings = append(findings, staticAnalysisFinding{
+					RuleID:      ruleID,
+					Level:       "error",
+					Severity:    severity,
+					Message:     message,
+					File:        file,
+					Line:        line,
+					Column:      column,
+					Package:     packageName,
+					Analyzer:    analyzerName,
+					Fingerprint: buildStaticAnalysisFingerprint(summary.ToolName, ruleID, file, line, column, severity, message, packageName, analyzerName),
+					Blocking:    blocking,
+				})
+			}
+		}
+	}
+
+	sortStaticAnalysisFindings(findings)
+	summary.Findings = findings
+	return summary
 }
 
 func (s *staticAnalysisSummary) applySeverity(severity string, blocking bool) {
@@ -396,6 +545,102 @@ func normalizeStaticAnalysisSeverity(raw string) string {
 		return "low"
 	default:
 		return "low"
+	}
+}
+
+func parseGoVetPosn(raw string) (string, int, int) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", 0, 0
+	}
+
+	parts := strings.Split(trimmed, ":")
+	switch {
+	case len(parts) >= 3:
+		line, errLine := strconv.Atoi(parts[len(parts)-2])
+		column, errColumn := strconv.Atoi(parts[len(parts)-1])
+		if errLine == nil && errColumn == nil {
+			return strings.Join(parts[:len(parts)-2], ":"), line, column
+		}
+	case len(parts) == 2:
+		line, errLine := strconv.Atoi(parts[1])
+		if errLine == nil {
+			return parts[0], line, 0
+		}
+	}
+	return trimmed, 0, 0
+}
+
+func buildStaticAnalysisFingerprint(
+	toolName string,
+	ruleID string,
+	file string,
+	line int,
+	column int,
+	severity string,
+	message string,
+	packageName string,
+	analyzer string,
+) string {
+	parts := []string{
+		strings.ToLower(strings.TrimSpace(toolName)),
+		strings.ToLower(strings.TrimSpace(ruleID)),
+		strings.ToLower(strings.TrimSpace(file)),
+		strconv.Itoa(line),
+		strconv.Itoa(column),
+		strings.ToLower(strings.TrimSpace(severity)),
+		strings.TrimSpace(message),
+		strings.ToLower(strings.TrimSpace(packageName)),
+		strings.ToLower(strings.TrimSpace(analyzer)),
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+func sortStaticAnalysisFindings(findings []staticAnalysisFinding) {
+	sort.SliceStable(findings, func(left, right int) bool {
+		a := findings[left]
+		b := findings[right]
+		if a.Blocking != b.Blocking {
+			return a.Blocking
+		}
+		if severityRank(a.Severity) != severityRank(b.Severity) {
+			return severityRank(a.Severity) < severityRank(b.Severity)
+		}
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		if a.Column != b.Column {
+			return a.Column < b.Column
+		}
+		if a.Package != b.Package {
+			return a.Package < b.Package
+		}
+		if a.Analyzer != b.Analyzer {
+			return a.Analyzer < b.Analyzer
+		}
+		if a.RuleID != b.RuleID {
+			return a.RuleID < b.RuleID
+		}
+		return a.Message < b.Message
+	})
+}
+
+func severityRank(severity string) int {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "critical":
+		return 0
+	case "high":
+		return 1
+	case "medium":
+		return 2
+	case "low":
+		return 3
+	default:
+		return 4
 	}
 }
 

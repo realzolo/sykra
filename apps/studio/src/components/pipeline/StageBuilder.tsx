@@ -21,10 +21,13 @@ import type {
 } from "@/services/pipelineTypes";
 import {
   buildStageJobs,
+  buildStaticAnalysisPresetCommand,
   createDefaultStep,
   createStageJob,
+  getStaticAnalysisPresetArtifactPaths,
   getStageConfig,
   inferPipelineJobStage,
+  type StaticAnalysisPreset,
 } from "@/services/pipelineTypes";
 import PipelineStepEditor, {
   getBuildTemplateSteps,
@@ -95,6 +98,42 @@ function getAutomationStageAfter(stage: PipelineStageKey): PipelineStageKey | nu
 function normalizeBranchValue(branch: string | undefined, fallback: string): string {
   const value = branch?.trim();
   return value && value.length > 0 ? value : fallback;
+}
+
+function splitLines(value: string): string[] {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+const STATIC_ANALYSIS_PRESETS: StaticAnalysisPreset[] = ["eslint", "ruff", "go_vet", "custom"];
+
+function buildStaticAnalysisPresetPatch(preset: StaticAnalysisPreset): Partial<PipelineStep> {
+  if (preset === "custom") {
+    return { staticAnalysisPreset: preset };
+  }
+  return {
+    staticAnalysisPreset: preset,
+    script: buildStaticAnalysisPresetCommand(preset),
+    artifactPaths: getStaticAnalysisPresetArtifactPaths(preset),
+  };
+}
+
+function getStaticAnalysisPresetButtonLabel(
+  preset: StaticAnalysisPreset,
+  dict: Dictionary["pipelines"]
+): string {
+  switch (preset) {
+    case "eslint":
+      return dict.jobs.qualityGateStaticAnalysisPresetEslint;
+    case "ruff":
+      return dict.jobs.qualityGateStaticAnalysisPresetRuff;
+    case "go_vet":
+      return dict.jobs.qualityGateStaticAnalysisPresetGoVet;
+    default:
+      return dict.jobs.qualityGateStaticAnalysisPresetCustom;
+  }
 }
 
 function StageModeToggle({
@@ -655,6 +694,37 @@ function StageJobInspector({
               </div>
               <div className="mt-3 space-y-1.5">
                 <label className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                  {dict.jobs.qualityGateStaticAnalysisPreset}
+                </label>
+                <div className="grid gap-1 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] p-1 md:grid-cols-4">
+                  {STATIC_ANALYSIS_PRESETS.map((preset) => {
+                    const active = (staticAnalysisStep?.staticAnalysisPreset ?? "custom") === preset;
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          if (!staticAnalysisStep) return;
+                          onUpdateStep(job.id, staticAnalysisStep.id, buildStaticAnalysisPresetPatch(preset));
+                        }}
+                        disabled={!isAdmin || !staticAnalysisStep}
+                        className={`rounded-[6px] px-2 py-1.5 text-[12px] font-medium transition-colors ${
+                          active
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-[hsl(var(--ds-text-2))] hover:text-foreground"
+                        } ${!isAdmin || !staticAnalysisStep ? "cursor-default opacity-60" : ""}`}
+                      >
+                        {getStaticAnalysisPresetButtonLabel(preset, dict)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                  {dict.jobs.qualityGateStaticAnalysisPresetHelp}
+                </div>
+              </div>
+              <div className="mt-3 space-y-1.5">
+                <label className="text-[12px] text-[hsl(var(--ds-text-2))]">
                   {dict.jobs.qualityGateStaticAnalysisCommand}
                 </label>
                 <Textarea
@@ -668,6 +738,25 @@ function StageJobInspector({
                   className="resize-none font-mono text-[12px]"
                   disabled={!isAdmin || !staticAnalysisStep}
                 />
+              </div>
+              <div className="mt-3 space-y-1.5">
+                <label className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                  {dict.jobs.qualityGateStaticAnalysisArtifactPaths}
+                </label>
+                <Textarea
+                  value={(staticAnalysisStep?.artifactPaths ?? []).join("\n")}
+                  onChange={(event) => {
+                    if (!staticAnalysisStep) return;
+                    onUpdateStep(job.id, staticAnalysisStep.id, { artifactPaths: splitLines(event.target.value) });
+                  }}
+                  placeholder={dict.jobs.qualityGateStaticAnalysisArtifactPathsPlaceholder}
+                  rows={2}
+                  className="resize-none font-mono text-[12px]"
+                  disabled={!isAdmin || !staticAnalysisStep}
+                />
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                  {dict.jobs.qualityGateStaticAnalysisArtifactPathsHelp}
+                </div>
               </div>
             </div>
 

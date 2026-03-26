@@ -33,6 +33,7 @@ func TestValidateConfigRejectsQualityGateStageMismatch(t *testing.T) {
 
 func TestValidateConfigRejectsMissingQualityGateMinScore(t *testing.T) {
 	cfg := validQualityGateConfig()
+	cfg.Jobs[0].Steps[1].ArtifactPaths = []string{"quality-gate.sarif"}
 	cfg.Jobs[0].MinScore = 0
 
 	err := ValidateConfig(cfg)
@@ -41,6 +42,20 @@ func TestValidateConfigRejectsMissingQualityGateMinScore(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "minScore must be between 1 and 100") {
 		t.Fatalf("expected minScore validation error, got %v", err)
+	}
+}
+
+func TestValidateConfigRejectsMissingStaticAnalysisArtifactPaths(t *testing.T) {
+	cfg := validQualityGateConfig()
+	cfg.Jobs[0].MinScore = 60
+	cfg.Jobs[0].Steps[1].ArtifactPaths = nil
+
+	err := ValidateConfig(cfg)
+	if err == nil {
+		t.Fatal("expected validation to fail")
+	}
+	if !strings.Contains(err.Error(), "requires a report artifact path") {
+		t.Fatalf("expected artifact path validation error, got %v", err)
 	}
 }
 
@@ -59,7 +74,13 @@ func validQualityGateConfig() PipelineConfig {
 				MinScore: 60,
 				Steps: []PipelineStep{
 					{ID: "ai-review", Name: "AI Review", CheckType: "ai_review"},
-					{ID: "static-analysis", Name: "Static Analysis", CheckType: "static_analysis", Script: "npm run lint"},
+					{
+						ID:            "static-analysis",
+						Name:          "Static Analysis",
+						CheckType:     "static_analysis",
+						Script:        "npm run lint",
+						ArtifactPaths: []string{"quality-gate.sarif"},
+					},
 				},
 			},
 		},

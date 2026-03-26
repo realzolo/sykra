@@ -156,6 +156,59 @@ func TestSummarizeNormalizedStaticAnalysis(t *testing.T) {
 	}
 }
 
+func TestSummarizeGoVetStaticAnalysis(t *testing.T) {
+	raw := []byte(`{
+		"example.com/project/pkg/foo": {
+			"printf": [
+				{
+					"posn": "pkg/foo/foo.go:12:4",
+					"message": "fmt.Printf format %s has arg 1 of wrong type",
+					"category": "printf"
+				}
+			]
+		}
+	}`)
+
+	summary, err := summarizeStaticAnalysisArtifact("quality-gate.vet.json", raw)
+	if err != nil {
+		t.Fatalf("unexpected summary error: %v", err)
+	}
+	if summary.ReportFormat != "go_vet_json" {
+		t.Fatalf("expected go_vet_json report format, got %q", summary.ReportFormat)
+	}
+	if summary.ToolName != "go vet" {
+		t.Fatalf("expected tool name go vet, got %q", summary.ToolName)
+	}
+	if summary.ResultCount != 1 {
+		t.Fatalf("expected 1 result, got %d", summary.ResultCount)
+	}
+	if summary.HighCount != 1 {
+		t.Fatalf("expected 1 high severity finding, got %d", summary.HighCount)
+	}
+	if summary.BlockingFindingCount != 1 {
+		t.Fatalf("expected 1 blocking finding, got %d", summary.BlockingFindingCount)
+	}
+	if len(summary.Findings) != 1 {
+		t.Fatalf("expected 1 sampled finding, got %d", len(summary.Findings))
+	}
+	finding := summary.Findings[0]
+	if finding.Package != "example.com/project/pkg/foo" {
+		t.Fatalf("expected package metadata example.com/project/pkg/foo, got %q", finding.Package)
+	}
+	if finding.Analyzer != "printf" {
+		t.Fatalf("expected analyzer printf, got %q", finding.Analyzer)
+	}
+	if finding.File != "pkg/foo/foo.go" {
+		t.Fatalf("expected file pkg/foo/foo.go, got %q", finding.File)
+	}
+	if finding.Line != 12 || finding.Column != 4 {
+		t.Fatalf("expected file position 12:4, got %d:%d", finding.Line, finding.Column)
+	}
+	if finding.Fingerprint == "" {
+		t.Fatal("expected fingerprint to be populated")
+	}
+}
+
 func TestFindQualityGateStaticAnalysisStep(t *testing.T) {
 	cfg := PipelineConfig{
 		Name:          "Example",
@@ -209,5 +262,8 @@ func TestIsStaticAnalysisArtifactPath(t *testing.T) {
 	}
 	if isStaticAnalysisArtifactPath("quality-gate.txt") {
 		t.Fatal("expected plain text artifact path to not match")
+	}
+	if !isStaticAnalysisArtifactPath("quality-gate.vet.json") {
+		t.Fatal("expected Go vet artifact path to match")
 	}
 }

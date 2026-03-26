@@ -345,6 +345,14 @@ func ValidateConfig(cfg PipelineConfig) error {
 			} else if strings.TrimSpace(step.CheckType) != "" {
 				return fmt.Errorf("step %s in job %s cannot define checkType outside quality gate jobs", step.ID, job.ID)
 			}
+			if strings.TrimSpace(strings.ToLower(job.Type)) == "quality_gate" && strings.EqualFold(strings.TrimSpace(step.CheckType), "static_analysis") {
+				if len(step.ArtifactPaths) == 0 {
+					return fmt.Errorf("step %s in job %s requires a report artifact path", step.ID, job.ID)
+				}
+				if !hasStructuredStaticAnalysisArtifactPath(step.ArtifactPaths) {
+					return fmt.Errorf("step %s in job %s must include a SARIF, normalized JSON, or Go vet JSON artifact path", step.ID, job.ID)
+				}
+			}
 			if strings.EqualFold(strings.TrimSpace(step.ArtifactSource), "registry") {
 				if strings.TrimSpace(step.RegistryRepository) == "" {
 					return fmt.Errorf("step %s in job %s requires registryRepository when artifactSource=registry", step.ID, job.ID)
@@ -386,6 +394,19 @@ var safeIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 func isSafeID(value string) bool {
 	return safeIDPattern.MatchString(value)
+}
+
+func hasStructuredStaticAnalysisArtifactPath(values []string) bool {
+	for _, value := range values {
+		trimmed := strings.ToLower(strings.TrimSpace(value))
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasSuffix(trimmed, ".sarif") || strings.HasSuffix(trimmed, ".static-analysis.json") || strings.HasSuffix(trimmed, ".vet.json") {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneMap(input map[string]string) map[string]string {

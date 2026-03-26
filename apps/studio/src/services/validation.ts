@@ -6,6 +6,9 @@
 import { z } from 'zod';
 import {
   DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS,
+  getStaticAnalysisPresetArtifactPaths,
+  getStaticAnalysisPresetLabel,
+  isStructuredStaticAnalysisArtifactPath,
   validatePipelineContract,
 } from '@/services/pipelineTypes';
 
@@ -64,6 +67,7 @@ const pipelineStepSchema = z.object({
   name: z.string().min(1),
   script: z.string(),
   checkType: z.enum(['ai_review', 'static_analysis']).optional(),
+  staticAnalysisPreset: z.enum(['eslint', 'ruff', 'go_vet', 'custom']).optional(),
   artifactPaths: z.array(z.string().min(1)).optional(),
   artifactInputs: z.array(z.string().min(1)).optional(),
   artifactSource: z.enum(['run', 'registry']).optional(),
@@ -77,6 +81,32 @@ const pipelineStepSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   workingDir: z.string().optional(),
 }).superRefine((step, ctx) => {
+  if (step.checkType === 'static_analysis') {
+    const preset = step.staticAnalysisPreset ?? 'custom';
+    const artifactPaths = (step.artifactPaths ?? []).map((item) => item.trim()).filter(Boolean);
+    if (artifactPaths.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Static analysis preset ${getStaticAnalysisPresetLabel(preset)} requires a report artifact path`,
+        path: ['artifactPaths'],
+      });
+    }
+    if (artifactPaths.length > 0 && !artifactPaths.some((path) => isStructuredStaticAnalysisArtifactPath(path))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Static analysis artifact paths must include a SARIF, normalized JSON, or Go vet JSON report',
+        path: ['artifactPaths'],
+      });
+    }
+    const canonicalPaths = getStaticAnalysisPresetArtifactPaths(preset);
+    if (canonicalPaths.length > 0 && !canonicalPaths.every((path) => artifactPaths.includes(path))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Static analysis preset ${getStaticAnalysisPresetLabel(preset)} must include ${canonicalPaths.join(', ')}`,
+        path: ['artifactPaths'],
+      });
+    }
+  }
   if (step.artifactSource !== 'registry') {
     return;
   }
@@ -121,6 +151,8 @@ const pipelineJobSchema = z.object({
   type: z.enum(['shell', 'source_checkout', 'quality_gate']).optional(),
   branch: z.string().min(1).optional(),
   minScore: z.number().int().min(1).max(100).optional(),
+  // Built-in static analysis metadata
+  staticAnalysisPreset: z.enum(['eslint', 'ruff', 'go_vet', 'custom']).optional(),
 });
 
 const pipelineTriggerSchema = z.object({
