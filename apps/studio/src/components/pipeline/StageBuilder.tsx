@@ -469,7 +469,7 @@ export default function StageBuilder({
 
                     {stageJobs.map((job, index) => (
                       <div key={job.id} className="space-y-2">
-                        {renderJobCard(job, !isSourceStage(stage))}
+                        {renderJobCard(job, !isSourceStage(stage) && stage !== "review")}
                         {index < stageJobs.length - 1 && (
                           <div className="flex items-center justify-center py-0.5 text-[hsl(var(--ds-border-2)/0.82)]">
                             <ArrowDown className="size-3.5" />

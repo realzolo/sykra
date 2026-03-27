@@ -387,6 +387,58 @@ func ValidateConfig(cfg PipelineConfig) error {
 	if hasCycle(jobIndex) {
 		return errors.New("pipeline graph contains a cycle")
 	}
+
+	// ── Fixed-stage constraints ────────────────────────────────────────────
+	// source stage: exactly one source_checkout job required
+	var sourceJobs []PipelineJob
+	for _, job := range plan.Jobs {
+		if normalizeStageKey(job.Stage, job) == StageSource {
+			sourceJobs = append(sourceJobs, job)
+		}
+	}
+	if len(sourceJobs) == 0 {
+		return errors.New("pipeline must have exactly one source_checkout job in the source stage")
+	}
+	if len(sourceJobs) > 1 {
+		return fmt.Errorf("pipeline must have exactly one source_checkout job in the source stage, found %d", len(sourceJobs))
+	}
+	if strings.TrimSpace(strings.ToLower(sourceJobs[0].Type)) != "source_checkout" {
+		return fmt.Errorf("job %s in the source stage must be of type source_checkout", sourceJobs[0].ID)
+	}
+
+	// review stage: exactly one quality_gate job required
+	var reviewJobs []PipelineJob
+	for _, job := range plan.Jobs {
+		if normalizeStageKey(job.Stage, job) == StageReview {
+			reviewJobs = append(reviewJobs, job)
+		}
+	}
+	if len(reviewJobs) == 0 {
+		return errors.New("pipeline must have exactly one quality_gate job in the review stage")
+	}
+	if len(reviewJobs) > 1 {
+		return fmt.Errorf("pipeline must have exactly one quality_gate job in the review stage, found %d", len(reviewJobs))
+	}
+	if strings.TrimSpace(strings.ToLower(reviewJobs[0].Type)) != "quality_gate" {
+		return fmt.Errorf("job %s in the review stage must be of type quality_gate", reviewJobs[0].ID)
+	}
+
+	// after_* stages: only shell jobs allowed
+	afterStages := []PipelineStageKey{StageAfterSource, StageAfterReview, StageAfterBuild, StageAfterDeploy}
+	afterStageSet := make(map[PipelineStageKey]bool, len(afterStages))
+	for _, s := range afterStages {
+		afterStageSet[s] = true
+	}
+	for _, job := range plan.Jobs {
+		stage := normalizeStageKey(job.Stage, job)
+		if afterStageSet[stage] {
+			jobType := strings.TrimSpace(strings.ToLower(job.Type))
+			if jobType != "shell" && jobType != "" {
+				return fmt.Errorf("job %s in stage %s must be of type shell (automation slots only support shell jobs)", job.ID, stage)
+			}
+		}
+	}
+
 	return nil
 }
 

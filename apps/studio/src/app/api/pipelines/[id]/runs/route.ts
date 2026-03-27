@@ -92,7 +92,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (pipeline.org_id && pipeline.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    if (body?.rollbackOf) {
+    if (body?.triggerType === 'rollback') {
       if (!pipeline.project_id) {
         return NextResponse.json({ error: 'Rollback requires a project-scoped pipeline' }, { status: 409 });
       }
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
            and status = 'published'
          order by created_at desc
          limit 1`,
-        [orgId, pipeline.project_id, body.rollbackOf, id]
+        [orgId, pipeline.project_id, body?.rollbackOf, id]
       );
       if (!publishedArtifactVersion) {
         return NextResponse.json(

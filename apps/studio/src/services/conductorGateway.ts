@@ -14,6 +14,7 @@ import {
   conductorUpdatePipelineRequestSchema,
   conductorUpdatePipelineResponseSchema,
   type ConductorCreatePipelineRequest,
+  type ConductorCreatePipelineRunRequest,
   type ConductorPipelineRunDetail,
   type ConductorRunEvent,
   type ConductorCreatePipelineResponse,
@@ -26,7 +27,6 @@ import {
   type ConductorPipeline,
 } from '@sykra/contracts/conductor';
 import { z } from 'zod';
-import type { JsonObject } from '@/lib/json';
 
 function conductorBaseUrl() {
   const baseUrl = process.env.CONDUCTOR_BASE_URL?.replace(/\/+$/, '');
@@ -61,14 +61,6 @@ async function fetchConductor<T>(path: string, init: RequestInit, schema: z.ZodT
   }
   return schema.parse(json);
 }
-
-export type ConductorCreatePipelineRunRequest = {
-  triggerType?: string;
-  triggeredBy?: string;
-  idempotencyKey?: string;
-  metadata?: JsonObject;
-  rollbackOf?: string;
-};
 
 export async function listPipelines(orgId: string, projectId?: string | null): Promise<ConductorPipeline[]> {
   const params = new URLSearchParams({ orgId });

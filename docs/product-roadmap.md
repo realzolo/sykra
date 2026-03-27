@@ -1,6 +1,6 @@
 **# Sykra Product Roadmap
 
-> **Last updated:** 2026-03-22
+> **Last updated:** 2026-03-27
 
 ---
 
@@ -78,7 +78,9 @@
 - Conductor is both the control plane and the CI sandbox manager; it creates per-job runner containers from the pipeline `buildImage` for checkout/review/build execution, while remote deploy workers handle deployment-only jobs
 - PostgreSQL is the coordination layer for analysis admission and pipeline dispatch
 - Integrations (VCS, AI) configured via web UI, stored encrypted in DB — no env var sprawl
-- Stage-based pipeline builder with fixed core columns (`source`, `review`, `build`, `deploy`) and on-demand automation slots; runtime DAG is derived from stage order and dispatch mode
+- **Pipeline authoring is fixed-stage**: four core columns (`source`, `review`, `build`, `deploy`) with on-demand automation slots (`after_*`). The runtime DAG is an internal execution detail derived from stage order and dispatch mode — it is not exposed as a user-facing concept.
+- Matrix builds, DAG-first authoring, and strategy engines are intentionally deferred. The goal is a pipeline model that is simple to understand and complete in basic CI functionality, aligned with Alibaba Cloud DevOps Pipeline and Jenkins paradigm.
+- `packages/contracts/src/conductor.ts` is the single source of truth for Studio–Conductor HTTP contracts; both sides must derive types from it.
 
 ---
 
@@ -204,7 +206,8 @@ Source Checkout → Quality Gate → Build → Deploy
 | Encrypted env secrets | ✅ Done | Write-only secret manager backed by `pipeline_secrets`, AES-256-GCM encryption, multiline values, reserved system namespace protection, and runtime env injection |
 | Pipeline-level environment tag | ✅ Done | `development / staging / production` |
 | Auto-trigger on git push | ✅ Done | Branch matching; triggered from GitHub webhook |
-| Manual trigger from UI | ✅ Done | "Run" button, `triggerType: "manual"` |
+| Manual trigger from UI | ✅ Done | Run Dialog with branch selector and optional pinned commit SHA; `triggerType: "manual"`, `source.branch`, `source.commitSha` |
+| Source snapshot in run detail | ✅ Done | Branch, commit SHA, trigger type, and actor displayed in run detail header |
 | Rollback trigger | ✅ Done | `triggerType: "rollback"`, `rollback_of` FK |
 | Retry | ✅ Done | UI button re-triggers with same config |
 | Run history list | ✅ Done | Status icon, trigger type, branch, timestamp, duration |
@@ -215,6 +218,8 @@ Source Checkout → Quality Gate → Build → Deploy
 | Job DAG dependency resolution | ✅ Done | `needs` field, topological scheduling |
 | Cancel pending jobs on failure | ✅ Done | Upstream failure cancels downstream queued jobs |
 | Pipeline concurrency control | ✅ Done | `allow / queue / cancel_previous` modes |
+| Fixed-stage contract validation | ✅ Done | `ValidateConfig()` enforces: exactly one `source_checkout` in source, exactly one `quality_gate` in review, `after_*` automation slots accept shell jobs only |
+| Stage Builder UI protection | ✅ Done | Source and review columns are non-deletable in the Stage Builder; `after_*` columns are labeled Automation Slots |
 | Log retention cleanup | ✅ Done | Configurable via `PIPELINE_LOG_RETENTION_DAYS` |
 | Run output artifacts | ✅ Done | Shell steps upload matched files, retention cleanup preserves downloadability, and Studio can fetch/download per-run artifacts |
 | Docker / container executor | ⬜ Planned | Currently shell-only |
@@ -253,6 +258,24 @@ The roadmap below excludes capabilities already shipped in the current build, in
 ### P0 — Core Experience
 
 These are the most important remaining gaps for daily product use.
+
+---
+
+#### 4.1 Core CI Batch 1 — Fixed-Stage Contract Hardening ✅ Complete
+
+**Why:** The pipeline engine had the infrastructure in place but the fixed-stage contract was not enforced at the API level, and the Studio gateway layer used a local shadow DTO instead of the canonical contract type.
+
+**Scope (completed 2026-03-27):**
+- **Fixed-stage backend validation**: `ValidateConfig()` now enforces exactly one `source_checkout` job in source, exactly one `quality_gate` job in review, and shell-only jobs in `after_*` automation slots.
+- **Contract unification**: `ConductorCreatePipelineRunRequest` type is now imported from `packages/contracts/src/conductor.ts` in Studio's gateway layer — no local DTO shadow.
+- **Stage Builder protection**: Source and review columns are non-deletable in the pipeline editor; `after_*` slots are labeled as Automation Slots.
+- **One-click Run**: Pipeline runs are triggered with a single button click. The branch to check out is determined by the `source_checkout` job configuration in the pipeline config, not by the trigger payload. Runtime branch override is intentionally absent — this follows the pipeline-as-config principle (Jenkins / Alibaba Cloud Pipeline paradigm).
+
+**Not in scope (intentionally deferred):**
+- Matrix builds, DAG-first authoring, strategy engines
+- Dedicated test-report and coverage modeling
+- Runtime variable override system
+- New stage types beyond the current eight
 
 ---
 
@@ -381,6 +404,9 @@ These are the most important remaining gaps for daily product use.
 Focus: close the remaining product gaps that block daily use.
 
 ```
+✅ Completed in Phase 1:
+   └── 4.1  Core CI Batch 1 — Fixed-Stage Contract Hardening
+
 🚧 To complete in Phase 1:
    ├── 4.3  Link Report Issues to Codebase Browser
    └── 4.4  External API Tokens

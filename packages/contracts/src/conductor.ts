@@ -152,6 +152,16 @@ export const conductorRunEventSchema = z.object({
   occurred_at: isoDateString,
 });
 
+// ── Run trigger ────────────────────────────────────────────────────────────
+
+export const conductorCreatePipelineRunRequestSchema = z.object({
+  triggerType: z.enum(['manual', 'rollback', 'schedule', 'push', 'webhook']),
+  triggeredBy: z.string().uuid().optional(),
+  idempotencyKey: z.string().optional(),
+  rollbackOf: z.string().uuid().optional(),
+  metadata: z.unknown().optional(),
+});
+
 export const conductorListPipelinesResponseSchema = z.array(conductorPipelineSchema);
 export const conductorListPipelineRunsResponseSchema = z.array(conductorPipelineRunSchema);
 export const conductorCreatePipelineRunResponseSchema = conductorPipelineRunSchema;
@@ -173,3 +183,4 @@ export type ConductorPipelineRunDetail = z.infer<typeof conductorPipelineRunDeta
 export type ConductorRunEvent = z.infer<typeof conductorRunEventSchema>;
 export type ConductorDeletePipelineResponse = z.infer<typeof conductorDeletePipelineResponseSchema>;
 export type ConductorRetryPipelineRunJobResponse = z.infer<typeof conductorRetryPipelineRunJobResponseSchema>;
+export type ConductorCreatePipelineRunRequest = z.infer<typeof conductorCreatePipelineRunRequestSchema>;
