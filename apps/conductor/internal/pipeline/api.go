@@ -77,9 +77,14 @@ func (a *API) handlePipelines(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		versions := []any{}
+		if version != nil {
+			versions = []any{version}
+		}
 		httpx.WriteJSON(w, http.StatusCreated, map[string]any{
 			"pipeline": pipeline,
 			"version":  version,
+			"versions": versions,
 		})
 	default:
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")

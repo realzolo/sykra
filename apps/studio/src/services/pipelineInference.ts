@@ -15,7 +15,7 @@ const PYTHON_BUILD_IMAGE = 'python:3.12-bookworm';
 const GO_BUILD_IMAGE = 'golang:1.24-bookworm';
 const JAVA_BUILD_IMAGE = 'eclipse-temurin:21-jdk-jammy';
 
-function buildScopedStaticAnalysisCommand(command: string, matchers: string[]): string {
+function buildScopedStaticAnalysisCommand(command: string, matchers: string[], installCommand?: string): string {
   return [
     'set -eu',
     ': "${PIPELINE_CHANGED_FILES_MANIFEST:?PIPELINE_CHANGED_FILES_MANIFEST is required}"',
@@ -24,6 +24,7 @@ function buildScopedStaticAnalysisCommand(command: string, matchers: string[]): 
     '  echo "[analysis] No changed files detected; skipping static analysis."',
     '  exit 0',
     'fi',
+    ...(installCommand ? [installCommand] : []),
     'set --',
     'while IFS= read -r file || [ -n "$file" ]; do',
     '  [ -n "$file" ] || continue',
@@ -50,6 +51,7 @@ function buildScopedGoStaticAnalysisCommand(command: string, artifactPath: strin
     'fi',
     'workspace_root="$(dirname "$(dirname "$PIPELINE_CHANGED_FILES_MANIFEST")")"',
     'cd "$workspace_root"',
+    'go mod download',
     'go_packages="$(while IFS= read -r file || [ -n "$file" ]; do',
     '  [ -n "$file" ] || continue',
     '  case "$file" in',
@@ -91,6 +93,10 @@ export async function inferProjectPipelineDefaults(project: ProjectRef): Promise
   const hasFile = (name: string) => rootFileSet.has(name);
   const hasAnyFile = (...names: string[]) => names.some((name) => hasFile(name));
 
+  const hasRequirements = hasFile('requirements.txt');
+  const pythonInstallCommand = hasRequirements
+    ? 'python -m pip install -r requirements.txt'
+    : 'python -m pip install -U pip build';
   const packageManager = detectPackageManager(packageJson, hasAnyFile);
   const projectKind = detectProjectKind(packageJson, hasAnyFile);
   const pyproject = hasFile('pyproject.toml') ? await readTextFile(project, 'pyproject.toml') : null;
@@ -98,7 +104,7 @@ export async function inferProjectPipelineDefaults(project: ProjectRef): Promise
   const hasRuffConfig = hasFile('ruff.toml') || hasFile('.ruff.toml') || hasRuffConfigured(pyproject);
   const ruffConfig = hasRuffConfig
     ? {
-        command: buildScopedStaticAnalysisCommand('python -m ruff check --output-format sarif --output-file quality-gate.sarif', ['*.py']),
+        command: buildScopedStaticAnalysisCommand('python -m ruff check --output-format sarif --output-file quality-gate.sarif', ['*.py'], pythonInstallCommand),
         artifactPaths: ['quality-gate.sarif'],
       }
     : null;
@@ -114,11 +120,11 @@ export async function inferProjectPipelineDefaults(project: ProjectRef): Promise
     };
   }
 
-  if (hasFile('pyproject.toml') || hasFile('requirements.txt') || hasFile('setup.py')) {
+  if (hasFile('pyproject.toml') || hasRequirements || hasFile('setup.py')) {
     return buildPythonDefaults({
       hasPyproject: hasFile('pyproject.toml'),
-      hasRequirements: hasFile('requirements.txt'),
-      staticAnalysisCommand: ruffConfig?.command ?? buildScopedStaticAnalysisCommand('python -m compileall', ['*.py']),
+      hasRequirements,
+      staticAnalysisCommand: ruffConfig?.command ?? buildScopedStaticAnalysisCommand('python -m compileall', ['*.py'], pythonInstallCommand),
       ...(ruffConfig?.artifactPaths ? { staticAnalysisArtifactPaths: ruffConfig.artifactPaths } : {}),
     });
   }
@@ -335,8 +341,9 @@ function resolveNodeStaticAnalysisCommand(
 ): string {
   if (projectKind === 'nextjs' || input.hasNextConfig || projectKind === 'vite' || input.hasViteConfig || input.hasReactScripts || input.hasEslintConfig) {
     return buildScopedStaticAnalysisCommand(
-      packageManagerCommand(packageManager, 'exec eslint -f sarif -o quality-gate.sarif'),
-      ['*.js', '*.jsx', '*.mjs', '*.cjs', '*.ts', '*.tsx']
+      './node_modules/.bin/eslint -f sarif -o quality-gate.sarif',
+      ['*.js', '*.jsx', '*.mjs', '*.cjs', '*.ts', '*.tsx'],
+      resolveNodeInstallCommand(packageManager, true)
     );
   }
   if (hasLintScript(packageJson)) {

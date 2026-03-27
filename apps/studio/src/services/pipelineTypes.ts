@@ -602,7 +602,7 @@ function normalizeSourceBranchValue(branch?: string): string {
   return normalized && normalized.length > 0 ? normalized : 'main';
 }
 
-function buildScopedStaticAnalysisCommand(command: string, matchers: string[]): string {
+function buildScopedStaticAnalysisCommand(command: string, matchers: string[], installCommand?: string): string {
   return [
     'set -eu',
     ': "${PIPELINE_CHANGED_FILES_MANIFEST:?PIPELINE_CHANGED_FILES_MANIFEST is required}"',
@@ -611,6 +611,7 @@ function buildScopedStaticAnalysisCommand(command: string, matchers: string[]): 
     '  echo "[analysis] No changed files detected; skipping static analysis."',
     '  exit 0',
     'fi',
+    ...(installCommand ? [installCommand] : []),
     'set --',
     'while IFS= read -r file || [ -n "$file" ]; do',
     '  [ -n "$file" ] || continue',
@@ -641,6 +642,7 @@ function buildScopedGoStaticAnalysisCommand(command: string, artifactPath: strin
     'fi',
     'workspace_root="$(dirname "$(dirname "$PIPELINE_CHANGED_FILES_MANIFEST")")"',
     'cd "$workspace_root"',
+    'go mod download',
     'go_packages="$(while IFS= read -r file || [ -n "$file" ]; do',
     '  [ -n "$file" ] || continue',
     '  case "$file" in',
@@ -662,18 +664,16 @@ function buildScopedGoStaticAnalysisCommand(command: string, artifactPath: strin
 export function buildStaticAnalysisPresetCommand(preset: StaticAnalysisPreset): string {
   switch (preset) {
     case 'eslint':
-      return buildScopedStaticAnalysisCommand('npm exec -- eslint -f sarif -o quality-gate.sarif', [
-        '*.js',
-        '*.jsx',
-        '*.mjs',
-        '*.cjs',
-        '*.ts',
-        '*.tsx',
-      ]);
+      return buildScopedStaticAnalysisCommand(
+        './node_modules/.bin/eslint -f sarif -o quality-gate.sarif',
+        ['*.js', '*.jsx', '*.mjs', '*.cjs', '*.ts', '*.tsx'],
+        'npm ci'
+      );
     case 'ruff':
       return buildScopedStaticAnalysisCommand(
         'python -m ruff check --output-format sarif --output-file quality-gate.sarif',
-        ['*.py']
+        ['*.py'],
+        'python -m pip install -r requirements.txt'
       );
     case 'go_vet':
       return buildScopedGoStaticAnalysisCommand('go vet -json', 'quality-gate.vet.json');

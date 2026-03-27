@@ -40,11 +40,16 @@ func startJobSandbox(
 		"/workspace",
 		"--mount",
 		fmt.Sprintf("type=bind,src=%s,dst=/workspace", absoluteWorkspacePath),
+	}
+	for _, cm := range cacheVolumeMounts(workspacePath) {
+		args = append(args, "--mount", cm)
+	}
+	args = append(args,
 		image,
 		"/bin/sh",
 		"-lc",
 		"trap 'exit 0' TERM INT; while :; do sleep 5; done",
-	}
+	)
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("start sandbox container for image %s: %w (%s)", image, err, strings.TrimSpace(string(output)))
@@ -59,6 +64,47 @@ func startJobSandbox(
 		containerName: containerName,
 		workspacePath: absoluteWorkspacePath,
 	}, nil
+}
+
+// cacheVolumeMounts returns docker --mount arguments for persisting package
+// manager caches across runs. Each volume is shared across all pipeline runs
+// so that repeated installs hit the local store instead of the network.
+func cacheVolumeMounts(workspacePath string) []string {
+	type cacheMount struct {
+		volume string // docker volume name
+		target string // mount path inside the container
+	}
+	var mounts []cacheMount
+	switch detectWorkspacePackageManager(workspacePath) {
+	case "pnpm":
+		mounts = []cacheMount{
+			{volume: "sykra-cache-pnpm", target: "/root/.local/share/pnpm/store"},
+		}
+	case "yarn":
+		mounts = []cacheMount{
+			{volume: "sykra-cache-yarn", target: "/usr/local/share/.cache/yarn"},
+		}
+	case "bun":
+		mounts = []cacheMount{
+			{volume: "sykra-cache-bun", target: "/root/.bun/install/cache"},
+		}
+	case "npm":
+		mounts = []cacheMount{
+			{volume: "sykra-cache-npm", target: "/root/.npm"},
+		}
+	default:
+		if fileExists(filepath.Join(workspacePath, "go.mod")) {
+			mounts = []cacheMount{
+				{volume: "sykra-cache-gomod", target: "/root/go/pkg/mod"},
+				{volume: "sykra-cache-gobuild", target: "/root/.cache/go-build"},
+			}
+		}
+	}
+	result := make([]string, 0, len(mounts))
+	for _, m := range mounts {
+		result = append(result, fmt.Sprintf("type=volume,src=%s,dst=%s", m.volume, m.target))
+	}
+	return result
 }
 
 func validateJobSandboxImage(ctx context.Context, containerName string, image string, workspacePath string) error {
