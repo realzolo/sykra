@@ -78,6 +78,7 @@ type PipelineConfig struct {
 type TriggerConfig struct {
 	AutoTrigger bool   `json:"autoTrigger"`
 	Schedule    string `json:"schedule,omitempty"`
+	Purpose     string `json:"purpose,omitempty"`
 }
 
 type NotifyConfig struct {
@@ -273,6 +274,9 @@ func ValidateConfig(cfg PipelineConfig) error {
 		if _, err := parseSchedule(schedule); err != nil {
 			return fmt.Errorf("invalid trigger schedule: %w", err)
 		}
+		if cfg.Trigger.AutoTrigger && strings.TrimSpace(cfg.Trigger.Purpose) == "" {
+			return errors.New("trigger purpose is required when autoTrigger and schedule are both enabled")
+		}
 	}
 
 	for _, job := range cfg.Jobs {
@@ -309,6 +313,7 @@ func ValidateConfig(cfg PipelineConfig) error {
 	}
 
 	for _, job := range plan.Jobs {
+		stageKey := normalizeStageKey(job.Stage, job)
 		for _, need := range job.Needs {
 			if need == job.ID {
 				return fmt.Errorf("job %s cannot depend on itself", job.ID)
@@ -332,7 +337,7 @@ func ValidateConfig(cfg PipelineConfig) error {
 			if strings.TrimSpace(step.Name) == "" {
 				return fmt.Errorf("step %s in job %s has empty name", step.ID, job.ID)
 			}
-			if stageOrder(normalizeStageKey(job.Stage, job)) < stageOrder(StageDeploy) && strings.EqualFold(strings.TrimSpace(step.Type), "docker") {
+			if stageOrder(stageKey) < stageOrder(StageDeploy) && strings.EqualFold(strings.TrimSpace(step.Type), "docker") {
 				return fmt.Errorf("step %s in job %s cannot use type=docker outside deploy stages; use pipeline buildImage instead", step.ID, job.ID)
 			}
 			if strings.EqualFold(strings.TrimSpace(step.Type), "docker") && strings.TrimSpace(step.DockerImage) == "" {
@@ -353,7 +358,31 @@ func ValidateConfig(cfg PipelineConfig) error {
 					return fmt.Errorf("step %s in job %s must include a SARIF, normalized JSON, or Go vet JSON artifact path", step.ID, job.ID)
 				}
 			}
-			if strings.EqualFold(strings.TrimSpace(step.ArtifactSource), "registry") {
+			artifactSource := strings.TrimSpace(strings.ToLower(step.ArtifactSource))
+			if stageKey == StageDeploy {
+				if artifactSource == "" {
+					return fmt.Errorf("step %s in job %s must declare artifactSource=run or artifactSource=registry", step.ID, job.ID)
+				}
+				if artifactSource != "run" && artifactSource != "registry" {
+					return fmt.Errorf("step %s in job %s has invalid artifactSource %s", step.ID, job.ID, step.ArtifactSource)
+				}
+				if artifactSource == "run" {
+					hasArtifactInputs := false
+					for _, input := range step.ArtifactInputs {
+						if strings.TrimSpace(input) != "" {
+							hasArtifactInputs = true
+							break
+						}
+					}
+					if !hasArtifactInputs {
+						return fmt.Errorf("step %s in job %s requires artifactInputs when artifactSource=run", step.ID, job.ID)
+					}
+					if strings.TrimSpace(step.RegistryRepository) != "" || strings.TrimSpace(step.RegistryVersion) != "" || strings.TrimSpace(step.RegistryChannel) != "" {
+						return fmt.Errorf("step %s in job %s cannot define registry fields when artifactSource=run", step.ID, job.ID)
+					}
+				}
+			}
+			if artifactSource == "registry" {
 				if strings.TrimSpace(step.RegistryRepository) == "" {
 					return fmt.Errorf("step %s in job %s requires registryRepository when artifactSource=registry", step.ID, job.ID)
 				}

@@ -6,7 +6,8 @@
     "dev": "next dev -p 8109",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint && node ./src/scripts/check-sql-projections.mjs && node ./src/scripts/check-db-query-typing.mjs"
+    "lint": "eslint && node ./src/scripts/check-sql-projections.mjs && node ./src/scripts/check-db-query-typing.mjs",
+    "pipeline:lint": "node ./src/scripts/check-pipeline-config.mjs"
   },
   "dependencies": {
     "@codemirror/language": "^6.11.0",

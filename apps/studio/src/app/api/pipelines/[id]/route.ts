@@ -114,6 +114,20 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (pipeline.org_id && pipeline.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+    const modeRows = await dbQuery<{ concurrency_mode: 'allow' | 'queue' | 'cancel_previous' }>(
+      `SELECT concurrency_mode FROM pipelines WHERE id = $1 AND org_id = $2`,
+      [id, orgId]
+    );
+    if (modeRows.length === 0) {
+      return NextResponse.json({ error: 'Pipeline concurrency metadata not found' }, { status: 500 });
+    }
+    const currentConcurrencyMode = modeRows[0]?.concurrency_mode ?? 'allow';
+    if ((validated.config.environment ?? 'production') === 'production' && currentConcurrencyMode === 'allow') {
+      return NextResponse.json(
+        { error: 'Production pipelines cannot use concurrency_mode=allow. Set queue before saving this config.' },
+        { status: 409 }
+      );
+    }
 
     const payload: ConductorUpdatePipelineRequest = {
       name: validated.name ?? pipeline.name,
@@ -165,6 +179,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const concurrencyMode = body?.concurrency_mode;
     if (!concurrencyMode || !VALID_MODES.includes(concurrencyMode)) {
       return NextResponse.json({ error: 'Invalid concurrency_mode' }, { status: 400 });
+    }
+    const existing = await getPipeline(id);
+    const pipeline = existing.pipeline;
+    if (!pipeline) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    if (pipeline.org_id && pipeline.org_id !== orgId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    if ((pipeline.environment ?? 'production') === 'production' && concurrencyMode === 'allow') {
+      return NextResponse.json(
+        { error: 'Production pipelines cannot use concurrency_mode=allow. Use queue for controlled execution.' },
+        { status: 409 }
+      );
     }
 
     await dbQuery(

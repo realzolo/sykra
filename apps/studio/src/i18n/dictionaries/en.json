@@ -411,7 +411,10 @@
       "autoTrigger": "Auto-trigger on push",
       "autoTriggerHelp": "Automatically run this pipeline when code is pushed to the source branch",
       "schedule": "Schedule",
-      "scheduleHelp": "Use a preset or enter a UTC cron expression."
+      "scheduleHelp": "Use a preset or enter a UTC cron expression.",
+      "mixedTriggerPurposeLabel": "Mixed Trigger Purpose",
+      "mixedTriggerPurposePlaceholder": "e.g. Push for commit validation, schedule for nightly drift checks",
+      "mixedTriggerPurposeHelp": "Required when both auto-trigger and schedule are enabled. Describe why both trigger modes are intentionally used."
     },
     "schedule": {
       "description": "Run this pipeline on a recurring UTC schedule.",
@@ -812,7 +815,8 @@
       "help": "Controls what happens when a run is triggered while another is already active.",
       "allowHelp": "Multiple runs may execute concurrently.",
       "queueHelp": "New runs are rejected (409) if another run is already active.",
-      "cancelPreviousHelp": "Active runs are canceled before starting a new one."
+      "cancelPreviousHelp": "Active runs are canceled before starting a new one.",
+      "productionPolicyHelp": "Production pipelines must not use Allow mode. Use Queue to keep deployment execution controlled and auditable."
     },
     "steps": {
       "typeLabel": "Step Type",

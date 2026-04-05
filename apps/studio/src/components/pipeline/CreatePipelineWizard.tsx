@@ -29,6 +29,7 @@ import type {
   PipelineEnvironmentDefinition,
   PipelineConfigDefaults,
   PipelineJobDiagnostic,
+  PipelineTrigger,
 } from "@/services/pipelineTypes";
 import {
   analyzePipelineConfig,
@@ -118,11 +119,37 @@ function updateEnvironmentWithRecommendedConcurrency(
   environment: PipelineEnvironment
 ): WizardPipelineConfig {
   const next = { ...current, environment };
+  if (environment === "production" && current.concurrencyMode === "allow") {
+    return { ...next, concurrencyMode: "queue" };
+  }
   const recommendedMode = getDefaultConcurrencyMode(environment);
   if (current.environment === environment || getDefaultConcurrencyMode(current.environment ?? "production") !== current.concurrencyMode) {
     return next;
   }
   return { ...next, concurrencyMode: recommendedMode };
+}
+
+function isDualTriggerMode(trigger: PipelineTrigger): boolean {
+  return trigger.autoTrigger && Boolean(trigger.schedule?.trim());
+}
+
+function normalizeTriggerForEdit(trigger: PipelineTrigger, patch: Partial<PipelineTrigger>): PipelineTrigger {
+  const next: PipelineTrigger = { ...trigger, ...patch };
+  if (!isDualTriggerMode(next)) {
+    delete next.purpose;
+  }
+  return next;
+}
+
+function normalizeTriggerForPersist(trigger: PipelineTrigger): PipelineTrigger {
+  const schedule = trigger.schedule?.trim() ?? "";
+  const purpose = trigger.purpose?.trim() ?? "";
+  const mixed = trigger.autoTrigger && schedule.length > 0;
+  return {
+    autoTrigger: trigger.autoTrigger,
+    ...(schedule ? { schedule } : {}),
+    ...(mixed && purpose ? { purpose } : {}),
+  };
 }
 
 function normalizePipelineConfigForCreate(config: PipelineConfig, defaultBranch: string): PipelineConfig {
@@ -131,12 +158,7 @@ function normalizePipelineConfigForCreate(config: PipelineConfig, defaultBranch:
   return {
     ...gatedConfig,
     buildImage: gatedConfig.buildImage?.trim() ?? "",
-    trigger: {
-      autoTrigger: gatedConfig.trigger.autoTrigger,
-      ...(gatedConfig.trigger.schedule?.trim()
-        ? { schedule: gatedConfig.trigger.schedule.trim() }
-        : {}),
-    },
+    trigger: normalizeTriggerForPersist(gatedConfig.trigger),
     stages: normalizeStageSettings(gatedConfig.stages),
     jobs: finalJobs,
   };
@@ -528,16 +550,22 @@ export default function CreatePipelineWizard({
                 <div className="grid gap-2 md:grid-cols-3">
                   {CONCURRENCY_MODES.map((mode) => {
                     const active = config.concurrencyMode === mode;
+                    const isBlockedByProductionPolicy =
+                      (config.environment ?? "production") === "production" && mode === "allow";
                     return (
                       <button
                         key={mode}
                         type="button"
-                        onClick={() => updateConfig((current) => ({ ...current, concurrencyMode: mode }))}
+                        onClick={() => {
+                          if (isBlockedByProductionPolicy) return;
+                          updateConfig((current) => ({ ...current, concurrencyMode: mode }));
+                        }}
+                        disabled={isBlockedByProductionPolicy}
                         className={`rounded-[8px] border px-3 py-2 text-left text-[13px] transition-colors ${
                           active
                             ? "border-foreground bg-background text-foreground"
                             : "border-[hsl(var(--ds-border-1))] bg-background text-[hsl(var(--ds-text-2))] hover:border-foreground/40"
-                        }`}
+                        } ${isBlockedByProductionPolicy ? "cursor-not-allowed opacity-50 hover:border-[hsl(var(--ds-border-1))]" : ""}`}
                       >
                         <div className="font-medium">{getConcurrencyOptionLabel(p, mode)}</div>
                         <div className="mt-0.5 text-[12px] opacity-70">{getConcurrencyOptionHelp(p, mode)}</div>
@@ -545,6 +573,11 @@ export default function CreatePipelineWizard({
                     );
                   })}
                 </div>
+                {(config.environment ?? "production") === "production" && (
+                  <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                    {p.concurrencyMode.productionPolicyHelp}
+                  </div>
+                )}
               </div>
               {inferredDefaults && (
                 <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-muted/20 px-3 py-2 text-[12px] text-[hsl(var(--ds-text-2))]">
@@ -559,10 +592,7 @@ export default function CreatePipelineWizard({
                   onCheckedChange={(checked) =>
                     updateConfig((current) => ({
                       ...current,
-                      trigger: {
-                        ...current.trigger,
-                        autoTrigger: checked,
-                      },
+                      trigger: normalizeTriggerForEdit(current.trigger, { autoTrigger: checked }),
                     }))
                   }
                 />
@@ -580,11 +610,31 @@ export default function CreatePipelineWizard({
                   onChange={(value) =>
                     updateConfig((current) => ({
                       ...current,
-                      trigger: { ...current.trigger, schedule: value },
+                      trigger: normalizeTriggerForEdit(current.trigger, { schedule: value }),
                     }))
                   }
                 />
               </div>
+              {isDualTriggerMode(config.trigger) && (
+                <div className="max-w-2xl space-y-1.5">
+                  <label className="text-[13px] font-medium text-foreground">
+                    {p.basic.mixedTriggerPurposeLabel}
+                  </label>
+                  <Input
+                    value={config.trigger.purpose ?? ""}
+                    onChange={(event) =>
+                      updateConfig((current) => ({
+                        ...current,
+                        trigger: normalizeTriggerForEdit(current.trigger, { purpose: event.target.value }),
+                      }))
+                    }
+                    placeholder={p.basic.mixedTriggerPurposePlaceholder}
+                  />
+                  <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                    {p.basic.mixedTriggerPurposeHelp}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

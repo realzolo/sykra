@@ -282,7 +282,16 @@ export default function StageBuilder({
   function addStep(jobId: string) {
     const job = jobs.find((item) => item.id === jobId);
     if (!job || (job.type ?? "shell") !== "shell") return;
-    updateJob(jobId, { steps: [...job.steps, createDefaultStep()] });
+    const stage = inferPipelineJobStage(job, jobs);
+    const nextStep =
+      stage === "deploy"
+        ? {
+            ...createDefaultStep("Run deploy command"),
+            artifactSource: "run" as const,
+            artifactInputs: ["dist/**"],
+          }
+        : createDefaultStep();
+    updateJob(jobId, { steps: [...job.steps, nextStep] });
   }
 
   function removeStep(jobId: string, stepId: string) {

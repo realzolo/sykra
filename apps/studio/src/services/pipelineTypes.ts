@@ -77,6 +77,7 @@ export type PipelineJob = {
 export type PipelineTrigger = {
   autoTrigger: boolean;
   schedule?: string;
+  purpose?: string;
 };
 
 export const DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS: ReadonlyArray<PipelineEnvironmentDefinition> = [
@@ -791,7 +792,15 @@ export function createDefaultPipelineConfig(
         stage: 'deploy',
         type: 'shell',
         needs: [buildJobId],
-        steps: [{ id: newId('step'), name: 'Deploy', script: '# add deploy commands here' }],
+        steps: [
+          {
+            id: newId('step'),
+            name: 'Deploy',
+            script: '# add deploy commands here',
+            artifactSource: 'run',
+            artifactInputs: ['dist/**'],
+          },
+        ],
       },
     ],
   };
@@ -883,6 +892,11 @@ type PipelineContractStep = {
   checkType?: string | undefined;
   script: string;
   artifactPaths?: string[] | undefined;
+  artifactInputs?: string[] | undefined;
+  artifactSource?: string | undefined;
+  registryRepository?: string | undefined;
+  registryVersion?: string | undefined;
+  registryChannel?: string | undefined;
 };
 
 type PipelineContractJob = {
@@ -899,20 +913,44 @@ type PipelineContractStageConfig = {
 
 type PipelineContractConfig = {
   environment?: string | undefined;
+  trigger?: {
+    autoTrigger?: boolean | undefined;
+    schedule?: string | undefined;
+    purpose?: string | undefined;
+  } | undefined;
   stages?: Partial<Record<PipelineStageKey, PipelineContractStageConfig | undefined>> | undefined;
   jobs: PipelineContractJob[];
 };
+
+function resolveContractStage(job: PipelineContractJob): string {
+  const normalizedStage = job.stage?.trim().toLowerCase();
+  if (normalizedStage) return normalizedStage;
+  const normalizedType = job.type?.trim().toLowerCase();
+  if (normalizedType === 'source_checkout') return 'source';
+  if (normalizedType === 'quality_gate') return 'review';
+  return 'build';
+}
 
 export function validatePipelineContract(
   config: PipelineContractConfig,
   emit: (issue: PipelineContractIssue) => void
 ): void {
+  const triggerSchedule = config.trigger?.schedule?.trim() ?? '';
+  const triggerPurpose = config.trigger?.purpose?.trim() ?? '';
+  if (config.trigger?.autoTrigger && triggerSchedule && triggerPurpose.length === 0) {
+    emit({
+      path: ['trigger', 'purpose'],
+      message:
+        'When push auto-trigger and schedule are both enabled, provide trigger purpose so operators know why both modes are required',
+    });
+  }
+
   for (const [jobIndex, job] of config.jobs.entries()) {
     const jobType = (job.type ?? 'shell').trim().toLowerCase();
-    const stage = job.stage?.trim();
+    const stage = resolveContractStage(job);
 
     if (jobType === 'quality_gate') {
-      if (stage !== undefined && stage !== 'review') {
+      if (stage !== 'review') {
         emit({
           path: ['jobs', jobIndex, 'stage'],
           message: 'Quality gate jobs must use the review stage',
@@ -989,6 +1027,50 @@ export function validatePipelineContract(
           path: ['jobs', jobIndex, 'steps', stepIndex, 'checkType'],
           message: 'Step checkType is only allowed on quality gate jobs',
         });
+      }
+      if (stage !== 'deploy') {
+        continue;
+      }
+
+      const artifactSource = step.artifactSource?.trim().toLowerCase();
+      if (!artifactSource) {
+        emit({
+          path: ['jobs', jobIndex, 'steps', stepIndex, 'artifactSource'],
+          message: 'Deploy steps must explicitly choose an artifact source: run or registry',
+        });
+        continue;
+      }
+      if (artifactSource !== 'run' && artifactSource !== 'registry') {
+        emit({
+          path: ['jobs', jobIndex, 'steps', stepIndex, 'artifactSource'],
+          message: 'Deploy artifact source must be run or registry',
+        });
+        continue;
+      }
+
+      if (artifactSource === 'run' && normalizeArtifactPaths(step.artifactInputs).length === 0) {
+        emit({
+          path: ['jobs', jobIndex, 'steps', stepIndex, 'artifactInputs'],
+          message: 'Deploy steps using run artifacts must declare explicit artifact inputs',
+        });
+        continue;
+      }
+
+      if (artifactSource === 'registry') {
+        if (!step.registryRepository?.trim()) {
+          emit({
+            path: ['jobs', jobIndex, 'steps', stepIndex, 'registryRepository'],
+            message: 'Deploy steps using registry artifacts must choose a repository',
+          });
+        }
+        const hasVersion = Boolean(step.registryVersion?.trim());
+        const hasChannel = Boolean(step.registryChannel?.trim());
+        if (hasVersion === hasChannel) {
+          emit({
+            path: ['jobs', jobIndex, 'steps', stepIndex, hasVersion ? 'registryVersion' : 'registryChannel'],
+            message: 'Deploy steps using registry artifacts must choose exactly one version or channel',
+          });
+        }
       }
     }
   }
@@ -1165,15 +1247,20 @@ export function createStageJob(
     stage,
     type: 'shell',
     needs: [],
-    steps: [
-      createDefaultStep(
-        stage === 'build'
-          ? 'Run build command'
-          : stage === 'deploy'
-          ? 'Run deploy command'
-          : 'Run automation task'
-      ),
-    ],
+    steps:
+      stage === 'deploy'
+        ? [
+            {
+              ...createDefaultStep('Run deploy command'),
+              artifactSource: 'run',
+              artifactInputs: ['dist/**'],
+            },
+          ]
+        : [
+            createDefaultStep(
+              stage === 'build' ? 'Run build command' : 'Run automation task'
+            ),
+          ],
   };
 }
 
@@ -1252,15 +1339,23 @@ export function normalizePipelineJobs(
         needs: needs.filter((dependencyId) => validIds.has(dependencyId)),
         steps:
           rawJob.steps.length > 0
-            ? rawJob.steps
+            ? rawJob.steps.map((step) =>
+                stage === 'deploy' && !step.artifactSource
+                  ? { ...step, artifactSource: 'run' }
+                  : step
+              )
             : [
-                createDefaultStep(
-                  stage === 'build'
-                    ? 'Run build command'
-                    : stage === 'deploy'
-                    ? 'Run deploy command'
-                    : 'Run automation task'
-                ),
+                stage === 'deploy'
+                  ? {
+                      ...createDefaultStep('Run deploy command'),
+                      artifactSource: 'run',
+                      artifactInputs: ['dist/**'],
+                    }
+                  : createDefaultStep(
+                      stage === 'build'
+                        ? 'Run build command'
+                        : 'Run automation task'
+                    ),
               ],
       });
     }
@@ -1371,7 +1466,6 @@ export function analyzePipelineJobs(jobs: PipelineJob[]): PipelineJobDiagnostic[
 
 export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[]): PipelineJobDiagnostic[] {
   const diagnostics = analyzePipelineJobs(jobs);
-  const schedule = config.trigger.schedule?.trim() ?? '';
   if (!config.buildImage?.trim()) {
     diagnostics.unshift({
       level: 'error',
@@ -1384,13 +1478,6 @@ export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[
       message: issue.message,
     });
   });
-  if (config.trigger.autoTrigger && schedule) {
-    diagnostics.push({
-      level: 'warning',
-      message:
-        'Push auto-trigger and schedule are both enabled. Keep both only when you intentionally need event-driven runs plus recurring verification.',
-    });
-  }
   let hasCiArtifactOutputs = false;
   for (const job of jobs) {
     const stage = inferPipelineJobStage(job, jobs);
@@ -1427,36 +1514,6 @@ export function analyzePipelineConfig(config: PipelineConfig, jobs: PipelineJob[
           diagnostics.push({
             level: 'error',
             message: `Static analysis preset "${getStaticAnalysisPresetLabel(preset)}" must include the canonical report artifact path ${presetArtifactPaths.join(', ')}.`,
-          });
-        }
-      }
-    }
-    if (stage === 'deploy' || stage === 'after_deploy') {
-      for (const step of job.steps) {
-        const artifactSource = step.artifactSource ?? 'run';
-        const artifactInputs = normalizeArtifactPaths(step.artifactInputs);
-        if (artifactSource === 'run' && artifactInputs.length === 0) {
-          diagnostics.push({
-            level: 'warning',
-            message: `Deploy step "${step.name}" is using current run output without explicit Artifact Inputs. Declare the exact artifacts to deploy for reproducible releases.`,
-          });
-        }
-        if (artifactSource === 'registry' && !step.registryRepository?.trim()) {
-          diagnostics.push({
-            level: 'error',
-            message: `Deploy step "${step.name}" is set to Published Artifact but has no artifact repository selected.`,
-          });
-        }
-        if (artifactSource === 'registry' && !step.registryVersion?.trim() && !step.registryChannel?.trim()) {
-          diagnostics.push({
-            level: 'error',
-            message: `Deploy step "${step.name}" must choose exactly one published version or channel.`,
-          });
-        }
-        if (artifactSource === 'registry' && step.registryVersion?.trim() && step.registryChannel?.trim()) {
-          diagnostics.push({
-            level: 'error',
-            message: `Deploy step "${step.name}" cannot select both a published version and a channel at the same time.`,
           });
         }
       }

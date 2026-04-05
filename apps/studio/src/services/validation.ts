@@ -158,6 +158,7 @@ const pipelineJobSchema = z.object({
 const pipelineTriggerSchema = z.object({
   autoTrigger: z.boolean().default(false),
   schedule: z.string().optional(),
+  purpose: z.string().max(240).optional(),
 });
 
 const pipelineNotificationsSchema = z.object({
@@ -259,14 +260,21 @@ export const createPipelineSchema = z.object({
       path: ['config', 'buildImage'],
     });
   }
+  if ((value.config.environment ?? 'production') === 'production' && value.concurrency_mode === 'allow') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Production pipelines cannot use concurrency_mode=allow; use queue for controlled execution',
+      path: ['concurrency_mode'],
+    });
+  }
 });
 
 export const updatePipelineSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
-  config: pipelineConfigSchema.optional(),
+  config: pipelineConfigSchema,
 }).superRefine((value, ctx) => {
-  if (value.config && !value.config.buildImage?.trim()) {
+  if (!value.config.buildImage?.trim()) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'buildImage is required',

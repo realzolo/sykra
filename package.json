@@ -12,6 +12,7 @@
     "build:studio": "node ./scripts/run-pnpm.mjs -C apps/studio build",
     "start:studio": "node ./scripts/run-pnpm.mjs -C apps/studio start",
     "lint:studio": "node ./scripts/run-pnpm.mjs -C apps/studio lint",
+    "pipeline:lint": "node ./scripts/run-pnpm.mjs -C apps/studio pipeline:lint",
     "codebase:cleanup": "node apps/studio/src/scripts/codebase-cleanup.mjs"
   }
 }

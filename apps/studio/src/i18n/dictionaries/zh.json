@@ -413,7 +413,10 @@
       "autoTrigger": "代码推送时自动触发",
       "autoTriggerHelp": "向该代码分支推送代码时，自动运行这条流水线",
       "schedule": "定时",
-      "scheduleHelp": "使用预设或填写 UTC 时区的 Cron 表达式。"
+      "scheduleHelp": "使用预设或填写 UTC 时区的 Cron 表达式。",
+      "mixedTriggerPurposeLabel": "混合触发目的",
+      "mixedTriggerPurposePlaceholder": "例如：Push 负责提交校验，Schedule 负责夜间漂移巡检",
+      "mixedTriggerPurposeHelp": "当同时启用自动触发和定时时必须填写，用于说明为什么需要同时保留两种触发方式。"
     },
     "schedule": {
       "description": "按 UTC 时区的周期计划运行这条流水线。",
@@ -814,7 +817,8 @@
       "help": "控制当另一个运行正在进行时触发运行时的行为。",
       "allowHelp": "允许多个运行同时执行。",
       "queueHelp": "如果已有运行在进行中，新运行将被拒绝（409）。",
-      "cancelPreviousHelp": "启动新运行前取消正在进行的运行。"
+      "cancelPreviousHelp": "启动新运行前取消正在进行的运行。",
+      "productionPolicyHelp": "生产环境流水线不能使用允许并发模式。请使用排队模式以保持部署可控且可审计。"
     },
     "steps": {
       "typeLabel": "步骤类型",

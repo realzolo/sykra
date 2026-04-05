@@ -75,6 +75,7 @@ import type {
   PipelineRunDetail,
   PipelineRunStatus,
   PipelineSummary,
+  PipelineTrigger,
   PipelineVersion,
 } from "@/services/pipelineTypes";
 import type { RunArtifactReleaseSummary } from "@/services/artifactRegistry";
@@ -995,6 +996,13 @@ export default function PipelineDetailClient({
 
   async function handleSave() {
     if (!config) return;
+    if (
+      (config.environment ?? "production") === "production" &&
+      (pipeline?.concurrency_mode ?? "allow") === "allow"
+    ) {
+      toast.error(p.concurrencyMode.productionPolicyHelp);
+      return;
+    }
     setSaving(true);
     try {
       const normalizedConfig = normalizePipelineConfigForSave(config, project.default_branch);
@@ -3123,7 +3131,7 @@ export default function PipelineDetailClient({
                         onCheckedChange={(value) =>
                           setConfig({
                             ...config,
-                            trigger: { ...config.trigger, autoTrigger: value },
+                            trigger: normalizeTriggerForEdit(config.trigger, { autoTrigger: value }),
                           })
                         }
                       />
@@ -3141,11 +3149,31 @@ export default function PipelineDetailClient({
                         onChange={(value) =>
                           setConfig({
                             ...config,
-                            trigger: { ...config.trigger, schedule: value },
+                            trigger: normalizeTriggerForEdit(config.trigger, { schedule: value }),
                           })
                         }
                       />
                     </div>
+                    {isDualTriggerMode(config.trigger) && (
+                      <div className="max-w-2xl space-y-1.5">
+                        <label className="text-[13px] font-medium text-foreground">
+                          {p.basic.mixedTriggerPurposeLabel}
+                        </label>
+                        <Input
+                          value={config.trigger.purpose ?? ""}
+                          onChange={(event) =>
+                            setConfig({
+                              ...config,
+                              trigger: normalizeTriggerForEdit(config.trigger, { purpose: event.target.value }),
+                            })
+                          }
+                          placeholder={p.basic.mixedTriggerPurposePlaceholder}
+                        />
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                          {p.basic.mixedTriggerPurposeHelp}
+                        </div>
+                      </div>
+                    )}
                     <StageBuilder
                       jobs={config.jobs}
                       stageSettings={config.stages}
@@ -3686,6 +3714,9 @@ export default function PipelineDetailClient({
                       <div className="flex gap-2 flex-wrap">
                         {(["allow", "queue", "cancel_previous"] as const).map((mode) => {
                           const active = (pipeline?.concurrency_mode ?? "allow") === mode;
+                          const isBlockedByProductionPolicy =
+                            (pipeline?.environment ?? config.environment ?? "production") === "production" &&
+                            mode === "allow";
                           const label =
                             mode === "allow"
                               ? p.concurrencyMode.allow
@@ -3703,7 +3734,7 @@ export default function PipelineDetailClient({
                               type="button"
                               key={mode}
                               onClick={async () => {
-                                if (!isAdmin || !pipeline) return;
+                                if (!isAdmin || !pipeline || isBlockedByProductionPolicy) return;
                                 try {
                                   const res = await fetch(`/api/pipelines/${pipelineId}`, {
                                     method: "PATCH",
@@ -3717,12 +3748,12 @@ export default function PipelineDetailClient({
                                   toast.error(p.saveFailed);
                                 }
                               }}
-                              disabled={!isAdmin}
+                              disabled={!isAdmin || isBlockedByProductionPolicy}
                               className={`flex-1 min-w-[120px] rounded-[8px] border px-3 py-2 text-left text-[13px] transition-colors ${
                                 active
                                   ? "border-foreground bg-muted text-foreground"
                                   : "border-[hsl(var(--ds-border-1))] text-[hsl(var(--ds-text-2))] hover:border-foreground/40"
-                              } ${!isAdmin ? "opacity-60 cursor-not-allowed" : ""}`}
+                              } ${!isAdmin || isBlockedByProductionPolicy ? "opacity-60 cursor-not-allowed hover:border-[hsl(var(--ds-border-1))]" : ""}`}
                             >
                               <div className="font-medium">{label}</div>
                               <div className="mt-0.5 text-[12px] opacity-70">{help}</div>
@@ -3730,6 +3761,11 @@ export default function PipelineDetailClient({
                           );
                         })}
                       </div>
+                      {(pipeline?.environment ?? config.environment ?? "production") === "production" && (
+                        <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                          {p.concurrencyMode.productionPolicyHelp}
+                        </div>
+                      )}
                     </div>
 
                     {isAdmin && (
@@ -3973,16 +4009,35 @@ function normalizeLoadedPipelineConfig(
   return fallback;
 }
 
+function isDualTriggerMode(trigger: PipelineTrigger): boolean {
+  return trigger.autoTrigger && Boolean(trigger.schedule?.trim());
+}
+
+function normalizeTriggerForEdit(trigger: PipelineTrigger, patch: Partial<PipelineTrigger>): PipelineTrigger {
+  const next: PipelineTrigger = { ...trigger, ...patch };
+  if (!isDualTriggerMode(next)) {
+    delete next.purpose;
+  }
+  return next;
+}
+
+function normalizeTriggerForSave(trigger: PipelineTrigger): PipelineTrigger {
+  const schedule = trigger.schedule?.trim() ?? "";
+  const purpose = trigger.purpose?.trim() ?? "";
+  const mixed = trigger.autoTrigger && schedule.length > 0;
+  return {
+    autoTrigger: trigger.autoTrigger,
+    ...(schedule ? { schedule } : {}),
+    ...(mixed && purpose ? { purpose } : {}),
+  };
+}
+
 function normalizePipelineConfigForSave(config: PipelineConfig, defaultBranch: string): PipelineConfig {
   const gatedConfig = enforceProductionDeployManualGate(config);
-  const schedule = gatedConfig.trigger.schedule?.trim();
   return {
     ...gatedConfig,
     buildImage: gatedConfig.buildImage?.trim() ?? "",
-    trigger: {
-      autoTrigger: gatedConfig.trigger.autoTrigger,
-      ...(schedule ? { schedule } : {}),
-    },
+    trigger: normalizeTriggerForSave(gatedConfig.trigger),
     stages: normalizeStageSettings(gatedConfig.stages),
     jobs: normalizePipelineJobs(gatedConfig.jobs, gatedConfig.stages, defaultBranch),
   };

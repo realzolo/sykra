@@ -191,6 +191,13 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const validated = validateRequest(createPipelineSchema, body);
+    const requestedConcurrencyMode = validated.concurrency_mode ?? 'queue';
+    if ((validated.config.environment ?? 'production') === 'production' && requestedConcurrencyMode === 'allow') {
+      return NextResponse.json(
+        { error: 'Production pipelines cannot use concurrency_mode=allow. Use queue for controlled execution.' },
+        { status: 409 }
+      );
+    }
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
     const role = await getOrgMemberRole(orgId, user.id);
     if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
@@ -215,7 +222,7 @@ export async function POST(request: NextRequest) {
               updated_at = now()
         where id = $2
           and org_id = $3`,
-      [validated.concurrency_mode ?? 'queue', result.pipeline.id, orgId]
+      [requestedConcurrencyMode, result.pipeline.id, orgId]
     );
 
     const clientInfo = extractClientInfo(request);
@@ -229,7 +236,7 @@ export async function POST(request: NextRequest) {
         projectId: payload.projectId ?? null,
         name: payload.name,
         environment: validated.config.environment,
-        concurrencyMode: validated.concurrency_mode ?? 'queue',
+        concurrencyMode: requestedConcurrencyMode,
       },
       ...clientInfo,
     });
