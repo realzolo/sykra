@@ -37,6 +37,7 @@ See also: `docs/pipeline/pipeline-optimization-handbook.md` for a step-by-step o
 ## Manual Execution & Recovery
 
 - Manual execution semantics are node-based, not stage-resume based: when a manual stage becomes ready, each ready job is marked `waiting_manual`; Studio triggers a specific `job_key`, Conductor requeues the run, and only that approved node proceeds
+- Manual node approvals must capture approver identity and an optional approval note in both Studio audit logs and Conductor run-control metadata so `job.manual_triggered` events remain attributable during incident review.
 - Pipeline run lifecycle control is explicit: active runs can be canceled from Studio through the local `/api/pipeline-runs/:runId/cancel` route before pipeline deletion can succeed, and run-history node details should open in a dialog instead of a persistent right-side inspector panel.
 - Pipeline node recovery is explicit: failed nodes can be retried from the node dialog, and Conductor re-queues the target job plus downstream affected jobs in the same pipeline run while clearing old logs/artifacts for the retried subtree. Retries emit a dedicated `run.retried` event and normalize retry attempts across the retried subtree.
 - Node retry semantics are sandbox-based: a retry always creates a fresh execution sandbox for the retried job, restarts that job from its first step, and preserves upstream successful jobs as immutable inputs. Studio should make it explicit in both the retry dialog and run header via a light info tooltip that retry reuses the original run's version snapshot; users who want the latest pipeline config must trigger a new run after saving changes.
@@ -46,6 +47,7 @@ See also: `docs/pipeline/pipeline-optimization-handbook.md` for a step-by-step o
 - **Studio** ships a native stage builder under `/pipelines` with fixed lifecycle columns (`source -> after_source -> review -> after_review -> build -> after_build -> deploy -> after_deploy`), on-demand automation insertion, stage-level controls for core stages, and an in-place job inspector.
 - **Pipeline execution roles** are split by responsibility: `source/quality_gate/build` stages execute inside Conductor-managed per-job runner containers created from the pipeline `buildImage`, while `deploy/after_deploy` stages route to remote deploy workers over the worker control channel.
 - Conductor must verify local Docker daemon availability at startup because CI sandbox creation depends on it.
+- Conductor `/readyz` must also verify Docker daemon reachability, so deployments only mark the service ready when CI sandbox creation can actually succeed.
 - Workers that advertise the `docker` capability must verify Docker daemon availability at startup and fail fast if it is unavailable.
 - Docker step containers use a `conductor-step-<run>-<job>-<step>-<request>` name so container inspection maps cleanly back to pipeline execution.
 - **Pipelines** always belong to a project (`project_id` is required, never null).
@@ -71,6 +73,7 @@ See also: `docs/pipeline/pipeline-optimization-handbook.md` for a step-by-step o
 - **Step artifacts**: each user-defined step can declare `artifactPaths` (glob/file list, one per line in UI). Conductor resolves and uploads artifacts after CI sandbox steps complete; deploy workers download required inputs from Conductor-backed artifact storage before deployment steps execute.
 - **Artifact upload reliability**: worker uploads each artifact with bounded retry (`maxAttempts=3`) and emits attempt metadata; Conductor records observability events (`step.artifact.uploaded`, `step.artifact.upload_failed`, `step.artifact.upload_observed`) for timing/error-category analysis.
 - **Concurrency modes**: each pipeline has a `concurrency_mode` column (`allow` / `queue` / `cancel_previous`). Conductor is the execution source of truth for concurrency across all trigger sources (manual/API, webhook, schedule). Run admission is transactional per pipeline (pipeline row lock), so idempotency checks and concurrency side effects are atomic: `queue` allows enqueueing but dispatch claims only the oldest eligible queued run per pipeline when no `running`/`waiting_manual` run exists; `cancel_previous` cancels existing `queued`/`running`/`waiting_manual` runs before creating the next run. Included in `docs/db/init.sql`; existing DBs should apply `docs/db/migrations/add_concurrency_mode.sql`.
+- **Schedule scanning resilience**: Conductor should continue scanning and triggering unrelated due schedules even when one scheduled pipeline fails admission or schedule-state persistence, then emit an aggregated scan error after the batch for operator visibility.
 - **Events** are appended to `pipeline_run_events` for UI polling and audit.
 - **Logs** are stored locally under `CONDUCTOR_DATA_DIR`: `logs/{run_id}/{job_key}/{step_key}.log`
 
@@ -106,4 +109,4 @@ See also: `docs/pipeline/pipeline-optimization-handbook.md` for a step-by-step o
 - Conductor emits completion events to Studio at `POST /api/conductor/events` (authorized via `X-Conductor-Token`) so Studio can send notifications
 - Conductor must be configured with `STUDIO_URL` and a token (`STUDIO_TOKEN`, defaults to `CONDUCTOR_TOKEN`) and Studio must accept `X-Conductor-Token` (shared secret)
 
-**GitHub webhook:** `/api/webhooks/github` supports `?project_id=...`. If a repo matches multiple projects, the endpoint returns 409 and requires `project_id`.
+**GitHub webhook:** `/api/webhooks/github` supports `?project_id=...`. If a repo matches multiple projects, the endpoint returns 409 and requires `project_id`. Push auto-trigger evaluation must stay scoped to the matched project pipelines and branch, not the entire org pipeline set.

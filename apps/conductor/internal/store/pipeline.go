@@ -2006,13 +2006,9 @@ func (s *Store) GetPipelineRunDetail(ctx context.Context, runID string) (*Pipeli
 		return nil, err
 	}
 
-	var steps []PipelineStep
-	for _, job := range jobs {
-		jobSteps, err := s.ListPipelineSteps(ctx, job.ID)
-		if err != nil {
-			return nil, err
-		}
-		steps = append(steps, jobSteps...)
+	steps, err := s.ListPipelineStepsForRun(ctx, runID)
+	if err != nil {
+		return nil, err
 	}
 
 	projectPipelineRunJobStatuses(jobs, steps)
@@ -2218,6 +2214,80 @@ func (s *Store) ListPipelineSteps(ctx context.Context, jobID string) ([]Pipeline
 		steps = append(steps, step)
 	}
 	return steps, nil
+}
+
+func (s *Store) ListPipelineStepsForRun(ctx context.Context, runID string) ([]PipelineStep, error) {
+	rows, err := s.pool.Query(
+		ctx,
+		`select s.id, s.job_id, s.step_key, s.name, s.status, s.exit_code, s.timeout_ms, s.duration_ms, s.error_message, s.log_path, s.created_at, s.started_at, s.finished_at, s.updated_at
+		 from pipeline_steps s
+		 join pipeline_jobs j on j.id = s.job_id
+		 where j.run_id = $1
+		 order by j.created_at asc, s.created_at asc`,
+		runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	steps := make([]PipelineStep, 0)
+	for rows.Next() {
+		var exitCode pgtype.Int4
+		var timeout pgtype.Int4
+		var duration pgtype.Int4
+		var errorMessage pgtype.Text
+		var logPath pgtype.Text
+		var startedAt pgtype.Timestamptz
+		var finishedAt pgtype.Timestamptz
+		var step PipelineStep
+		if err := rows.Scan(
+			&step.ID,
+			&step.JobID,
+			&step.StepKey,
+			&step.Name,
+			&step.Status,
+			&exitCode,
+			&timeout,
+			&duration,
+			&errorMessage,
+			&logPath,
+			&step.CreatedAt,
+			&startedAt,
+			&finishedAt,
+			&step.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if exitCode.Valid {
+			val := int(exitCode.Int32)
+			step.ExitCode = &val
+		}
+		if timeout.Valid {
+			val := int(timeout.Int32)
+			step.TimeoutMs = &val
+		}
+		if duration.Valid {
+			val := int(duration.Int32)
+			step.DurationMs = &val
+		}
+		if errorMessage.Valid {
+			val := errorMessage.String
+			step.ErrorMessage = &val
+		}
+		if logPath.Valid {
+			val := logPath.String
+			step.LogPath = &val
+		}
+		if startedAt.Valid {
+			step.StartedAt = &startedAt.Time
+		}
+		if finishedAt.Valid {
+			step.FinishedAt = &finishedAt.Time
+		}
+		steps = append(steps, step)
+	}
+	return steps, rows.Err()
 }
 
 func (s *Store) GetPipelineStepByKey(ctx context.Context, jobID string, stepKey string) (PipelineStep, error) {

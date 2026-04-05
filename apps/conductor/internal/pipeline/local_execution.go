@@ -47,6 +47,14 @@ func (e *Engine) runJobLocally(
 			"error":      err.Error(),
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
 		})
+		e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+			Scope:           "job",
+			Status:          StatusFailed,
+			Message:         err.Error(),
+			JobID:           jobRecord.ID,
+			JobKey:          job.ID,
+			ExecutionTarget: jobExecutionTarget(job),
+		})
 		return err
 	}
 	sandbox, err := startJobSandbox(ctx, runID, job.ID, strings.TrimSpace(cfg.BuildImage), jobWorkspaceRoot)
@@ -60,6 +68,14 @@ func (e *Engine) runJobLocally(
 			"status":     StatusFailed,
 			"error":      err.Error(),
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
+		})
+		e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+			Scope:           "job",
+			Status:          StatusFailed,
+			Message:         err.Error(),
+			JobID:           jobRecord.ID,
+			JobKey:          job.ID,
+			ExecutionTarget: jobExecutionTarget(job),
 		})
 		return err
 	}
@@ -86,6 +102,14 @@ func (e *Engine) runJobLocally(
 				"status":     StatusFailed,
 				"error":      err.Error(),
 				"finishedAt": time.Now().UTC().Format(time.RFC3339),
+			})
+			e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+				Scope:           "job",
+				Status:          StatusFailed,
+				Message:         err.Error(),
+				JobID:           jobRecord.ID,
+				JobKey:          job.ID,
+				ExecutionTarget: jobExecutionTarget(job),
 			})
 			return err
 		}
@@ -917,6 +941,21 @@ func (e *Engine) uploadLocalStepArtifacts(
 				return err
 			}
 		}
+		_ = ingestQualityEvidenceArtifact(
+			ctx,
+			e.Store,
+			e.Artifacts,
+			run,
+			runID,
+			qualityEvidenceEventMeta{
+				JobID:     jobRecord.ID,
+				JobKey:    job.ID,
+				StepID:    stepRecord.ID,
+				StepKey:   step.ID,
+				CheckType: step.CheckType,
+			},
+			artifact,
+		)
 	}
 	return nil
 }

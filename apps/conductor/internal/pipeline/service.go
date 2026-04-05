@@ -50,8 +50,12 @@ type TriggerRunInput struct {
 }
 
 type TriggerRunJobInput struct {
-	RunID  string
-	JobKey string
+	RunID           string
+	JobKey          string
+	ApprovedBy      string
+	ApprovedByEmail string
+	ApprovedByName  string
+	Comment         string
 }
 
 type RetryRunJobInput struct {
@@ -396,43 +400,89 @@ func (s *Service) scanScheduledPipelines(ctx context.Context) error {
 		return nil
 	}
 
-	due, err := s.Store.ListDueScheduledPipelines(ctx, 50)
+	return scanScheduledPipelinesWithDeps(
+		ctx,
+		50,
+		s.Store.ListDueScheduledPipelines,
+		s.TriggerRun,
+		s.Store.UpdatePipelineSchedule,
+		nextScheduleAt,
+		func() time.Time { return time.Now().UTC() },
+	)
+}
+
+func scanScheduledPipelinesWithDeps(
+	ctx context.Context,
+	limit int,
+	listDue func(context.Context, int) ([]store.Pipeline, error),
+	trigger func(context.Context, TriggerRunInput) (*store.PipelineRun, error),
+	updateSchedule func(context.Context, string, *string, *time.Time, *time.Time) error,
+	nextSchedule func(string, time.Time) (time.Time, error),
+	now func() time.Time,
+) error {
+	if limit <= 0 {
+		limit = 50
+	}
+	if listDue == nil || trigger == nil || updateSchedule == nil || nextSchedule == nil || now == nil {
+		return errors.New("scheduled pipeline scan dependencies are incomplete")
+	}
+
+	due, err := listDue(ctx, limit)
 	if err != nil {
 		return err
 	}
 
-	now := time.Now().UTC()
+	failures := make([]string, 0)
+	batchNow := now().UTC()
 	for _, pipeline := range due {
 		if pipeline.TriggerSchedule == nil || pipeline.NextScheduledAt == nil {
 			continue
 		}
+
 		dueAt := *pipeline.NextScheduledAt
+		scheduleValue := *pipeline.TriggerSchedule
 		idempotencyKey := fmt.Sprintf("schedule:%s:%s", pipeline.ID, dueAt.UTC().Format(time.RFC3339))
-		run, triggerErr := s.TriggerRun(ctx, TriggerRunInput{
+		_, triggerErr := trigger(ctx, TriggerRunInput{
 			PipelineID:     pipeline.ID,
 			TriggerType:    "schedule",
 			IdempotencyKey: idempotencyKey,
 			Metadata: map[string]any{
 				"schedule": map[string]any{
-					"expression":  pipeline.TriggerSchedule,
+					"expression":  scheduleValue,
 					"scheduledAt": dueAt.UTC().Format(time.RFC3339),
 				},
 			},
 		})
 		if triggerErr != nil {
-			return fmt.Errorf("trigger scheduled pipeline %s failed: %w", pipeline.ID, triggerErr)
+			failures = append(failures, fmt.Sprintf("pipeline %s trigger failed: %v", pipeline.ID, triggerErr))
+			continue
 		}
 
-		next, nextErr := nextScheduleAt(*pipeline.TriggerSchedule, now)
+		next, nextErr := nextSchedule(scheduleValue, batchNow)
 		if nextErr != nil {
-			return fmt.Errorf("compute next schedule for pipeline %s failed: %w", pipeline.ID, nextErr)
+			failures = append(failures, fmt.Sprintf("pipeline %s next schedule failed: %v", pipeline.ID, nextErr))
+			continue
 		}
-		if err := s.Store.UpdatePipelineSchedule(ctx, pipeline.ID, pipeline.TriggerSchedule, &next, &dueAt); err != nil {
-			return err
+		if err := updateSchedule(ctx, pipeline.ID, &scheduleValue, &next, &dueAt); err != nil {
+			failures = append(failures, fmt.Sprintf("pipeline %s schedule update failed: %v", pipeline.ID, err))
 		}
-		_ = run
 	}
-	return nil
+
+	if len(failures) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"scheduled pipeline scan completed with %d failure(s): %s",
+		len(failures),
+		strings.Join(failures[:scheduleScanErrorPreviewLimit(len(failures))], "; "),
+	)
+}
+
+func scheduleScanErrorPreviewLimit(total int) int {
+	if total <= 3 {
+		return total
+	}
+	return 3
 }
 
 func (s *Service) GetPipeline(ctx context.Context, pipelineID string) (*store.Pipeline, *store.PipelineVersion, error) {
@@ -671,6 +721,14 @@ func (s *Service) TriggerRunJob(ctx context.Context, input TriggerRunJobInput) e
 		return err
 	}
 	control.ApprovedJobs = appendUniqueValue(control.ApprovedJobs, input.JobKey)
+	control.Approvals = upsertManualApproval(control.Approvals, manualApprovalRecord{
+		JobKey:          input.JobKey,
+		ApprovedBy:      strings.TrimSpace(input.ApprovedBy),
+		ApprovedByEmail: strings.TrimSpace(input.ApprovedByEmail),
+		ApprovedByName:  strings.TrimSpace(input.ApprovedByName),
+		Comment:         strings.TrimSpace(input.Comment),
+		ApprovedAt:      time.Now().UTC().Format(time.RFC3339),
+	})
 
 	metadataRaw, err := encodeRunControlMetadata(run.Metadata, control)
 	if err != nil {
@@ -685,14 +743,38 @@ func (s *Service) TriggerRunJob(ctx context.Context, input TriggerRunJobInput) e
 	}
 
 	_ = s.Store.AppendRunEvent(ctx, input.RunID, "job.manual_triggered", map[string]any{
-		"runId":     input.RunID,
-		"jobId":     job.ID,
-		"jobKey":    job.JobKey,
-		"status":    StatusQueued,
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"runId":           input.RunID,
+		"jobId":           job.ID,
+		"jobKey":          job.JobKey,
+		"status":          StatusQueued,
+		"approvedBy":      strings.TrimSpace(input.ApprovedBy),
+		"approvedByEmail": strings.TrimSpace(input.ApprovedByEmail),
+		"approvedByName":  strings.TrimSpace(input.ApprovedByName),
+		"comment":         strings.TrimSpace(input.Comment),
+		"timestamp":       time.Now().UTC().Format(time.RFC3339),
 	})
 
 	return nil
+}
+
+func upsertManualApproval(records []manualApprovalRecord, record manualApprovalRecord) []manualApprovalRecord {
+	if strings.TrimSpace(record.JobKey) == "" {
+		return records
+	}
+	next := make([]manualApprovalRecord, 0, len(records)+1)
+	replaced := false
+	for _, item := range records {
+		if item.JobKey == record.JobKey {
+			next = append(next, record)
+			replaced = true
+			continue
+		}
+		next = append(next, item)
+	}
+	if !replaced {
+		next = append(next, record)
+	}
+	return next
 }
 
 func (s *Service) RetryRunJob(ctx context.Context, input RetryRunJobInput) error {
@@ -897,6 +979,19 @@ func (s *Service) UploadWorkerArtifact(ctx context.Context, input UploadWorkerAr
 			return nil, err
 		}
 	}
+	_ = ingestQualityEvidenceArtifact(
+		ctx,
+		s.Store,
+		s.Artifacts,
+		run,
+		input.RunID,
+		qualityEvidenceEventMeta{
+			JobID:   input.JobID,
+			StepID:  step.ID,
+			StepKey: step.StepKey,
+		},
+		artifact,
+	)
 	return &artifact, nil
 }
 

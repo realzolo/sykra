@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     let failed = 0;
     let pipelinesTriggered = 0;
     const pushedBranch = payload.ref?.replace('refs/heads/', '') ?? '';
-    const orgIds = new Set<string>();
+    const triggeredPipelineIds = new Set<string>();
 
     for (const project of projects) {
       if (!project.repo) {
@@ -107,27 +107,33 @@ export async function POST(request: NextRequest) {
           { forceSync: true }
         );
         synced += 1;
-        orgIds.add(project.org_id);
       } catch (err) {
         failed += 1;
         logger.warn('Codebase sync from webhook failed', err instanceof Error ? err : undefined);
       }
     }
 
-    // Auto-trigger pipelines with matching branch
+    // Auto-trigger pipelines that belong to the matched project and branch.
     if (pushedBranch) {
-      for (const orgId of orgIds) {
+      for (const project of projects) {
         try {
-          const allPipelines = await listPipelines(orgId);
-          if (!Array.isArray(allPipelines)) continue;
-          for (const p of allPipelines) {
+          const projectPipelines = await listPipelines(project.org_id, project.id);
+          if (!Array.isArray(projectPipelines)) continue;
+          for (const p of projectPipelines) {
             if (!p.auto_trigger) continue;
             if (p.source_branch !== pushedBranch) continue;
+            if (triggeredPipelineIds.has(p.id)) continue;
             try {
               await createPipelineRun(p.id, {
                 triggerType: 'webhook',
-                metadata: { ref: payload.ref, pushedBranch, repo: repoFullName },
+                metadata: {
+                  ref: payload.ref,
+                  pushedBranch,
+                  projectId: project.id,
+                  repo: repoFullName,
+                },
               });
+              triggeredPipelineIds.add(p.id);
               pipelinesTriggered += 1;
             } catch (err) {
               logger.warn('Auto-trigger pipeline failed', err instanceof Error ? err : undefined);

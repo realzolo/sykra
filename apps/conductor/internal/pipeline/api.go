@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -270,9 +271,30 @@ func (a *API) handlePipelineRuns(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "job key is required")
 			return
 		}
+		var payload struct {
+			ApprovedBy      string `json:"approvedBy"`
+			ApprovedByEmail string `json:"approvedByEmail"`
+			ApprovedByName  string `json:"approvedByName"`
+			Comment         string `json:"comment"`
+		}
+		body, err := httpx.ReadBody(r, 1<<20)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &payload); err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid json")
+				return
+			}
+		}
 		if err := a.service.TriggerRunJob(r.Context(), TriggerRunJobInput{
-			RunID:  runID,
-			JobKey: parts[2],
+			RunID:           runID,
+			JobKey:          parts[2],
+			ApprovedBy:      payload.ApprovedBy,
+			ApprovedByEmail: payload.ApprovedByEmail,
+			ApprovedByName:  payload.ApprovedByName,
+			Comment:         payload.Comment,
 		}); err != nil {
 			httpx.WriteError(w, http.StatusBadRequest, err.Error())
 			return

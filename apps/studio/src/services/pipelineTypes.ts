@@ -327,6 +327,25 @@ export type PipelineRunDetail = {
     attempt: number;
     error_code?: string | null;
     error_message?: string | null;
+    failure_signature?: {
+      code: string;
+      title: string;
+      summary: string;
+      severity: string;
+      scope: string;
+      message: string;
+      job_id?: string | null;
+      job_key?: string | null;
+      step_id?: string | null;
+      step_key?: string | null;
+      detected_at?: string | null;
+      runbook?: {
+        id: string;
+        title: string;
+        doc_path: string;
+        actions: string[];
+      } | null;
+    } | null;
   };
   jobs: Array<{
     id: string;

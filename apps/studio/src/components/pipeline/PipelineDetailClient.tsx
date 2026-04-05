@@ -143,6 +143,7 @@ const STATUS_ICON_SM: Record<PipelineRunStatus, React.ReactNode> = {
 
 type PipelineRun = PipelineRunDetail["run"];
 type PipelineRunStep = PipelineRunDetail["steps"][number];
+type PipelineFailureSignature = NonNullable<PipelineRun["failure_signature"]>;
 type PipelinePolicyRejection = {
   id: string;
   reason_code: string;
@@ -177,6 +178,128 @@ function formatDurationSeconds(seconds: number | null | undefined): string {
     return "—";
   }
   return formatDurationMs(seconds * 1000);
+}
+
+function formatPercent(value: number | null | undefined): string {
+  if (!Number.isFinite(value ?? null) || value === null || value === undefined) {
+    return "—";
+  }
+  return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`;
+}
+
+function failureSeverityBadgeVariant(severity: string | null | undefined): "danger" | "warning" | "muted" {
+  const normalized = (severity ?? "").toLowerCase().trim();
+  if (normalized === "high" || normalized === "critical") return "danger";
+  if (normalized === "medium") return "warning";
+  return "muted";
+}
+
+type RunQualityEvidence = {
+  tests: {
+    artifact_path: string | null;
+    report_format: string | null;
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    duration_seconds: number | null;
+    timestamp: string | null;
+  } | null;
+  coverage: {
+    artifact_path: string | null;
+    report_format: string | null;
+    lines_total: number | null;
+    lines_covered: number | null;
+    line_pct: number | null;
+    branch_pct: number | null;
+    function_pct: number | null;
+    statement_pct: number | null;
+    timestamp: string | null;
+  } | null;
+};
+
+function normalizeRunQualityEvidence(value: unknown): RunQualityEvidence | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const obj = value as {
+    tests?: unknown;
+    coverage?: unknown;
+  };
+  const parseNumber = (input: unknown): number | null => {
+    if (typeof input === "number" && Number.isFinite(input)) return input;
+    if (typeof input === "string") {
+      const parsed = Number.parseFloat(input);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+  const parseInteger = (input: unknown): number => {
+    const parsed = parseNumber(input);
+    return parsed === null ? 0 : Math.trunc(parsed);
+  };
+  const parseNullableInteger = (input: unknown): number | null => {
+    const parsed = parseNumber(input);
+    return parsed === null ? null : Math.trunc(parsed);
+  };
+  const parseString = (input: unknown): string | null => {
+    if (typeof input !== "string") return null;
+    const trimmed = input.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+  const parseTests = (input: unknown): RunQualityEvidence["tests"] => {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return null;
+    const item = input as {
+      artifact_path?: unknown;
+      report_format?: unknown;
+      total?: unknown;
+      passed?: unknown;
+      failed?: unknown;
+      skipped?: unknown;
+      duration_seconds?: unknown;
+      timestamp?: unknown;
+    };
+    return {
+      artifact_path: parseString(item.artifact_path),
+      report_format: parseString(item.report_format),
+      total: parseInteger(item.total),
+      passed: parseInteger(item.passed),
+      failed: parseInteger(item.failed),
+      skipped: parseInteger(item.skipped),
+      duration_seconds: parseNumber(item.duration_seconds),
+      timestamp: parseString(item.timestamp),
+    };
+  };
+  const parseCoverage = (input: unknown): RunQualityEvidence["coverage"] => {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return null;
+    const item = input as {
+      artifact_path?: unknown;
+      report_format?: unknown;
+      lines_total?: unknown;
+      lines_covered?: unknown;
+      line_pct?: unknown;
+      branch_pct?: unknown;
+      function_pct?: unknown;
+      statement_pct?: unknown;
+      timestamp?: unknown;
+    };
+    return {
+      artifact_path: parseString(item.artifact_path),
+      report_format: parseString(item.report_format),
+      lines_total: parseNullableInteger(item.lines_total),
+      lines_covered: parseNullableInteger(item.lines_covered),
+      line_pct: parseNumber(item.line_pct),
+      branch_pct: parseNumber(item.branch_pct),
+      function_pct: parseNumber(item.function_pct),
+      statement_pct: parseNumber(item.statement_pct),
+      timestamp: parseString(item.timestamp),
+    };
+  };
+
+  return {
+    tests: parseTests(obj.tests),
+    coverage: parseCoverage(obj.coverage),
+  };
 }
 
 function normalizeArtifactRepositorySlug(value: string) {
@@ -423,6 +546,11 @@ export default function PipelineDetailClient({
   const [cancelingRunId, setCancelingRunId] = useState<string | null>(null);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
   const [triggeringJobKey, setTriggeringJobKey] = useState<string | null>(null);
+  const [manualTriggerDialogTarget, setManualTriggerDialogTarget] = useState<{
+    jobKey: string;
+    jobName: string;
+  } | null>(null);
+  const [manualTriggerComment, setManualTriggerComment] = useState("");
   const [retryingJobKey, setRetryingJobKey] = useState<string | null>(null);
   const [retryDialogTarget, setRetryDialogTarget] = useState<{
     jobKey: string;
@@ -501,6 +629,7 @@ export default function PipelineDetailClient({
     expires_at: string | null;
   };
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [qualityEvidence, setQualityEvidence] = useState<RunQualityEvidence | null>(null);
   const configDiagnostics = useMemo(
     () =>
       config
@@ -591,6 +720,7 @@ export default function PipelineDetailClient({
       const data = await res.json();
       setArtifacts(Array.isArray(data?.artifacts) ? data.artifacts : []);
       setArtifactReleases(Array.isArray(data?.releases) ? data.releases : []);
+      setQualityEvidence(normalizeRunQualityEvidence(data?.qualityEvidence));
     } catch {/* ignore */}
   }, []);
 
@@ -717,77 +847,138 @@ export default function PipelineDetailClient({
     setLogLoading(false);
     setLogError(null);
     setArtifacts([]);
+    setQualityEvidence(null);
     setArtifactReleases([]);
     void loadArtifacts(selectedRunId);
   }, [selectedRunId, loadArtifacts]);
 
-  // Keep run detail synchronized through SSE, with polling fallback if the stream fails.
+  // Keep run detail synchronized through SSE, with adaptive polling fallback only while the stream is degraded.
   useEffect(() => {
     if (!selectedRunId) return;
 
     let active = true;
-    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let eventSource: EventSource | null = null;
+    let fallbackDelayMs = 2000;
 
     const stopFallback = () => {
-      if (!fallbackInterval) return;
-      clearInterval(fallbackInterval);
-      fallbackInterval = null;
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+      fallbackDelayMs = 2000;
     };
 
-    const startFallback = () => {
-      if (fallbackInterval) return;
-      fallbackInterval = setInterval(() => {
+    const stopReconnect = () => {
+      if (!reconnectTimer) return;
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    };
+
+    const scheduleFallback = () => {
+      if (!active || fallbackTimer) return;
+      fallbackTimer = setTimeout(() => {
+        fallbackTimer = null;
+        if (!active) {
+          return;
+        }
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          scheduleFallback();
+          return;
+        }
         void loadRunDetail(selectedRunId);
-      }, 1000);
+        fallbackDelayMs = Math.min(15000, Math.floor(fallbackDelayMs * 1.6));
+        scheduleFallback();
+      }, fallbackDelayMs);
+    };
+
+    const scheduleReconnect = () => {
+      if (!active || reconnectTimer || eventSource) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (!active) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        openEventStream();
+      }, 2000);
+    };
+
+    const openEventStream = () => {
+      if (!active || eventSource) return;
+      try {
+        eventSource = new EventSource(`/api/pipeline-runs/${selectedRunId}/stream`);
+        eventSource.onmessage = (event) => {
+          if (!event.data) return;
+          stopFallback();
+          try {
+            const payload = JSON.parse(event.data) as {
+              type?: string;
+              runDetail?: PipelineRunDetail;
+            };
+            if (payload.type !== "run_update" || !payload.runDetail) {
+              return;
+            }
+
+            const nextDetail = payload.runDetail;
+            applyRunDetail(selectedRunId, nextDetail);
+
+            if (
+              nextDetail.run.status === "success" ||
+              nextDetail.run.status === "failed" ||
+              nextDetail.run.status === "canceled" ||
+              nextDetail.run.status === "timed_out"
+            ) {
+              stopFallback();
+              stopReconnect();
+              eventSource?.close();
+              eventSource = null;
+            }
+          } catch {
+            // ignore malformed messages
+          }
+        };
+        eventSource.onerror = () => {
+          if (!active) return;
+          scheduleFallback();
+          if (eventSource?.readyState === EventSource.CLOSED) {
+            eventSource?.close();
+            eventSource = null;
+            scheduleReconnect();
+          }
+        };
+      } catch {
+        scheduleFallback();
+        scheduleReconnect();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (!active || typeof document === "undefined") return;
+      if (document.visibilityState === "visible") {
+        stopFallback();
+        void loadRunDetail(selectedRunId);
+        if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+          eventSource?.close();
+          eventSource = null;
+          openEventStream();
+        }
+      }
     };
 
     void loadRunDetail(selectedRunId);
-
-    try {
-      eventSource = new EventSource(`/api/pipeline-runs/${selectedRunId}/stream`);
-      eventSource.onmessage = (event) => {
-        if (!event.data) return;
-        try {
-          const payload = JSON.parse(event.data) as {
-            type?: string;
-            runDetail?: PipelineRunDetail;
-          };
-          if (payload.type !== "run_update" || !payload.runDetail) {
-            return;
-          }
-
-          const nextDetail = payload.runDetail;
-          applyRunDetail(selectedRunId, nextDetail);
-
-          if (
-            nextDetail.run.status === "success" ||
-            nextDetail.run.status === "failed" ||
-            nextDetail.run.status === "canceled" ||
-            nextDetail.run.status === "timed_out"
-          ) {
-            eventSource?.close();
-            eventSource = null;
-          }
-        } catch {
-          // ignore malformed messages
-        }
-      };
-      eventSource.onerror = () => {
-        if (!active) return;
-        eventSource?.close();
-        eventSource = null;
-        stopFallback();
-        startFallback();
-      };
-    } catch {
-      startFallback();
+    openEventStream();
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
     }
 
     return () => {
       active = false;
       stopFallback();
+      stopReconnect();
       eventSource?.close();
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     };
   }, [selectedRunId, runStreamNonce, loadRunDetail, applyRunDetail]);
 
@@ -1282,13 +1473,19 @@ export default function PipelineDetailClient({
     }
   }
 
-  async function handleTriggerJob(jobKey: string) {
+  async function handleTriggerJob(jobKey: string, comment?: string) {
     if (!selectedRunId) return;
     setTriggeringJobKey(jobKey);
     try {
       const res = await fetch(
         `/api/pipeline-runs/${selectedRunId}/jobs/${encodeURIComponent(jobKey)}/trigger`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(comment?.trim() ? { comment: comment.trim() } : {}),
+          }),
+        }
       );
       if (!res.ok) throw new Error("failed");
       toast.success(p.detail.manualTriggerSuccess);
@@ -1556,6 +1753,39 @@ export default function PipelineDetailClient({
     : "";
   const runHistoryTitle = `${p.detail.runHistory} (${runs.length})`;
   const hasFailureSummary = Boolean(runExecutionSummary?.failure_summary || currentRunIsTerminalFailure);
+  const failureSignature = useMemo<PipelineFailureSignature | null>(() => {
+    const item = runDetail?.run.failure_signature;
+    return item ?? null;
+  }, [runDetail?.run.failure_signature]);
+  const selectedNodeFailureSignature = useMemo<PipelineFailureSignature | null>(() => {
+    if (!failureSignature || !selectedRuntimeJob) return null;
+    if (failureSignature.job_id && failureSignature.job_id !== selectedRuntimeJob.id) {
+      return null;
+    }
+    if (failureSignature.job_key && failureSignature.job_key !== selectedRuntimeJob.job_key) {
+      return null;
+    }
+    if (failureSignature.step_id && !selectedRuntimeSteps.some((step) => step.id === failureSignature.step_id)) {
+      return null;
+    }
+    if (
+      failureSignature.step_key &&
+      !selectedRuntimeSteps.some((step) => step.step_key === failureSignature.step_key)
+    ) {
+      return null;
+    }
+    return failureSignature;
+  }, [failureSignature, selectedRuntimeJob, selectedRuntimeSteps]);
+  const selectedNodeFailureStepName = useMemo(() => {
+    if (!selectedNodeFailureSignature) return null;
+    if (selectedNodeFailureSignature.step_id) {
+      return selectedRuntimeSteps.find((step) => step.id === selectedNodeFailureSignature.step_id)?.name ?? null;
+    }
+    if (selectedNodeFailureSignature.step_key) {
+      return selectedRuntimeSteps.find((step) => step.step_key === selectedNodeFailureSignature.step_key)?.name ?? null;
+    }
+    return null;
+  }, [selectedNodeFailureSignature, selectedRuntimeSteps]);
   const orderedVersions = useMemo(
     () => [...versions].sort((a, b) => a.version - b.version),
     [versions]
@@ -1852,6 +2082,7 @@ export default function PipelineDetailClient({
   }
   const selectedRunArtifacts = artifacts;
   const selectedRunArtifactReleases = artifactReleases;
+  const selectedRunQualityEvidence = qualityEvidence;
 
   useEffect(() => {
     setPublishRepositoryName(project.name);
@@ -2142,6 +2373,68 @@ export default function PipelineDetailClient({
 
                       {/* Rollback / retry */}
                       <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
+                      {currentRun && selectedRunQualityEvidence && (selectedRunQualityEvidence.tests || selectedRunQualityEvidence.coverage) && (
+                        <div className="w-full rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2 lg:max-w-[320px]">
+                          <div className="text-[12px] font-medium text-foreground">
+                            {p.detail.qualityEvidenceTitle}
+                          </div>
+                          {selectedRunQualityEvidence.tests && (
+                            <div className="mt-2 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background px-3 py-2">
+                              <div className="text-[11px] font-medium text-foreground">{p.detail.qualityEvidenceTests}</div>
+                              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-[hsl(var(--ds-text-2))]">
+                                <div>{p.detail.qualityEvidencePassRate}</div>
+                                <div className="text-right text-foreground">
+                                  {selectedRunQualityEvidence.tests.total > 0
+                                    ? formatPercent(
+                                        (selectedRunQualityEvidence.tests.passed * 100) /
+                                          selectedRunQualityEvidence.tests.total
+                                      )
+                                    : "—"}
+                                </div>
+                                <div>{p.detail.qualityEvidenceFailures}</div>
+                                <div className="text-right text-foreground">{selectedRunQualityEvidence.tests.failed}</div>
+                                <div>{p.detail.qualityEvidenceSkipped}</div>
+                                <div className="text-right text-foreground">{selectedRunQualityEvidence.tests.skipped}</div>
+                                <div>{p.detail.qualityEvidenceDuration}</div>
+                                <div className="text-right text-foreground">
+                                  {formatDurationSeconds(selectedRunQualityEvidence.tests.duration_seconds)}
+                                </div>
+                                <div>{p.detail.qualityEvidenceTotal}</div>
+                                <div className="text-right text-foreground">
+                                  {selectedRunQualityEvidence.tests.passed}/{selectedRunQualityEvidence.tests.total}
+                                </div>
+                              </div>
+                              {selectedRunQualityEvidence.tests.artifact_path && (
+                                <div className="mt-2 truncate text-[10px] text-[hsl(var(--ds-text-2))]">
+                                  {p.detail.qualityEvidenceSource}:{" "}
+                                  <span className="text-foreground">{selectedRunQualityEvidence.tests.artifact_path}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {selectedRunQualityEvidence.coverage && (
+                            <div className="mt-2 rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background px-3 py-2">
+                              <div className="text-[11px] font-medium text-foreground">{p.detail.qualityEvidenceCoverage}</div>
+                              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-[hsl(var(--ds-text-2))]">
+                                <div>{p.detail.qualityEvidenceLines}</div>
+                                <div className="text-right text-foreground">{formatPercent(selectedRunQualityEvidence.coverage.line_pct)}</div>
+                                <div>{p.detail.qualityEvidenceBranches}</div>
+                                <div className="text-right text-foreground">{formatPercent(selectedRunQualityEvidence.coverage.branch_pct)}</div>
+                                <div>{p.detail.qualityEvidenceFunctions}</div>
+                                <div className="text-right text-foreground">{formatPercent(selectedRunQualityEvidence.coverage.function_pct)}</div>
+                                <div>{p.detail.qualityEvidenceStatements}</div>
+                                <div className="text-right text-foreground">{formatPercent(selectedRunQualityEvidence.coverage.statement_pct)}</div>
+                              </div>
+                              {selectedRunQualityEvidence.coverage.artifact_path && (
+                                <div className="mt-2 truncate text-[10px] text-[hsl(var(--ds-text-2))]">
+                                  {p.detail.qualityEvidenceSource}:{" "}
+                                  <span className="text-foreground">{selectedRunQualityEvidence.coverage.artifact_path}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {currentRun && currentRun.status === "success" && (
                         <div className="flex flex-col gap-3 lg:items-end">
                           <div className="rounded-[12px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
@@ -2393,6 +2686,43 @@ export default function PipelineDetailClient({
                                 {(runExecutionSummary.failure_summary?.message ?? runDetail?.run.error_message) && (
                                   <div className="text-[12px] text-danger break-words">
                                     {runExecutionSummary.failure_summary?.message ?? runDetail?.run.error_message}
+                                  </div>
+                                )}
+                                {failureSignature && (
+                                  <div className="rounded-[10px] border border-danger/25 bg-background px-3 py-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div className="text-[11px] font-medium text-foreground">{p.detail.failureSignatureTitle}</div>
+                                      <Badge
+                                        variant={failureSeverityBadgeVariant(failureSignature.severity)}
+                                        size="sm"
+                                      >
+                                        {failureSignature.code}
+                                      </Badge>
+                                    </div>
+                                    <div className="mt-1 text-[12px] text-foreground break-words">
+                                      {failureSignature.summary}
+                                    </div>
+                                    {failureSignature.runbook && (
+                                      <div className="mt-2 space-y-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                        <div>
+                                          {p.detail.failureRunbookTitle}:{" "}
+                                          <span className="text-foreground">{failureSignature.runbook.title}</span>
+                                        </div>
+                                        {failureSignature.runbook.doc_path && (
+                                          <div className="font-mono text-[10px] text-[hsl(var(--ds-text-2))]">
+                                            {p.detail.failureRunbookDoc}: {failureSignature.runbook.doc_path}
+                                          </div>
+                                        )}
+                                        {failureSignature.runbook.actions.length > 0 && (
+                                          <div className="space-y-1">
+                                            <div className="text-[11px] text-foreground">{p.detail.failureRunbookActions}</div>
+                                            {failureSignature.runbook.actions.map((action) => (
+                                              <div key={action}>• {action}</div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -2800,7 +3130,11 @@ export default function PipelineDetailClient({
                                                   className="w-full"
                                                   onClick={(event) => {
                                                     event.stopPropagation();
-                                                    void handleTriggerJob(job.id);
+                                                    setManualTriggerComment("");
+                                                    setManualTriggerDialogTarget({
+                                                      jobKey: job.id,
+                                                      jobName: job.name,
+                                                    });
                                                   }}
                                                   disabled={triggeringJobKey === job.id}
                                                 >
@@ -2980,7 +3314,13 @@ export default function PipelineDetailClient({
                                               type="button"
                                               size="sm"
                                               className="w-full"
-                                              onClick={() => void handleTriggerJob(selectedRuntimeJob.job_key)}
+                                              onClick={() => {
+                                                setManualTriggerComment("");
+                                                setManualTriggerDialogTarget({
+                                                  jobKey: selectedRuntimeJob.job_key,
+                                                  jobName: selectedRuntimeJob.name,
+                                                });
+                                              }}
                                               disabled={triggeringJobKey === selectedRuntimeJob.job_key}
                                             >
                                               <Play className="mr-1 size-3.5" />
@@ -3009,6 +3349,57 @@ export default function PipelineDetailClient({
                                               <RotateCcw className="mr-1 size-3.5" />
                                               {retryingJobKey === selectedRuntimeJob.job_key ? dict.common.loading : p.retry}
                                             </Button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                    {selectedNodeFailureSignature && (
+                                      <div className="rounded-[12px] border border-danger/25 bg-danger/[0.04] p-3">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <div className="text-[12px] uppercase tracking-wide text-danger">
+                                            {p.detail.nodeFailureSignatureTitle}
+                                          </div>
+                                          <Badge
+                                            variant={failureSeverityBadgeVariant(selectedNodeFailureSignature.severity)}
+                                            size="sm"
+                                          >
+                                            {selectedNodeFailureSignature.code}
+                                          </Badge>
+                                        </div>
+                                        <div className="mt-2 text-[12px] text-foreground break-words">
+                                          {selectedNodeFailureSignature.summary}
+                                        </div>
+                                        {selectedNodeFailureStepName && (
+                                          <div className="mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                            {p.detail.nodeFailureStep.replace("{{name}}", selectedNodeFailureStepName)}
+                                          </div>
+                                        )}
+                                        {selectedNodeFailureSignature.message && (
+                                          <div className="mt-2 text-[11px] text-danger break-words">
+                                            {p.detail.failureSignatureMessage}: {selectedNodeFailureSignature.message}
+                                          </div>
+                                        )}
+                                        {selectedNodeFailureSignature.runbook && (
+                                          <div className="mt-2 space-y-1 text-[11px] text-[hsl(var(--ds-text-2))]">
+                                            <div>
+                                              {p.detail.failureRunbookTitle}:{" "}
+                                              <span className="text-foreground">{selectedNodeFailureSignature.runbook.title}</span>
+                                            </div>
+                                            {selectedNodeFailureSignature.runbook.doc_path && (
+                                              <div className="font-mono text-[10px] text-[hsl(var(--ds-text-2))]">
+                                                {p.detail.failureRunbookDoc}: {selectedNodeFailureSignature.runbook.doc_path}
+                                              </div>
+                                            )}
+                                            {selectedNodeFailureSignature.runbook.actions.length > 0 && (
+                                              <div className="space-y-1">
+                                                <div className="text-[11px] text-foreground">
+                                                  {p.detail.failureRunbookActions}
+                                                </div>
+                                                {selectedNodeFailureSignature.runbook.actions.map((action) => (
+                                                  <div key={action}>• {action}</div>
+                                                ))}
+                                              </div>
+                                            )}
                                           </div>
                                         )}
                                       </div>
@@ -4061,6 +4452,74 @@ export default function PipelineDetailClient({
               }
             >
               {publishingArtifacts ? dict.common.loading : p.publishArtifacts}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={manualTriggerDialogTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setManualTriggerDialogTarget(null);
+            setManualTriggerComment("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{p.detail.manualTriggerDialogTitle}</DialogTitle>
+            <DialogDescription>
+              {p.detail.manualTriggerDialogDescription.replace(
+                "{{name}}",
+                manualTriggerDialogTarget?.jobName ?? ""
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground" htmlFor="manual-trigger-comment">
+                {p.detail.manualTriggerCommentLabel}
+              </label>
+              <Textarea
+                id="manual-trigger-comment"
+                value={manualTriggerComment}
+                onChange={(event) => setManualTriggerComment(event.target.value)}
+                placeholder={p.detail.manualTriggerCommentPlaceholder}
+                rows={4}
+                maxLength={1000}
+              />
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setManualTriggerDialogTarget(null);
+                setManualTriggerComment("");
+              }}
+              disabled={triggeringJobKey === manualTriggerDialogTarget?.jobKey}
+            >
+              {dict.common.cancel}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (!manualTriggerDialogTarget) return;
+                void handleTriggerJob(
+                  manualTriggerDialogTarget.jobKey,
+                  manualTriggerComment
+                ).finally(() => {
+                  setManualTriggerDialogTarget(null);
+                  setManualTriggerComment("");
+                });
+              }}
+              disabled={triggeringJobKey === manualTriggerDialogTarget?.jobKey}
+            >
+              {triggeringJobKey === manualTriggerDialogTarget?.jobKey
+                ? dict.common.loading
+                : p.detail.manualTriggerDialogConfirm}
             </Button>
           </DialogFooter>
         </DialogContent>

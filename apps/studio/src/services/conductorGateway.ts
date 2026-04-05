@@ -10,6 +10,7 @@ import {
   conductorListPipelinesResponseSchema,
   conductorPipelineRunDetailSchema,
   conductorRetryPipelineRunJobResponseSchema,
+  conductorTriggerPipelineRunJobRequestSchema,
   conductorTriggerPipelineRunJobResponseSchema,
   conductorUpdatePipelineRequestSchema,
   conductorUpdatePipelineResponseSchema,
@@ -22,6 +23,7 @@ import {
   type ConductorPipelineRun,
   type ConductorGetPipelineResponse,
   type ConductorRetryPipelineRunJobResponse,
+  type ConductorTriggerPipelineRunJobRequest,
   type ConductorUpdatePipelineRequest,
   type ConductorUpdatePipelineResponse,
   type ConductorPipeline,
@@ -204,10 +206,15 @@ export async function cancelPipelineRun(runId: string) {
   );
 }
 
-export async function triggerPipelineRunJob(runId: string, jobKey: string) {
+export async function triggerPipelineRunJob(
+  runId: string,
+  jobKey: string,
+  payload: ConductorTriggerPipelineRunJobRequest = {}
+) {
+  const validated = conductorTriggerPipelineRunJobRequestSchema.parse(payload);
   return fetchConductor(
     `/v1/pipeline-runs/${runId}/jobs/${encodeURIComponent(jobKey)}/trigger`,
-    { method: 'POST', headers: conductorHeaders() },
+    { method: 'POST', headers: conductorHeaders(), body: JSON.stringify(validated) },
     conductorTriggerPipelineRunJobResponseSchema
   );
 }

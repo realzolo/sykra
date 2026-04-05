@@ -2,6 +2,8 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,12 +12,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type jobSandbox struct {
 	containerName string
 	workspacePath string
 }
+
+var validatedSandboxProfiles sync.Map
 
 func startJobSandbox(
 	ctx context.Context,
@@ -41,7 +46,7 @@ func startJobSandbox(
 		"--mount",
 		fmt.Sprintf("type=bind,src=%s,dst=/workspace", absoluteWorkspacePath),
 	}
-	for _, cm := range cacheVolumeMounts(workspacePath) {
+	for _, cm := range cacheVolumeMounts(workspacePath, image) {
 		args = append(args, "--mount", cm)
 	}
 	args = append(args,
@@ -55,9 +60,13 @@ func startJobSandbox(
 		return nil, fmt.Errorf("start sandbox container for image %s: %w (%s)", image, err, strings.TrimSpace(string(output)))
 	}
 
-	if err := validateJobSandboxImage(ctx, containerName, image, absoluteWorkspacePath); err != nil {
-		_ = exec.Command("docker", "rm", "-f", containerName).Run()
-		return nil, err
+	profile := sandboxValidationProfile(image, absoluteWorkspacePath)
+	if _, validated := validatedSandboxProfiles.Load(profile); !validated {
+		if err := validateJobSandboxImage(ctx, containerName, image, absoluteWorkspacePath); err != nil {
+			_ = exec.Command("docker", "rm", "-f", containerName).Run()
+			return nil, err
+		}
+		validatedSandboxProfiles.Store(profile, true)
 	}
 
 	return &jobSandbox{
@@ -69,34 +78,35 @@ func startJobSandbox(
 // cacheVolumeMounts returns docker --mount arguments for persisting package
 // manager caches across runs. Each volume is shared across all pipeline runs
 // so that repeated installs hit the local store instead of the network.
-func cacheVolumeMounts(workspacePath string) []string {
+func cacheVolumeMounts(workspacePath string, image string) []string {
 	type cacheMount struct {
 		volume string // docker volume name
 		target string // mount path inside the container
 	}
+	namespace := cacheNamespace(image)
 	var mounts []cacheMount
 	switch detectWorkspacePackageManager(workspacePath) {
 	case "pnpm":
 		mounts = []cacheMount{
-			{volume: "sykra-cache-pnpm", target: "/root/.local/share/pnpm/store"},
+			{volume: "sykra-cache-pnpm-" + namespace, target: "/root/.local/share/pnpm/store"},
 		}
 	case "yarn":
 		mounts = []cacheMount{
-			{volume: "sykra-cache-yarn", target: "/usr/local/share/.cache/yarn"},
+			{volume: "sykra-cache-yarn-" + namespace, target: "/usr/local/share/.cache/yarn"},
 		}
 	case "bun":
 		mounts = []cacheMount{
-			{volume: "sykra-cache-bun", target: "/root/.bun/install/cache"},
+			{volume: "sykra-cache-bun-" + namespace, target: "/root/.bun/install/cache"},
 		}
 	case "npm":
 		mounts = []cacheMount{
-			{volume: "sykra-cache-npm", target: "/root/.npm"},
+			{volume: "sykra-cache-npm-" + namespace, target: "/root/.npm"},
 		}
 	default:
 		if fileExists(filepath.Join(workspacePath, "go.mod")) {
 			mounts = []cacheMount{
-				{volume: "sykra-cache-gomod", target: "/root/go/pkg/mod"},
-				{volume: "sykra-cache-gobuild", target: "/root/.cache/go-build"},
+				{volume: "sykra-cache-gomod-" + namespace, target: "/root/go/pkg/mod"},
+				{volume: "sykra-cache-gobuild-" + namespace, target: "/root/.cache/go-build"},
 			}
 		}
 	}
@@ -105,6 +115,23 @@ func cacheVolumeMounts(workspacePath string) []string {
 		result = append(result, fmt.Sprintf("type=volume,src=%s,dst=%s", m.volume, m.target))
 	}
 	return result
+}
+
+func cacheNamespace(image string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(image))
+	if trimmed == "" {
+		trimmed = "default"
+	}
+	sum := sha1.Sum([]byte(trimmed))
+	return hex.EncodeToString(sum[:6])
+}
+
+func sandboxValidationProfile(image string, workspacePath string) string {
+	packageManager := detectWorkspacePackageManager(workspacePath)
+	if strings.TrimSpace(packageManager) == "" {
+		packageManager = "none"
+	}
+	return strings.ToLower(strings.TrimSpace(image)) + "|" + packageManager
 }
 
 func validateJobSandboxImage(ctx context.Context, containerName string, image string, workspacePath string) error {

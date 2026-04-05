@@ -156,15 +156,23 @@ func (m *SourceManager) MaterializeWorkspace(
 		return err
 	}
 
+	// Keep mirror worktree metadata compact even when previous run workspaces were removed.
+	_ = m.runGit(ctx, nil, "--git-dir", source.MirrorPath, "worktree", "prune")
+	// Remove stale worktree registration for this path if it exists.
+	_ = m.runGit(ctx, nil, "--git-dir", source.MirrorPath, "worktree", "remove", "--force", workspacePath)
 	if err := m.runGit(
 		ctx,
 		nil,
-		"clone",
-		"--no-hardlinks",
-		"--no-checkout",
+		"--git-dir",
 		source.MirrorPath,
+		"worktree",
+		"add",
+		"--force",
+		"--detach",
 		workspacePath,
+		source.CommitSHA,
 	); err != nil {
+		_ = os.RemoveAll(workspacePath)
 		return err
 	}
 

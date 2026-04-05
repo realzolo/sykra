@@ -190,6 +190,11 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 				"error":      err.Error(),
 				"finishedAt": time.Now().UTC().Format(time.RFC3339),
 			})
+			e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+				Scope:   "run",
+				Status:  StatusFailed,
+				Message: err.Error(),
+			})
 			e.postStudioEvent(ctx, "pipeline.run.failed", map[string]any{"runId": runID})
 			return err
 		}
@@ -391,7 +396,13 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 		_ = e.Store.AppendRunEvent(ctx, runID, "run.failed", map[string]any{
 			"runId":      runID,
 			"status":     StatusFailed,
+			"error":      "job_failed",
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
+		})
+		e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+			Scope:   "run",
+			Status:  StatusFailed,
+			Message: "job_failed",
 		})
 		e.postStudioEvent(ctx, "pipeline.run.failed", map[string]any{"runId": runID})
 		return fmt.Errorf("pipeline run failed")
@@ -403,7 +414,13 @@ func (e *Engine) Execute(ctx context.Context, runID string) error {
 		_ = e.Store.AppendRunEvent(ctx, runID, "run.failed", map[string]any{
 			"runId":      runID,
 			"status":     StatusFailed,
+			"error":      "dependency_deadlock",
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
+		})
+		e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+			Scope:   "run",
+			Status:  StatusFailed,
+			Message: "dependency_deadlock",
 		})
 		e.postStudioEvent(ctx, "pipeline.run.failed", map[string]any{"runId": runID})
 		return fmt.Errorf("pipeline run stalled")
@@ -465,7 +482,17 @@ func (e *Engine) initializeJobStepLog(
 }
 
 type runControlMetadata struct {
-	ApprovedJobs []string `json:"approvedJobs,omitempty"`
+	ApprovedJobs []string               `json:"approvedJobs,omitempty"`
+	Approvals    []manualApprovalRecord `json:"approvals,omitempty"`
+}
+
+type manualApprovalRecord struct {
+	JobKey          string `json:"jobKey"`
+	ApprovedBy      string `json:"approvedBy,omitempty"`
+	ApprovedByEmail string `json:"approvedByEmail,omitempty"`
+	ApprovedByName  string `json:"approvedByName,omitempty"`
+	Comment         string `json:"comment,omitempty"`
+	ApprovedAt      string `json:"approvedAt,omitempty"`
 }
 
 func decodeRunControlMetadata(raw []byte) (runControlMetadata, error) {
@@ -640,6 +667,27 @@ func (e *Engine) failJobWithoutStartedStep(
 		"finishedAt": time.Now().UTC().Format(time.RFC3339),
 		"error":      message,
 	})
+	e.emitFailureSignature(ctx, nil, runID, failureSignatureEventInput{
+		Scope:   "step",
+		Status:  StatusFailed,
+		Message: message,
+		JobID:   jobRecord.ID,
+		JobKey:  job.ID,
+		StepID:  stepRecord.ID,
+		StepKey: step.ID,
+	})
+}
+
+func (e *Engine) emitFailureSignature(
+	ctx context.Context,
+	run *store.PipelineRun,
+	runID string,
+	input failureSignatureEventInput,
+) {
+	if e == nil || e.Store == nil {
+		return
+	}
+	_ = appendFailureSignatureEvent(ctx, e.Store, run, runID, input)
 }
 
 func (e *Engine) runJobOnWorker(
@@ -852,6 +900,16 @@ func (e *Engine) runJobOnWorker(
 					"finishedAt": time.Now().UTC().Format(time.RFC3339),
 					"error":      errorMessage,
 				})
+				e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+					Scope:           "step",
+					Status:          StatusCanceled,
+					Message:         errorMessage,
+					JobID:           jobRecord.ID,
+					JobKey:          job.ID,
+					StepID:          stepRecord.ID,
+					StepKey:         stepID,
+					ExecutionTarget: executionTarget,
+				})
 			case string(StatusTimedOut):
 				_ = e.Store.MarkPipelineStepFailed(ctx, stepRecord.ID, string(StatusTimedOut), exitCode, errorMessage)
 				_ = e.Store.AppendRunEvent(ctx, runID, "step.failed", map[string]any{
@@ -865,6 +923,16 @@ func (e *Engine) runJobOnWorker(
 					"finishedAt": time.Now().UTC().Format(time.RFC3339),
 					"error":      errorMessage,
 				})
+				e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+					Scope:           "step",
+					Status:          StatusTimedOut,
+					Message:         errorMessage,
+					JobID:           jobRecord.ID,
+					JobKey:          job.ID,
+					StepID:          stepRecord.ID,
+					StepKey:         stepID,
+					ExecutionTarget: executionTarget,
+				})
 			default:
 				_ = e.Store.MarkPipelineStepFailed(ctx, stepRecord.ID, string(StatusFailed), exitCode, errorMessage)
 				_ = e.Store.AppendRunEvent(ctx, runID, "step.failed", map[string]any{
@@ -877,6 +945,16 @@ func (e *Engine) runJobOnWorker(
 					"exitCode":   exitCode,
 					"finishedAt": time.Now().UTC().Format(time.RFC3339),
 					"error":      errorMessage,
+				})
+				e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+					Scope:           "step",
+					Status:          StatusFailed,
+					Message:         errorMessage,
+					JobID:           jobRecord.ID,
+					JobKey:          job.ID,
+					StepID:          stepRecord.ID,
+					StepKey:         stepID,
+					ExecutionTarget: executionTarget,
 				})
 			}
 		},
@@ -933,6 +1011,14 @@ func (e *Engine) runJobOnWorker(
 			"error":      dispatchErr.Error(),
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
 		})
+		e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+			Scope:           "job",
+			Status:          StatusFailed,
+			Message:         dispatchErr.Error(),
+			JobID:           jobRecord.ID,
+			JobKey:          job.ID,
+			ExecutionTarget: executionTarget,
+		})
 		return dispatchErr
 	}
 
@@ -953,6 +1039,14 @@ func (e *Engine) runJobOnWorker(
 			"status":     StatusFailed,
 			"error":      message,
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
+		})
+		e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+			Scope:           "job",
+			Status:          StatusFailed,
+			Message:         message,
+			JobID:           jobRecord.ID,
+			JobKey:          job.ID,
+			ExecutionTarget: executionTarget,
 		})
 		return errors.New(message)
 	}
@@ -1037,6 +1131,16 @@ func (e *Engine) runStep(
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
 			"error":      err.Error(),
 		})
+		e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+			Scope:           "step",
+			Status:          StatusFailed,
+			Message:         err.Error(),
+			JobID:           jobRecord.ID,
+			JobKey:          job.ID,
+			StepID:          stepRecord.ID,
+			StepKey:         step.ID,
+			ExecutionTarget: jobExecutionTarget(job),
+		})
 		return StatusFailed, err
 	}
 
@@ -1064,6 +1168,17 @@ func (e *Engine) runStep(
 			"status":     status,
 			"exitCode":   exitCode,
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
+			"error":      err.Error(),
+		})
+		e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+			Scope:           "step",
+			Status:          status,
+			Message:         err.Error(),
+			JobID:           jobRecord.ID,
+			JobKey:          job.ID,
+			StepID:          stepRecord.ID,
+			StepKey:         step.ID,
+			ExecutionTarget: jobExecutionTarget(job),
 		})
 		if uploadErr != nil {
 			log.Printf("pipeline artifact upload ignored after failed step: run=%s job=%s step=%s error=%v", runID, job.ID, step.ID, uploadErr)
@@ -1083,6 +1198,16 @@ func (e *Engine) runStep(
 			"exitCode":   1,
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
 			"error":      uploadErr.Error(),
+		})
+		e.emitFailureSignature(ctx, run, runID, failureSignatureEventInput{
+			Scope:           "step",
+			Status:          StatusFailed,
+			Message:         uploadErr.Error(),
+			JobID:           jobRecord.ID,
+			JobKey:          job.ID,
+			StepID:          stepRecord.ID,
+			StepKey:         step.ID,
+			ExecutionTarget: jobExecutionTarget(job),
 		})
 		return StatusFailed, uploadErr
 	}

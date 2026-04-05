@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -36,9 +35,12 @@ func main() {
 		cfg.AnalyzeTimeout,
 		cfg.WorkerLeaseTTL,
 	)
-	if err := requireCommandAvailable("docker", "info"); err != nil {
-		log.Printf("WARNING: docker is not available: %v (pipeline jobs requiring Docker will fail at runtime)", err)
+	dockerCheckCtx, dockerCheckCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := pipeline.CheckDockerAvailable(dockerCheckCtx); err != nil {
+		dockerCheckCancel()
+		log.Fatalf("docker availability check failed: %v", err)
 	}
+	dockerCheckCancel()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -131,15 +133,4 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("http shutdown error: %v", err)
 	}
-}
-
-func requireCommandAvailable(name string, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, name, args...)
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	return nil
 }

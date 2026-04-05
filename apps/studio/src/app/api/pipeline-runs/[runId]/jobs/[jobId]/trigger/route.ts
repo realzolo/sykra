@@ -23,6 +23,7 @@ export async function POST(
 
   try {
     const { runId, jobId } = await params;
+    const body = await request.json().catch(() => ({}));
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
     if (!orgId) return unauthorized();
 
@@ -37,7 +38,14 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const result = await triggerPipelineRunJob(runId, jobId);
+    const approvalComment =
+      typeof body?.comment === 'string' && body.comment.trim().length > 0 ? body.comment.trim() : undefined;
+    const result = await triggerPipelineRunJob(runId, jobId, {
+      approvedBy: user.id,
+      ...(user.email ? { approvedByEmail: user.email } : {}),
+      ...(user.displayName ? { approvedByName: user.displayName } : {}),
+      ...(approvalComment ? { comment: approvalComment } : {}),
+    });
 
     const clientInfo = extractClientInfo(request);
     await auditLogger.log({
@@ -51,6 +59,10 @@ export async function POST(
         jobId,
         action: 'manual_trigger',
         projectId: run.project_id ?? null,
+        approvedBy: user.id,
+        approvedByEmail: user.email ?? null,
+        approvedByName: user.displayName ?? null,
+        approvalComment: approvalComment ?? null,
       },
       ...clientInfo,
     });

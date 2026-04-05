@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -101,7 +102,6 @@ type Hub struct {
 	mu             sync.RWMutex
 	workers        map[string]*workerConn
 	workerOrder    []string
-	nextIndex      int
 	runAssignments map[string]string
 
 	startOnce sync.Once
@@ -265,7 +265,11 @@ func (h *Hub) SetWorkerDraining(workerID string, draining bool) error {
 
 	worker.mu.Lock()
 	if draining {
-		worker.status = "draining"
+		if worker.busy > 0 {
+			worker.status = "draining"
+		} else {
+			worker.status = "drained"
+		}
 	} else {
 		worker.status = "online"
 	}
@@ -395,6 +399,7 @@ func (h *Hub) readLoop(worker *workerConn) {
 			if heartbeat.Busy >= 0 {
 				worker.busy = heartbeat.Busy
 			}
+			updateDrainStatusLocked(worker)
 			worker.mu.Unlock()
 			h.touchWorker(worker, nil)
 		case workerprotocol.WorkerMessageTypeJobAck:
@@ -468,25 +473,31 @@ func (h *Hub) selectWorker(req DispatchRequest) (*workerConn, error) {
 		delete(h.runAssignments, req.RunID)
 	}
 
-	total := len(h.workerOrder)
-	for i := 0; i < total; i++ {
-		index := (h.nextIndex + i) % total
-		workerID := h.workerOrder[index]
+	diagnostics := workerSelectionDiagnostics{
+		total: len(h.workers),
+	}
+	var selected *workerCandidate
+	for _, workerID := range h.workerOrder {
 		worker, ok := h.workers[workerID]
 		if !ok {
 			continue
 		}
-		if !h.canRun(worker, req) {
+		candidate := h.evaluateWorker(worker, req, &diagnostics)
+		if candidate == nil {
 			continue
 		}
-		h.nextIndex = (index + 1) % total
-		if strings.TrimSpace(req.RunID) != "" {
-			h.runAssignments[req.RunID] = worker.id
+		if betterWorkerCandidate(candidate, selected) {
+			selected = candidate
 		}
-		return worker, nil
 	}
 
-	return nil, errors.New("no available worker matches pipeline constraints")
+	if selected == nil {
+		return nil, selectionDiagnosticsError(req, diagnostics)
+	}
+	if strings.TrimSpace(req.RunID) != "" {
+		h.runAssignments[req.RunID] = selected.worker.id
+	}
+	return selected.worker, nil
 }
 
 func (h *Hub) canRun(worker *workerConn, req DispatchRequest) bool {
@@ -522,6 +533,7 @@ func (h *Hub) completePending(worker *workerConn, requestID string, result Dispa
 		if worker.busy > 0 {
 			worker.busy--
 		}
+		updateDrainStatusLocked(worker)
 	}
 	worker.mu.Unlock()
 	h.touchWorker(worker, nil)
@@ -664,6 +676,144 @@ func sanitizeCapabilities(values []string) []string {
 		return []string{"shell"}
 	}
 	return out
+}
+
+type workerSelectionDiagnostics struct {
+	total              int
+	online             int
+	draining           int
+	drained            int
+	offline            int
+	saturated          int
+	envMismatch        int
+	capabilityMismatch int
+}
+
+type workerCandidate struct {
+	worker      *workerConn
+	workerID    string
+	loadPermill int
+	busy        int
+	headroom    int
+}
+
+func (h *Hub) evaluateWorker(
+	worker *workerConn,
+	req DispatchRequest,
+	diagnostics *workerSelectionDiagnostics,
+) *workerCandidate {
+	worker.mu.Lock()
+	status := strings.TrimSpace(strings.ToLower(worker.status))
+	busy := worker.busy
+	maxConcurrent := max(1, worker.maxConcurrent)
+	environmentLabel := strings.TrimSpace(worker.labels["env"])
+	matchesCapabilities := true
+	for _, capability := range req.RequiredCapability {
+		capability = strings.TrimSpace(strings.ToLower(capability))
+		if capability == "" {
+			continue
+		}
+		if !worker.capabilityLookup[capability] {
+			matchesCapabilities = false
+			break
+		}
+	}
+	worker.mu.Unlock()
+
+	if status != "online" {
+		switch status {
+		case "draining":
+			diagnostics.draining++
+		case "drained":
+			diagnostics.drained++
+		default:
+			diagnostics.offline++
+		}
+		return nil
+	}
+	diagnostics.online++
+
+	if busy >= maxConcurrent {
+		diagnostics.saturated++
+		return nil
+	}
+	if strings.TrimSpace(req.Environment) != "" && environmentLabel != "" && environmentLabel != req.Environment {
+		diagnostics.envMismatch++
+		return nil
+	}
+	if !matchesCapabilities {
+		diagnostics.capabilityMismatch++
+		return nil
+	}
+
+	return &workerCandidate{
+		worker:      worker,
+		workerID:    worker.id,
+		loadPermill: busy * 1000 / maxConcurrent,
+		busy:        busy,
+		headroom:    maxConcurrent - busy,
+	}
+}
+
+func betterWorkerCandidate(next *workerCandidate, current *workerCandidate) bool {
+	if next == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+	if next.loadPermill != current.loadPermill {
+		return next.loadPermill < current.loadPermill
+	}
+	if next.busy != current.busy {
+		return next.busy < current.busy
+	}
+	if next.headroom != current.headroom {
+		return next.headroom > current.headroom
+	}
+	return next.workerID < current.workerID
+}
+
+func selectionDiagnosticsError(req DispatchRequest, diagnostics workerSelectionDiagnostics) error {
+	requiredCapabilities := sanitizeCapabilities(req.RequiredCapability)
+	sort.Strings(requiredCapabilities)
+	requiredCapabilitiesText := "-"
+	if len(requiredCapabilities) > 0 {
+		requiredCapabilitiesText = strings.Join(requiredCapabilities, ",")
+	}
+	environment := strings.TrimSpace(req.Environment)
+	if environment == "" {
+		environment = "-"
+	}
+	return fmt.Errorf(
+		"no available worker matches pipeline constraints (workers=%d online=%d draining=%d drained=%d offline=%d saturated=%d env_mismatch=%d capability_mismatch=%d required_capabilities=%s environment=%s)",
+		diagnostics.total,
+		diagnostics.online,
+		diagnostics.draining,
+		diagnostics.drained,
+		diagnostics.offline,
+		diagnostics.saturated,
+		diagnostics.envMismatch,
+		diagnostics.capabilityMismatch,
+		requiredCapabilitiesText,
+		environment,
+	)
+}
+
+func updateDrainStatusLocked(worker *workerConn) {
+	if worker == nil {
+		return
+	}
+	switch worker.status {
+	case "draining":
+		if worker.busy <= 0 {
+			worker.status = "drained"
+		}
+	case "drained":
+		if worker.busy > 0 {
+			worker.status = "draining"
+		}
+	}
 }
 
 func contains(values []string, target string) bool {

@@ -168,6 +168,12 @@ export const conductorCreatePipelineRunResponseSchema = conductorPipelineRunSche
 export const conductorListRunEventsResponseSchema = z.array(conductorRunEventSchema);
 export const conductorCancelPipelineRunResponseSchema = z.object({ ok: z.literal(true) });
 export const conductorDeletePipelineResponseSchema = z.object({ ok: z.literal(true) });
+export const conductorTriggerPipelineRunJobRequestSchema = z.object({
+  approvedBy: z.string().uuid().optional(),
+  approvedByEmail: z.string().email().optional(),
+  approvedByName: z.string().min(1).max(255).optional(),
+  comment: z.string().trim().max(1000).optional(),
+});
 export const conductorTriggerPipelineRunJobResponseSchema = z.object({ ok: z.literal(true) });
 export const conductorRetryPipelineRunJobResponseSchema = z.object({ ok: z.literal(true) });
 
@@ -182,5 +188,6 @@ export type ConductorPipelineRun = z.infer<typeof conductorPipelineRunSchema>;
 export type ConductorPipelineRunDetail = z.infer<typeof conductorPipelineRunDetailSchema>;
 export type ConductorRunEvent = z.infer<typeof conductorRunEventSchema>;
 export type ConductorDeletePipelineResponse = z.infer<typeof conductorDeletePipelineResponseSchema>;
+export type ConductorTriggerPipelineRunJobRequest = z.infer<typeof conductorTriggerPipelineRunJobRequestSchema>;
 export type ConductorRetryPipelineRunJobResponse = z.infer<typeof conductorRetryPipelineRunJobResponseSchema>;
 export type ConductorCreatePipelineRunRequest = z.infer<typeof conductorCreatePipelineRunRequestSchema>;
