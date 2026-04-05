@@ -13,6 +13,7 @@
     "start:studio": "node ./scripts/run-pnpm.mjs -C apps/studio start",
     "lint:studio": "node ./scripts/run-pnpm.mjs -C apps/studio lint",
     "pipeline:lint": "node ./scripts/run-pnpm.mjs -C apps/studio pipeline:lint",
+    "pipeline:policy:test": "node ./scripts/run-pnpm.mjs -C apps/studio pipeline:policy:test",
     "codebase:cleanup": "node apps/studio/src/scripts/codebase-cleanup.mjs"
   }
 }

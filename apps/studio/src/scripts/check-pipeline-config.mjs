@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const VALID_CONCURRENCY_MODES = new Set(['allow', 'queue', 'cancel_previous']);
 const STRUCTURED_REPORT_SUFFIXES = ['.sarif', '.static-analysis.json', '.vet.json'];
@@ -55,7 +56,7 @@ function parsePipelinePayload(raw) {
   return { config: parsed, concurrencyMode: undefined };
 }
 
-function validatePipelineConfig(config, concurrencyMode) {
+export function validatePipelineConfig(config, concurrencyMode) {
   const issues = [];
   const environment = typeof config.environment === 'string' ? config.environment.trim().toLowerCase() : 'production';
   const jobs = Array.isArray(config.jobs) ? config.jobs : [];
@@ -163,7 +164,7 @@ function validatePipelineConfig(config, concurrencyMode) {
   return issues;
 }
 
-async function validateFile(filePath) {
+export async function validateFile(filePath) {
   const absolutePath = path.resolve(process.cwd(), filePath);
   const raw = await readFile(absolutePath, 'utf8');
   const { config, concurrencyMode } = parsePipelinePayload(raw);
@@ -205,8 +206,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error('Pipeline config lint execution failed.');
-  console.error(error);
-  process.exit(1);
-});
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error('Pipeline config lint execution failed.');
+    console.error(error);
+    process.exit(1);
+  });
+}

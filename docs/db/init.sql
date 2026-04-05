@@ -528,6 +528,9 @@ create table audit_logs (
 create index idx_audit_logs_entity_type on audit_logs(entity_type);
 create index idx_audit_logs_user_id on audit_logs(user_id);
 create index idx_audit_logs_created_at on audit_logs(created_at desc);
+create index idx_audit_logs_pipeline_policy_reject
+  on audit_logs(entity_type, entity_id, created_at desc)
+  where action = 'reject' and changes->>'scope' = 'pipeline_policy_reject';
 
 -- ============================================================
 -- Review runs

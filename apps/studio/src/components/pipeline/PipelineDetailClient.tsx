@@ -143,6 +143,17 @@ const STATUS_ICON_SM: Record<PipelineRunStatus, React.ReactNode> = {
 
 type PipelineRun = PipelineRunDetail["run"];
 type PipelineRunStep = PipelineRunDetail["steps"][number];
+type PipelinePolicyRejection = {
+  id: string;
+  reason_code: string;
+  operation: string;
+  message: string;
+  path: string | null;
+  created_at: string;
+  rejected_by: string | null;
+  rejected_by_name: string | null;
+  rejected_by_email: string | null;
+};
 type StepLogCacheEntry = {
   logPath: string;
   text: string;
@@ -344,6 +355,22 @@ function getVersionActorLabel(version: PipelineVersion): string {
   return "";
 }
 
+function getPolicyRejectionOperationLabel(
+  operation: string,
+  dict: Dictionary["pipelines"]["settingsTab"]
+): string {
+  switch (operation) {
+    case "create":
+      return dict.policyRejectionsOperationCreate;
+    case "update":
+      return dict.policyRejectionsOperationUpdate;
+    case "concurrency_patch":
+      return dict.policyRejectionsOperationConcurrencyPatch;
+    default:
+      return operation;
+  }
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function PipelineDetailClient({
@@ -418,6 +445,8 @@ export default function PipelineDetailClient({
   const [promotingChannel, setPromotingChannel] = useState(false);
   const [runStreamNonce, setRunStreamNonce] = useState(0);
   const [runHistoryDialogOpen, setRunHistoryDialogOpen] = useState(false);
+  const [policyRejectionsLoading, setPolicyRejectionsLoading] = useState(false);
+  const [policyRejections, setPolicyRejections] = useState<PipelinePolicyRejection[]>([]);
 
   const selectedRunIdRef = useRef<string | null>(initialRunId);
   const previousSelectedRunIdRef = useRef<string | null>(initialRunId);
@@ -532,6 +561,22 @@ export default function PipelineDetailClient({
     }
   }, [pipelineId, p.settingsTab.loadFailed]);
 
+  const loadPolicyRejections = useCallback(async () => {
+    setPolicyRejectionsLoading(true);
+    try {
+      const res = await fetch(`/api/pipelines/${pipelineId}/policy-rejections?limit=20`, {
+        method: "GET",
+      });
+      if (!res.ok) throw new Error("failed");
+      const data = await res.json().catch(() => ({}));
+      setPolicyRejections(Array.isArray(data?.items) ? data.items : []);
+    } catch {
+      toast.error(p.settingsTab.policyRejectionsLoadFailed);
+    } finally {
+      setPolicyRejectionsLoading(false);
+    }
+  }, [pipelineId, p.settingsTab.policyRejectionsLoadFailed]);
+
   const loadArtifacts = useCallback(async (runId: string) => {
     try {
       const res = await fetch(`/api/pipeline-runs/${runId}/artifacts`);
@@ -635,7 +680,8 @@ export default function PipelineDetailClient({
     if (tab !== "configure") return;
     if (configSection !== "settings") return;
     void loadSecrets();
-  }, [tab, configSection, loadSecrets]);
+    void loadPolicyRejections();
+  }, [tab, configSection, loadSecrets, loadPolicyRejections]);
 
   useEffect(() => {
     if (!config || !Array.isArray(config.jobs) || config.jobs.length === 0) return;
@@ -3764,6 +3810,82 @@ export default function PipelineDetailClient({
                       {(pipeline?.environment ?? config.environment ?? "production") === "production" && (
                         <div className="text-[12px] text-[hsl(var(--ds-text-2))]">
                           {p.concurrencyMode.productionPolicyHelp}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-background p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium">{p.settingsTab.policyRejectionsTitle}</div>
+                          <div className="text-[12px] text-[hsl(var(--ds-text-2))] mt-0.5">
+                            {p.settingsTab.policyRejectionsDescription}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            void loadPolicyRejections();
+                          }}
+                          disabled={policyRejectionsLoading}
+                        >
+                          {dict.common.refresh}
+                        </Button>
+                      </div>
+
+                      {policyRejectionsLoading && (
+                        <div className="space-y-2 py-2">
+                          <Skeleton className="h-10 w-full bg-[hsl(var(--ds-border-1))]" />
+                          <Skeleton className="h-10 w-full bg-[hsl(var(--ds-border-1))]" />
+                        </div>
+                      )}
+
+                      {!policyRejectionsLoading && policyRejections.length === 0 && (
+                        <div className="rounded-[8px] border border-dashed border-[hsl(var(--ds-border-1))] px-3 py-4 text-[12px] text-[hsl(var(--ds-text-2))]">
+                          {p.settingsTab.policyRejectionsEmpty}
+                        </div>
+                      )}
+
+                      {!policyRejectionsLoading && policyRejections.length > 0 && (
+                        <div className="space-y-2">
+                          {policyRejections.map((item) => {
+                            const actorLabel =
+                              item.rejected_by_name?.trim() ||
+                              item.rejected_by_email?.trim() ||
+                              (item.rejected_by?.trim() ? item.rejected_by.slice(0, 8) : p.versionsTab.unknownAuthor);
+                            return (
+                              <div
+                                key={item.id}
+                                className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2.5"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <Badge variant="warning" size="sm">
+                                        {item.reason_code}
+                                      </Badge>
+                                      <span className="text-[12px] text-[hsl(var(--ds-text-2))]">
+                                        {getPolicyRejectionOperationLabel(item.operation, p.settingsTab)}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 text-[12px] text-foreground">
+                                      {item.message}
+                                    </div>
+                                    {item.path && (
+                                      <div className="mt-1 font-mono text-[11px] text-[hsl(var(--ds-text-2))]">
+                                        {item.path}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="shrink-0 text-right text-[11px] text-[hsl(var(--ds-text-2))]">
+                                    <div>{actorLabel}</div>
+                                    <div>{formatLocalDateTime(item.created_at)}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

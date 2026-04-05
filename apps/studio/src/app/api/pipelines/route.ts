@@ -5,10 +5,16 @@ import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES, requireProjectAccess } from '@/services/orgs';
 import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
-import { createPipelineSchema, projectIdSchema, validateRequest } from '@/services/validation';
+import { createPipelineSchema, projectIdSchema } from '@/services/validation';
 import { createPipeline, listPipelines } from '@/services/conductorGateway';
 import { exec, query } from '@/lib/db';
 import { PIPELINE_ACTIVE_STATUSES_SQL } from '@/services/statuses';
+import {
+  findCreatePipelinePolicyViolation,
+  formatZodValidationError,
+  logPipelinePolicyRejection,
+  mapPipelineValidationErrorToPolicyViolation,
+} from '@/services/pipelinePolicy';
 import type { ConductorCreatePipelineRequest } from '@sykra/contracts/conductor';
 
 export const dynamic = 'force-dynamic';
@@ -112,6 +118,22 @@ export async function GET(request: NextRequest) {
           )
         : Promise.resolve([]),
     ]);
+    const policyRejectionRows = await query<{
+      pipeline_id: string;
+      policy_rejections_7d: string;
+    }>(
+      `select
+         entity_id::text as pipeline_id,
+         count(*)::text as policy_rejections_7d
+       from audit_logs
+       where entity_type = 'pipeline'
+         and action = 'reject'
+         and changes->>'scope' = 'pipeline_policy_reject'
+         and entity_id = any($1::uuid[])
+         and created_at >= now() - interval '7 days'
+       group by entity_id`,
+      [pipelineIds]
+    );
 
     const dailyTotalRunsByPipelineId = new Map<string, number[]>();
     const dailySuccessRunsByPipelineId = new Map<string, number[]>();
@@ -128,6 +150,9 @@ export async function GET(request: NextRequest) {
     const activeRunsByPipelineId = new Map(
       activeRunRows.map((row) => [row.pipeline_id, Number.parseInt(row.active_runs, 10) || 0])
     );
+    const policyRejectionsByPipelineId = new Map(
+      policyRejectionRows.map((row) => [row.pipeline_id, Number.parseInt(row.policy_rejections_7d, 10) || 0])
+    );
     const runStatsByPipelineId = new Map(
       runStatsRows.map((row) => {
         const totalRuns = Number.parseInt(row.total_runs_7d, 10);
@@ -142,6 +167,7 @@ export async function GET(request: NextRequest) {
             failed_runs: failedRuns,
             success_rate: successRate,
             active_runs: activeRunsByPipelineId.get(row.pipeline_id) ?? 0,
+            policy_rejections: policyRejectionsByPipelineId.get(row.pipeline_id) ?? 0,
             daily_total_runs: dailyTotalRunsByPipelineId.get(row.pipeline_id) ?? [...defaultDailySeries],
             daily_success_runs: dailySuccessRunsByPipelineId.get(row.pipeline_id) ?? [...defaultDailySeries],
           },
@@ -168,6 +194,7 @@ export async function GET(request: NextRequest) {
           failed_runs: 0,
           success_rate: 0,
           active_runs: 0,
+          policy_rejections: 0,
           daily_total_runs: [...defaultDailySeries],
           daily_success_runs: [...defaultDailySeries],
         },
@@ -189,13 +216,41 @@ export async function POST(request: NextRequest) {
   if (!user) return unauthorized();
 
   try {
+    const clientInfo = extractClientInfo(request);
     const body = await request.json();
-    const validated = validateRequest(createPipelineSchema, body);
+    const parsed = createPipelineSchema.safeParse(body);
+    if (!parsed.success) {
+      const validationError = new Error(`Validation error: ${formatZodValidationError(parsed.error)}`);
+      const policyViolation = mapPipelineValidationErrorToPolicyViolation(validationError);
+      if (policyViolation) {
+        await logPipelinePolicyRejection({
+          userId: user.id,
+          operation: 'create',
+          violation: policyViolation,
+          ...clientInfo,
+        });
+        return NextResponse.json(
+          { error: policyViolation.message, reason_code: policyViolation.reasonCode },
+          { status: policyViolation.statusCode }
+        );
+      }
+      return NextResponse.json({ error: validationError.message }, { status: 400 });
+    }
+    const validated = parsed.data;
     const requestedConcurrencyMode = validated.concurrency_mode ?? 'queue';
-    if ((validated.config.environment ?? 'production') === 'production' && requestedConcurrencyMode === 'allow') {
+    const policyViolation = findCreatePipelinePolicyViolation(validated.config, requestedConcurrencyMode);
+    if (policyViolation) {
+      await logPipelinePolicyRejection({
+        userId: user.id,
+        operation: 'create',
+        violation: policyViolation,
+        environment: validated.config.environment,
+        requestedConcurrencyMode,
+        ...clientInfo,
+      });
       return NextResponse.json(
-        { error: 'Production pipelines cannot use concurrency_mode=allow. Use queue for controlled execution.' },
-        { status: 409 }
+        { error: policyViolation.message, reason_code: policyViolation.reasonCode },
+        { status: policyViolation.statusCode }
       );
     }
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
@@ -225,7 +280,6 @@ export async function POST(request: NextRequest) {
       [requestedConcurrencyMode, result.pipeline.id, orgId]
     );
 
-    const clientInfo = extractClientInfo(request);
     await auditLogger.log({
       action: 'create',
       entityType: 'pipeline',

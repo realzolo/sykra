@@ -5,9 +5,16 @@ import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
-import { updatePipelineSchema, validateRequest } from '@/services/validation';
+import { updatePipelineSchema } from '@/services/validation';
 import { deletePipeline, getPipeline, updatePipeline } from '@/services/conductorGateway';
 import { query as dbQuery } from '@/lib/db';
+import {
+  findConcurrencyPatchPolicyViolation,
+  findUpdatePipelinePolicyViolation,
+  formatZodValidationError,
+  logPipelinePolicyRejection,
+  mapPipelineValidationErrorToPolicyViolation,
+} from '@/services/pipelinePolicy';
 import type { ConductorGetPipelineResponse, ConductorUpdatePipelineRequest } from '@sykra/contracts/conductor';
 
 type HydratedPipelineVersion = NonNullable<ConductorGetPipelineResponse['version']> & {
@@ -99,8 +106,28 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   try {
     const { id } = await params;
+    const clientInfo = extractClientInfo(request);
     const body = await request.json();
-    const validated = validateRequest(updatePipelineSchema, body);
+    const parsed = updatePipelineSchema.safeParse(body);
+    if (!parsed.success) {
+      const validationError = new Error(`Validation error: ${formatZodValidationError(parsed.error)}`);
+      const policyViolation = mapPipelineValidationErrorToPolicyViolation(validationError);
+      if (policyViolation) {
+        await logPipelinePolicyRejection({
+          userId: user.id,
+          entityId: id,
+          operation: 'update',
+          violation: policyViolation,
+          ...clientInfo,
+        });
+        return NextResponse.json(
+          { error: policyViolation.message, reason_code: policyViolation.reasonCode },
+          { status: policyViolation.statusCode }
+        );
+      }
+      return NextResponse.json({ error: validationError.message }, { status: 400 });
+    }
+    const validated = parsed.data;
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
     const role = await getOrgMemberRole(orgId, user.id);
     if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
@@ -122,10 +149,20 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Pipeline concurrency metadata not found' }, { status: 500 });
     }
     const currentConcurrencyMode = modeRows[0]?.concurrency_mode ?? 'allow';
-    if ((validated.config.environment ?? 'production') === 'production' && currentConcurrencyMode === 'allow') {
+    const policyViolation = findUpdatePipelinePolicyViolation(validated.config, currentConcurrencyMode);
+    if (policyViolation) {
+      await logPipelinePolicyRejection({
+        userId: user.id,
+        entityId: id,
+        operation: 'update',
+        violation: policyViolation,
+        environment: validated.config.environment,
+        currentConcurrencyMode,
+        ...clientInfo,
+      });
       return NextResponse.json(
-        { error: 'Production pipelines cannot use concurrency_mode=allow. Set queue before saving this config.' },
-        { status: 409 }
+        { error: policyViolation.message, reason_code: policyViolation.reasonCode },
+        { status: policyViolation.statusCode }
       );
     }
 
@@ -137,7 +174,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     };
     const result = await updatePipeline(id, payload);
 
-    const clientInfo = extractClientInfo(request);
     await auditLogger.log({
       action: 'update',
       entityType: 'pipeline',
@@ -168,6 +204,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   try {
     const { id } = await params;
+    const clientInfo = extractClientInfo(request);
     const body = await request.json();
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
     const role = await getOrgMemberRole(orgId, user.id);
@@ -175,8 +212,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const VALID_MODES = ['allow', 'queue', 'cancel_previous'];
-    const concurrencyMode = body?.concurrency_mode;
+    const VALID_MODES = ['allow', 'queue', 'cancel_previous'] as const;
+    const concurrencyMode = body?.concurrency_mode as typeof VALID_MODES[number] | undefined;
     if (!concurrencyMode || !VALID_MODES.includes(concurrencyMode)) {
       return NextResponse.json({ error: 'Invalid concurrency_mode' }, { status: 400 });
     }
@@ -188,10 +225,23 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (pipeline.org_id && pipeline.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    if ((pipeline.environment ?? 'production') === 'production' && concurrencyMode === 'allow') {
+    const policyViolation = findConcurrencyPatchPolicyViolation(
+      pipeline.environment ?? 'production',
+      concurrencyMode
+    );
+    if (policyViolation) {
+      await logPipelinePolicyRejection({
+        userId: user.id,
+        entityId: id,
+        operation: 'concurrency_patch',
+        violation: policyViolation,
+        environment: pipeline.environment ?? 'production',
+        requestedConcurrencyMode: concurrencyMode,
+        ...clientInfo,
+      });
       return NextResponse.json(
-        { error: 'Production pipelines cannot use concurrency_mode=allow. Use queue for controlled execution.' },
-        { status: 409 }
+        { error: policyViolation.message, reason_code: policyViolation.reasonCode },
+        { status: policyViolation.statusCode }
       );
     }
 

@@ -251,6 +251,7 @@ export type PipelineSummary = {
     failed_runs: number;
     success_rate: number;
     active_runs: number;
+    policy_rejections: number;
     daily_total_runs: number[];
     daily_success_runs: number[];
   };

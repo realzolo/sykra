@@ -767,7 +767,14 @@
       "deleteConfirmInstruction": "Type \"{{name}}\" to confirm deletion.",
       "deleteConfirmLabel": "Pipeline name",
       "deleteConfirmPlaceholder": "Enter the pipeline name",
-      "deleteConfirmMismatch": "Pipeline name does not match."
+      "deleteConfirmMismatch": "Pipeline name does not match.",
+      "policyRejectionsTitle": "Recent Policy Rejections",
+      "policyRejectionsDescription": "Rejected pipeline operations with reason codes for governance and troubleshooting.",
+      "policyRejectionsEmpty": "No recent policy rejections.",
+      "policyRejectionsLoadFailed": "Failed to load policy rejections.",
+      "policyRejectionsOperationCreate": "Create",
+      "policyRejectionsOperationUpdate": "Update",
+      "policyRejectionsOperationConcurrencyPatch": "Concurrency change"
     },
     "runs": "Runs",
     "list": {
@@ -777,6 +784,8 @@
       "successRate7d": "Success rate (7d)",
       "failedRuns7d": "Failed runs (7d)",
       "activeRuns": "Active runs",
+      "policyRejections7d": "Policy rejects (7d)",
+      "policyRejectionsBadge": "{{count}} policy rejects (7d)",
       "statsRuns7d": "{{count}} runs · {{rate}}% success (7d)"
     },
     "artifactsLabel": "Artifacts ({{count}})",

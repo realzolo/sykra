@@ -52,7 +52,7 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 - **Pipeline status contract**: `pipeline_runs`, `pipeline_jobs`, and `pipeline_steps` status constraints must all include `waiting_manual` to match runtime state transitions.
 - **Pipeline runs list bounds**: pipeline runs list APIs must clamp `limit` to a safe range (`1..100`) at HTTP boundaries.
 - **Pipeline run actor contract**: Studio pipeline run APIs (`/api/pipelines/:id/runs`, `/api/pipeline-runs/:runId`) must hydrate `triggered_by_name` / `triggered_by_email` from `auth_users` so runtime UI shows human actor identity instead of UUID fragments.
-- **Pipeline list telemetry contract**: Studio `/api/pipelines` responses must include lightweight per-pipeline 7-day run summary (`run_stats_7d`) and hydrated last-run actor identity for list-page operational scanning without N+1 detail fetches.
+- **Pipeline list telemetry contract**: Studio `/api/pipelines` responses must include lightweight per-pipeline 7-day run summary (`run_stats_7d`), hydrated last-run actor identity, and 7-day pipeline policy rejection counts for list-page operational scanning without N+1 detail fetches.
 - **Pipeline list run-health contract**: Studio `/api/pipelines` responses must expose 7-day totals, success rate, failed-run count, active-run count, and daily trend series so the list page can render operational summaries without additional analytics queries.
 - **Pipeline last-run failure contract**: Conductor `last_run` payloads must include `error_message` so Studio can surface the latest failure reason directly in list and detail views.
 - **Pipeline run execution summary contract**: Pipeline detail views should derive critical path, total duration, and first failure summary from the selected run's jobs and steps instead of forcing operators to inspect every node manually.
@@ -66,6 +66,7 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 - **Production concurrency contract**: Pipelines targeting the `production` environment must not use `concurrency_mode=allow`; use `queue` to keep deploy execution controlled and auditable.
 - **Mixed-trigger intent contract**: When both push auto-trigger and schedule are enabled in a pipeline config, `trigger.purpose` is required to document the explicit operational reason for dual-trigger execution.
 - **Deploy artifact-source contract**: Deploy-stage steps must declare `artifactSource` explicitly (`run` or `registry`). Steps using `run` must declare explicit `artifactInputs`; steps using `registry` must specify `registryRepository` plus exactly one of `registryVersion` or `registryChannel`.
+- **Pipeline policy rejection audit contract**: Pipeline policy-denied create/update/concurrency-change operations must emit audit log entries with `action='reject'`, `entity_type='pipeline'`, `changes.scope='pipeline_policy_reject'`, and a stable `reason_code` so operators can review governance friction from Studio.
 - **Pipeline quality gate contract**: The canonical CI gate node type is `quality_gate`. It is a fixed two-step gate, always ordered as `ai_review` then `static_analysis`, must remain on the `review` stage, and requires commit-bound score lookup for AI review, a required shell command for static analysis, and an explicit `minScore` threshold in the `1..100` range. Studio defaults, validation, and Conductor execution must treat it as a quality gate, not a test node or a code-review alias.
 - **Pipeline static-analysis contract**: quality-gate static analysis requires a structured report artifact path, and Conductor writes a per-run changed-file manifest into the job workspace for scoped analyzers. Conductor uploads declared static-analysis artifacts even when the analyzer exits non-zero, then ingests SARIF uploads, normalized `sykra.static-analysis.v1` JSON, and Go vet JSON into structured quality-gate run events with tool metadata, severity counts, blocking counts, sampled findings, and finding fingerprints; Studio inference should prefer SARIF or other structured outputs and scope the analyzer to the changed-file manifest instead of relying on plain shell exit codes alone. The quality-gate inspector should expose explicit static-analysis artifact-path editing so operators can point Conductor at the report file that will be ingested.
 - **Pipeline sandbox image contract**: CI sandbox jobs always execute inside per-job Docker containers created from the pipeline `buildImage`, and Conductor does not install or mutate tools inside those containers. Runner images must already include `git` plus any package-manager tooling required by the repo contract; pnpm/yarn workspaces must have `corepack` available in the image.
@@ -108,10 +109,11 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 ## Quality Gates
 
 - Studio CI baseline must be green on every change set:
-  - `pnpm -C apps/studio lint` returns 0 errors and 0 warnings (ESLint + SQL projection guard).
+  - `pnpm -C apps/studio lint` returns 0 errors and 0 warnings (ESLint + SQL projection guard + pipeline policy contract tests).
   - `pnpm -C apps/studio build` succeeds.
 - Conductor backend baseline must compile:
   - `cd apps/conductor && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...`
+- Repository CI workflow (`.github/workflows/quality-gates.yml`) must run lint+build on pull requests and pushes to `main`.
 
 ## Next.js 16 Special Configuration
 
@@ -130,6 +132,7 @@ pnpm build   # Console production build (TypeScript check)
 pnpm start   # Console production server
 pnpm lint    # Console ESLint
 pnpm pipeline:lint -- <pipeline-config.json> [more.json]  # Validate pipeline config files against P0 contracts
+pnpm pipeline:policy:test   # Run pipeline contract policy test suite
 pnpm codebase:cleanup   # Cleanup stale workspaces (uses CONDUCTOR_TOKEN; optional STUDIO_BASE_URL)
 psql "$DATABASE_URL" -f docs/db/init.sql   # Initialize schema (fresh DB)
 cd apps/conductor && go run .   # Conductor service (reads config.toml if present)

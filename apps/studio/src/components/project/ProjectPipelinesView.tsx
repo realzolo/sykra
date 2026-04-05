@@ -86,9 +86,10 @@ export default function ProjectPipelinesView({
         acc.successRuns += stats?.success_runs ?? 0;
         acc.failedRuns += stats?.failed_runs ?? 0;
         acc.activeRuns += stats?.active_runs ?? 0;
+        acc.policyRejections += stats?.policy_rejections ?? 0;
         return acc;
       },
-      { totalRuns: 0, successRuns: 0, failedRuns: 0, activeRuns: 0 }
+      { totalRuns: 0, successRuns: 0, failedRuns: 0, activeRuns: 0, policyRejections: 0 }
     );
     const successRate = totals.totalRuns > 0 ? Math.round((totals.successRuns * 1000) / totals.totalRuns) / 10 : 0;
     return { ...totals, successRate };
@@ -167,7 +168,7 @@ export default function ProjectPipelinesView({
       </div>
 
       <div className="px-6 py-3 border-b border-[hsl(var(--ds-border-1))] bg-background shrink-0">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           {loading ? (
             <>
               <Skeleton className="h-16 rounded-[10px]" />
@@ -192,6 +193,10 @@ export default function ProjectPipelinesView({
               <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
                 <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.activeRuns}</div>
                 <div className="text-[16px] font-semibold text-foreground">{runStatsSummary.activeRuns}</div>
+              </div>
+              <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.policyRejections7d}</div>
+                <div className="text-[16px] font-semibold text-warning">{runStatsSummary.policyRejections}</div>
               </div>
             </>
           )}
@@ -308,6 +313,12 @@ export default function ProjectPipelinesView({
                         .replace('{{count}}', String(stats?.total_runs ?? 0))
                         .replace('{{rate}}', (stats?.success_rate ?? 0).toFixed(1))}
                     </span>
+                    {(stats?.policy_rejections ?? 0) > 0 && (
+                      <Badge variant="warning" size="sm">
+                        {p.list.policyRejectionsBadge
+                          .replace('{{count}}', String(stats?.policy_rejections ?? 0))}
+                      </Badge>
+                    )}
                     {failedReason && (
                       <span className="max-w-[24rem] truncate text-danger" title={failedReason}>
                         {failedReason}

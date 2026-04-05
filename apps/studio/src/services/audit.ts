@@ -23,6 +23,7 @@ export type AuditAction =
   | 'create'
   | 'update'
   | 'delete'
+  | 'reject'
   | 'analyze'
   | 'export'
   | 'share'

@@ -769,7 +769,14 @@
       "deleteConfirmInstruction": "请输入“{{name}}”以确认删除。",
       "deleteConfirmLabel": "流水线名称",
       "deleteConfirmPlaceholder": "输入流水线名称",
-      "deleteConfirmMismatch": "流水线名称不匹配。"
+      "deleteConfirmMismatch": "流水线名称不匹配。",
+      "policyRejectionsTitle": "最近策略拒绝",
+      "policyRejectionsDescription": "展示被拒绝的流水线操作与原因码，便于治理追踪和故障排查。",
+      "policyRejectionsEmpty": "最近没有策略拒绝记录。",
+      "policyRejectionsLoadFailed": "加载策略拒绝记录失败。",
+      "policyRejectionsOperationCreate": "创建",
+      "policyRejectionsOperationUpdate": "更新",
+      "policyRejectionsOperationConcurrencyPatch": "并发模式变更"
     },
     "runs": "运行记录",
     "list": {
@@ -779,6 +786,8 @@
       "successRate7d": "近 7 天成功率",
       "failedRuns7d": "近 7 天失败数",
       "activeRuns": "活动中运行",
+      "policyRejections7d": "近 7 天策略拒绝",
+      "policyRejectionsBadge": "近 7 天策略拒绝 {{count}} 次",
       "statsRuns7d": "近 7 天 {{count}} 次运行 · 成功率 {{rate}}%"
     },
     "artifactsLabel": "制品（{{count}}）",
