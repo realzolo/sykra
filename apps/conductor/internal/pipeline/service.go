@@ -59,9 +59,13 @@ type RetryRunJobInput struct {
 	JobKey string
 }
 
-type runConcurrencyStore interface {
-	ListPipelineRunIDsByStatuses(ctx context.Context, pipelineID string, statuses []string) ([]string, error)
-	CancelPipelineRun(ctx context.Context, runID string, reason string) (bool, error)
+type pipelineRunEventStore interface {
+	AppendRunEvent(ctx context.Context, runID string, eventType string, payload map[string]any) error
+}
+
+type triggerRunStore interface {
+	GetPipelineWithCurrentVersion(ctx context.Context, pipelineID string) (*store.Pipeline, *store.PipelineVersion, error)
+	CreatePipelineRunWithAdmission(ctx context.Context, run store.PipelineRun, concurrencyMode string) (*store.PipelineRun, []string, bool, error)
 	AppendRunEvent(ctx context.Context, runID string, eventType string, payload map[string]any) error
 }
 
@@ -206,11 +210,38 @@ func (s *Service) UpdatePipeline(ctx context.Context, input UpdatePipelineInput)
 }
 
 func (s *Service) TriggerRun(ctx context.Context, input TriggerRunInput) (*store.PipelineRun, error) {
-	if input.PipelineID == "" {
+	return triggerRunWithDeps(
+		ctx,
+		s.Store,
+		input,
+		func(ctx context.Context, runID string, cfg PipelineConfig, projectID string) error {
+			return EnsureRunGraph(ctx, s.Store, runID, cfg, projectID)
+		},
+		time.Now().UTC,
+	)
+}
+
+func triggerRunWithDeps(
+	ctx context.Context,
+	runStore triggerRunStore,
+	input TriggerRunInput,
+	ensureGraph func(ctx context.Context, runID string, cfg PipelineConfig, projectID string) error,
+	now func() time.Time,
+) (*store.PipelineRun, error) {
+	if strings.TrimSpace(input.PipelineID) == "" {
 		return nil, errors.New("pipelineId is required")
 	}
+	if runStore == nil {
+		return nil, errors.New("pipeline store is not configured")
+	}
+	if ensureGraph == nil {
+		return nil, errors.New("ensure graph callback is required")
+	}
+	if now == nil {
+		now = time.Now().UTC
+	}
 
-	pipeline, version, err := s.Store.GetPipelineWithCurrentVersion(ctx, input.PipelineID)
+	pipeline, version, err := runStore.GetPipelineWithCurrentVersion(ctx, input.PipelineID)
 	if err != nil {
 		return nil, err
 	}
@@ -226,26 +257,12 @@ func (s *Service) TriggerRun(ctx context.Context, input TriggerRunInput) (*store
 		return nil, err
 	}
 
-	trimmedIdempotencyKey := strings.TrimSpace(input.IdempotencyKey)
-	if trimmedIdempotencyKey != "" {
-		existing, err := s.Store.GetPipelineRunByIdempotency(ctx, pipeline.ID, trimmedIdempotencyKey)
-		if err != nil {
-			return nil, err
-		}
-		if existing != nil {
-			return existing, nil
-		}
-	}
-
-	if err := s.applyRunConcurrencyMode(ctx, pipeline); err != nil {
-		return nil, err
-	}
-
 	metadataRaw, _ := json.Marshal(input.Metadata)
 	var triggeredBy *string
 	if input.TriggeredBy != "" {
 		triggeredBy = &input.TriggeredBy
 	}
+	trimmedIdempotencyKey := strings.TrimSpace(input.IdempotencyKey)
 	var idempotency *string
 	if trimmedIdempotencyKey != "" {
 		idempotency = &trimmedIdempotencyKey
@@ -254,7 +271,8 @@ func (s *Service) TriggerRun(ctx context.Context, input TriggerRunInput) (*store
 	if pipeline.ProjectID != nil {
 		projectID = *pipeline.ProjectID
 	}
-	run, err := s.Store.CreatePipelineRun(ctx, store.PipelineRun{
+
+	run, canceledRunIDs, created, err := runStore.CreatePipelineRunWithAdmission(ctx, store.PipelineRun{
 		PipelineID:     pipeline.ID,
 		VersionID:      version.ID,
 		OrgID:          pipeline.OrgID,
@@ -265,78 +283,68 @@ func (s *Service) TriggerRun(ctx context.Context, input TriggerRunInput) (*store
 		IdempotencyKey: idempotency,
 		RollbackOf:     input.RollbackOf,
 		Metadata:       metadataRaw,
-	})
+	}, pipeline.ConcurrencyMode)
 	if err != nil {
 		return nil, err
 	}
+	currentTime := now()
+	emitCanceledRunEvents(ctx, runStore, canceledRunIDs, currentTime)
 
-	if err := EnsureRunGraph(ctx, s.Store, run.ID, cfg, projectID); err != nil {
-		return nil, err
+	if created {
+		if err := ensureGraph(ctx, run.ID, cfg, projectID); err != nil {
+			return nil, err
+		}
 	}
 
-	_ = s.Store.AppendRunEvent(ctx, run.ID, "run.queued", map[string]any{
-		"runId":      run.ID,
-		"pipelineId": pipeline.ID,
-		"versionId":  version.ID,
-		"status":     StatusQueued,
-		"timestamp":  time.Now().UTC().Format(time.RFC3339),
-	})
-
+	emitQueuedRunEventIfCreated(ctx, runStore, created, run.ID, pipeline.ID, version.ID, currentTime)
 	return run, nil
 }
 
-func (s *Service) applyRunConcurrencyMode(ctx context.Context, pipeline *store.Pipeline) error {
-	return applyRunConcurrencyModeWithStore(ctx, s.Store, pipeline, time.Now().UTC)
+func emitCanceledRunEvents(
+	ctx context.Context,
+	eventStore pipelineRunEventStore,
+	canceledRunIDs []string,
+	now time.Time,
+) {
+	if eventStore == nil || len(canceledRunIDs) == 0 {
+		return
+	}
+	timestamp := now.Format(time.RFC3339)
+	for _, canceledRunID := range canceledRunIDs {
+		if strings.TrimSpace(canceledRunID) == "" {
+			continue
+		}
+		_ = eventStore.AppendRunEvent(ctx, canceledRunID, "run.canceled", map[string]any{
+			"runId":     canceledRunID,
+			"status":    StatusCanceled,
+			"reason":    "concurrency_cancel_previous",
+			"timestamp": timestamp,
+		})
+	}
 }
 
-func applyRunConcurrencyModeWithStore(
+func emitQueuedRunEventIfCreated(
 	ctx context.Context,
-	concurrencyStore runConcurrencyStore,
-	pipeline *store.Pipeline,
-	now func() time.Time,
-) error {
-	if pipeline == nil {
-		return errors.New("pipeline is required")
+	eventStore pipelineRunEventStore,
+	created bool,
+	runID string,
+	pipelineID string,
+	versionID string,
+	now time.Time,
+) {
+	if eventStore == nil || !created {
+		return
 	}
-	if concurrencyStore == nil {
-		return errors.New("pipeline concurrency store is required")
+	if strings.TrimSpace(runID) == "" || strings.TrimSpace(pipelineID) == "" || strings.TrimSpace(versionID) == "" {
+		return
 	}
-	if now == nil {
-		now = time.Now().UTC
-	}
-
-	mode := strings.TrimSpace(strings.ToLower(pipeline.ConcurrencyMode))
-	switch mode {
-	case "", "allow", "queue":
-		return nil
-	case "cancel_previous":
-		activeRunIDs, err := concurrencyStore.ListPipelineRunIDsByStatuses(ctx, pipeline.ID, []string{
-			string(StatusQueued),
-			string(StatusRunning),
-			string(StatusWaitingManual),
-		})
-		if err != nil {
-			return err
-		}
-		for _, runID := range activeRunIDs {
-			canceled, cancelErr := concurrencyStore.CancelPipelineRun(ctx, runID, "canceled_by_concurrency_cancel_previous")
-			if cancelErr != nil {
-				return cancelErr
-			}
-			if !canceled {
-				continue
-			}
-			_ = concurrencyStore.AppendRunEvent(ctx, runID, "run.canceled", map[string]any{
-				"runId":     runID,
-				"status":    StatusCanceled,
-				"reason":    "concurrency_cancel_previous",
-				"timestamp": now().Format(time.RFC3339),
-			})
-		}
-		return nil
-	default:
-		return fmt.Errorf("unsupported pipeline concurrency mode %q", pipeline.ConcurrencyMode)
-	}
+	_ = eventStore.AppendRunEvent(ctx, runID, "run.queued", map[string]any{
+		"runId":      runID,
+		"pipelineId": pipelineID,
+		"versionId":  versionID,
+		"status":     StatusQueued,
+		"timestamp":  now.Format(time.RFC3339),
+	})
 }
 
 func (s *Service) syncPipelineSchedule(ctx context.Context, pipelineID string, schedule string) error {

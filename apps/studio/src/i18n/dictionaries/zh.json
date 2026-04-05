@@ -673,7 +673,14 @@
       "runStatsBacklogCancel": "开发型流水线在提交频繁时更适合使用 cancel previous。",
       "runStatsLowSuccess": "成功率偏低。建议先加强 review / build 阶段门禁，再增加部署自动化。",
       "runStatsRepeatedFailures": "近期失败偏多。建议重新运行前先查看版本差异和最新失败摘要。",
-      "runStatsHealthy": "近 7 天运行健康度稳定。"
+      "runStatsHealthy": "近 7 天运行健康度稳定。",
+      "runStatsBacklogStale": "最老的活动运行已等待 {{duration}}。请检查卡住的审批、队列积压或阻塞的 worker。",
+      "runStatsLateFailure": "首个失败中位时间约为 {{duration}}。建议把最早有价值的门禁前移，以便更快失败。",
+      "runStatsManualSlow": "手动审批停留中位时间约为 {{duration}}。建议收紧审批路由，或移除低价值人工门禁。",
+      "runStatsOldestActive": "最老活动运行",
+      "runStatsMedianFirstFailure": "首个失败中位时间",
+      "runStatsManualDwell": "手动停留 P50",
+      "runStatsNoSignal": "暂无信号"
     },
     "versionsTab": {
       "title": "版本",
@@ -787,8 +794,18 @@
       "failedRuns7d": "近 7 天失败数",
       "activeRuns": "活动中运行",
       "policyRejections7d": "近 7 天策略拒绝",
+      "oldestActiveRun": "最老活动运行",
+      "medianFirstFailure": "首个失败中位时间",
+      "waitingManualDwell": "手动停留 P50",
+      "operationalRisk": "运营风险",
       "policyRejectionsBadge": "近 7 天策略拒绝 {{count}} 次",
-      "statsRuns7d": "近 7 天 {{count}} 次运行 · 成功率 {{rate}}%"
+      "statsRuns7d": "近 7 天 {{count}} 次运行 · 成功率 {{rate}}%",
+      "healthOldest": "最老活动运行 {{duration}}",
+      "healthMedianFailure": "首个失败中位时间 {{duration}}",
+      "healthManualDwell": "手动停留 P50 {{duration}}",
+      "riskHealthy": "健康",
+      "riskWatch": "关注",
+      "riskHigh": "高风险"
     },
     "artifactsLabel": "制品（{{count}}）",
     "artifactAuditTitle": "制品下载健康度",
@@ -825,8 +842,8 @@
       "cancelPrevious": "取消上次",
       "help": "控制当另一个运行正在进行时触发运行时的行为。",
       "allowHelp": "允许多个运行同时执行。",
-      "queueHelp": "如果已有运行在进行中，新运行将被拒绝（409）。",
-      "cancelPreviousHelp": "启动新运行前取消正在进行的运行。",
+      "queueHelp": "新运行会进入队列；当已有运行处于活动状态时，只会启动最老且符合条件的队列运行。",
+      "cancelPreviousHelp": "在接纳新运行前，会取消处于排队中、运行中或等待手动触发的运行。",
       "productionPolicyHelp": "生产环境流水线不能使用允许并发模式。请使用排队模式以保持部署可控且可审计。"
     },
     "steps": {

@@ -59,6 +59,65 @@ function getRunActorLabel(run: PipelineSummary['last_run'], fallbackLabel: strin
   return fallbackLabel;
 }
 
+function formatOperationalDurationMs(ms: number | null | undefined): string {
+  if (!Number.isFinite(ms) || ms === null || ms === undefined || ms <= 0) return '—';
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))}s`;
+  if (ms < 3_600_000) {
+    const minutes = Math.round(ms / 60_000);
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(ms / 3_600_000);
+  const minutes = Math.round((ms % 3_600_000) / 60_000);
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+function formatOperationalDurationSeconds(seconds: number | null | undefined): string {
+  if (!Number.isFinite(seconds) || seconds === null || seconds === undefined || seconds <= 0) return '—';
+  return formatOperationalDurationMs(seconds * 1000);
+}
+
+function medianValue(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) {
+    return sorted[middle] ?? null;
+  }
+  const left = sorted[middle - 1];
+  const right = sorted[middle];
+  if (left === undefined || right === undefined) return null;
+  return Math.round((left + right) / 2);
+}
+
+function getPipelineRiskScore(pipeline: PipelineSummary): number {
+  const stats = pipeline.run_stats_7d;
+  if (!stats) return 0;
+
+  let score = 0;
+  if (stats.active_runs > 0) score += 1;
+  if ((stats.oldest_active_run_age_seconds ?? 0) >= 1800) score += 2;
+  if (stats.total_runs >= 3 && stats.success_rate < 80) score += 2;
+  if (stats.failed_runs >= 2) score += 1;
+  if ((stats.median_first_failure_ms ?? 0) >= 10 * 60 * 1000) score += 1;
+  if ((stats.waiting_manual_dwell_p50_ms ?? 0) >= 15 * 60 * 1000) score += 1;
+  if ((stats.policy_rejections ?? 0) > 0) score += 1;
+  return score;
+}
+
+function getPipelineRiskBadge(
+  pipeline: PipelineSummary,
+  dict: Dictionary['pipelines']['list']
+): { label: string; variant: 'success' | 'warning' | 'danger' } {
+  const score = getPipelineRiskScore(pipeline);
+  if (score >= 4) {
+    return { label: dict.riskHigh, variant: 'danger' };
+  }
+  if (score >= 2) {
+    return { label: dict.riskWatch, variant: 'warning' };
+  }
+  return { label: dict.riskHealthy, variant: 'success' };
+}
+
 export default function ProjectPipelinesView({
   projectId,
   dict,
@@ -79,6 +138,9 @@ export default function ProjectPipelinesView({
     DEFAULT_PIPELINE_ENVIRONMENT_DEFINITIONS.map((item) => ({ ...item }))
   );
   const runStatsSummary = useMemo(() => {
+    const oldestActiveAges: number[] = [];
+    const medianFirstFailures: number[] = [];
+    const waitingManualDwells: number[] = [];
     const totals = pipelines.reduce(
       (acc, pipeline) => {
         const stats = pipeline.run_stats_7d;
@@ -87,12 +149,36 @@ export default function ProjectPipelinesView({
         acc.failedRuns += stats?.failed_runs ?? 0;
         acc.activeRuns += stats?.active_runs ?? 0;
         acc.policyRejections += stats?.policy_rejections ?? 0;
+        if ((stats?.oldest_active_run_age_seconds ?? 0) > 0) {
+          oldestActiveAges.push(stats!.oldest_active_run_age_seconds!);
+        }
+        if ((stats?.median_first_failure_ms ?? 0) > 0) {
+          medianFirstFailures.push(stats!.median_first_failure_ms!);
+        }
+        if ((stats?.waiting_manual_dwell_p50_ms ?? 0) > 0) {
+          waitingManualDwells.push(stats!.waiting_manual_dwell_p50_ms!);
+        }
         return acc;
       },
       { totalRuns: 0, successRuns: 0, failedRuns: 0, activeRuns: 0, policyRejections: 0 }
     );
     const successRate = totals.totalRuns > 0 ? Math.round((totals.successRuns * 1000) / totals.totalRuns) / 10 : 0;
-    return { ...totals, successRate };
+    return {
+      ...totals,
+      successRate,
+      oldestActiveRunAgeSeconds: oldestActiveAges.length > 0 ? Math.max(...oldestActiveAges) : null,
+      medianFirstFailureMs: medianValue(medianFirstFailures),
+      waitingManualDwellP50Ms: medianValue(waitingManualDwells),
+    };
+  }, [pipelines]);
+  const sortedPipelines = useMemo(() => {
+    return [...pipelines].sort((left, right) => {
+      const riskDelta = getPipelineRiskScore(right) - getPipelineRiskScore(left);
+      if (riskDelta !== 0) return riskDelta;
+      const activeDelta = (right.run_stats_7d?.active_runs ?? 0) - (left.run_stats_7d?.active_runs ?? 0);
+      if (activeDelta !== 0) return activeDelta;
+      return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+    });
   }, [pipelines]);
 
   useEffect(() => {
@@ -168,9 +254,13 @@ export default function ProjectPipelinesView({
       </div>
 
       <div className="px-6 py-3 border-b border-[hsl(var(--ds-border-1))] bg-background shrink-0">
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-8 gap-3">
           {loading ? (
             <>
+              <Skeleton className="h-16 rounded-[10px]" />
+              <Skeleton className="h-16 rounded-[10px]" />
+              <Skeleton className="h-16 rounded-[10px]" />
+              <Skeleton className="h-16 rounded-[10px]" />
               <Skeleton className="h-16 rounded-[10px]" />
               <Skeleton className="h-16 rounded-[10px]" />
               <Skeleton className="h-16 rounded-[10px]" />
@@ -197,6 +287,24 @@ export default function ProjectPipelinesView({
               <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
                 <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.policyRejections7d}</div>
                 <div className="text-[16px] font-semibold text-warning">{runStatsSummary.policyRejections}</div>
+              </div>
+              <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.oldestActiveRun}</div>
+                <div className="text-[16px] font-semibold text-foreground">
+                  {formatOperationalDurationSeconds(runStatsSummary.oldestActiveRunAgeSeconds)}
+                </div>
+              </div>
+              <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.medianFirstFailure}</div>
+                <div className="text-[16px] font-semibold text-foreground">
+                  {formatOperationalDurationMs(runStatsSummary.medianFirstFailureMs)}
+                </div>
+              </div>
+              <div className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))] px-3 py-2">
+                <div className="text-[12px] text-[hsl(var(--ds-text-2))]">{p.list.waitingManualDwell}</div>
+                <div className="text-[16px] font-semibold text-foreground">
+                  {formatOperationalDurationMs(runStatsSummary.waitingManualDwellP50Ms)}
+                </div>
               </div>
             </>
           )}
@@ -240,7 +348,7 @@ export default function ProjectPipelinesView({
             </Button>
           </div>
           ) : (
-          pipelines.map((pipeline) => {
+          sortedPipelines.map((pipeline) => {
             const run = pipeline.last_run;
             const status = run?.status;
             const env = pipeline.environment ?? 'production';
@@ -257,6 +365,7 @@ export default function ProjectPipelinesView({
             const failedReason = run?.status && ['failed', 'timed_out', 'canceled'].includes(run.status)
               ? run.error_message ?? null
               : null;
+            const riskBadge = getPipelineRiskBadge(pipeline, p.list);
             return (
               <div
                 key={pipeline.id}
@@ -313,6 +422,33 @@ export default function ProjectPipelinesView({
                         .replace('{{count}}', String(stats?.total_runs ?? 0))
                         .replace('{{rate}}', (stats?.success_rate ?? 0).toFixed(1))}
                     </span>
+                    <Badge variant={riskBadge.variant} size="sm">
+                      {p.list.operationalRisk}: {riskBadge.label}
+                    </Badge>
+                    {(stats?.oldest_active_run_age_seconds ?? 0) > 0 && (
+                      <Badge variant="outline" size="sm">
+                        {p.list.healthOldest.replace(
+                          '{{duration}}',
+                          formatOperationalDurationSeconds(stats?.oldest_active_run_age_seconds ?? null)
+                        )}
+                      </Badge>
+                    )}
+                    {(stats?.median_first_failure_ms ?? 0) > 0 && (
+                      <Badge variant="outline" size="sm">
+                        {p.list.healthMedianFailure.replace(
+                          '{{duration}}',
+                          formatOperationalDurationMs(stats?.median_first_failure_ms ?? null)
+                        )}
+                      </Badge>
+                    )}
+                    {(stats?.waiting_manual_dwell_p50_ms ?? 0) > 0 && (
+                      <Badge variant="outline" size="sm">
+                        {p.list.healthManualDwell.replace(
+                          '{{duration}}',
+                          formatOperationalDurationMs(stats?.waiting_manual_dwell_p50_ms ?? null)
+                        )}
+                      </Badge>
+                    )}
                     {(stats?.policy_rejections ?? 0) > 0 && (
                       <Badge variant="warning" size="sm">
                         {p.list.policyRejectionsBadge

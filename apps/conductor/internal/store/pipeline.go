@@ -1333,6 +1333,200 @@ func (s *Store) CreatePipelineRun(ctx context.Context, run PipelineRun) (*Pipeli
 	return &out, nil
 }
 
+func (s *Store) CreatePipelineRunWithAdmission(ctx context.Context, run PipelineRun, concurrencyMode string) (*PipelineRun, []string, bool, error) {
+	if run.Attempt <= 0 {
+		run.Attempt = 1
+	}
+	pipelineID := strings.TrimSpace(run.PipelineID)
+	if pipelineID == "" {
+		return nil, nil, false, fmt.Errorf("pipelineId is required")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var lockedPipelineID string
+	var lockedConcurrencyMode string
+	if err := tx.QueryRow(
+		ctx,
+		`select id, concurrency_mode
+		   from pipelines
+		  where id = $1
+		  for update`,
+		pipelineID,
+	).Scan(&lockedPipelineID, &lockedConcurrencyMode); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil, false, fmt.Errorf("pipeline not found")
+		}
+		return nil, nil, false, err
+	}
+	_ = lockedPipelineID
+	mode := strings.TrimSpace(strings.ToLower(lockedConcurrencyMode))
+	if mode == "" {
+		mode = strings.TrimSpace(strings.ToLower(concurrencyMode))
+	}
+	if mode == "" {
+		mode = "allow"
+	}
+
+	trimmedIdempotencyKey := ""
+	if run.IdempotencyKey != nil {
+		trimmedIdempotencyKey = strings.TrimSpace(*run.IdempotencyKey)
+	}
+	if trimmedIdempotencyKey != "" {
+		var existingRunID string
+		err := tx.QueryRow(
+			ctx,
+			`select id
+			   from pipeline_runs
+			  where pipeline_id = $1
+			    and idempotency_key = $2
+			  order by created_at desc
+			  limit 1`,
+			pipelineID,
+			trimmedIdempotencyKey,
+		).Scan(&existingRunID)
+		if err == nil {
+			if err := tx.Commit(ctx); err != nil {
+				return nil, nil, false, err
+			}
+			existingRun, getErr := s.GetPipelineRun(ctx, existingRunID)
+			if getErr != nil {
+				return nil, nil, false, getErr
+			}
+			return existingRun, nil, false, nil
+		}
+		if err != nil && err != pgx.ErrNoRows {
+			return nil, nil, false, err
+		}
+	}
+
+	canceledRunIDs := make([]string, 0)
+	if mode == "cancel_previous" {
+		rows, err := tx.Query(
+			ctx,
+			`update pipeline_runs
+			    set status='canceled',
+			        error_message='canceled_by_concurrency_cancel_previous',
+			        finished_at=now(),
+			        updated_at=now()
+			  where pipeline_id = $1
+			    and status in ('queued','running','waiting_manual')
+			  returning id`,
+			pipelineID,
+		)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		for rows.Next() {
+			var runID string
+			if scanErr := rows.Scan(&runID); scanErr != nil {
+				rows.Close()
+				return nil, nil, false, scanErr
+			}
+			canceledRunIDs = append(canceledRunIDs, runID)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, nil, false, err
+		}
+		rows.Close()
+
+		if len(canceledRunIDs) > 0 {
+			if _, err := tx.Exec(
+				ctx,
+				`update pipeline_jobs
+				    set status='canceled',
+				        error_message='canceled_by_concurrency_cancel_previous',
+				        finished_at=now(),
+				        duration_ms=case when started_at is null then null else (extract(epoch from (now()-started_at))*1000)::int end,
+				        updated_at=now()
+				  where run_id = any($1::uuid[])
+				    and status in ('queued','running','waiting_manual')`,
+				canceledRunIDs,
+			); err != nil {
+				return nil, nil, false, err
+			}
+			if _, err := tx.Exec(
+				ctx,
+				`update pipeline_steps
+				    set status='canceled',
+				        error_message='canceled_by_concurrency_cancel_previous',
+				        finished_at=now(),
+				        duration_ms=case when started_at is null then null else (extract(epoch from (now()-started_at))*1000)::int end,
+				        updated_at=now()
+				  where job_id in (
+				    select id
+				      from pipeline_jobs
+				     where run_id = any($1::uuid[])
+				  )
+				    and status in ('queued','running','waiting_manual')`,
+				canceledRunIDs,
+			); err != nil {
+				return nil, nil, false, err
+			}
+		}
+	}
+
+	meta := run.Metadata
+	var newRunID string
+	var created bool
+	row := tx.QueryRow(
+		ctx,
+		`with inserted as (
+		   insert into pipeline_runs
+		    (pipeline_id, version_id, org_id, project_id, status, trigger_type, triggered_by, idempotency_key, rollback_of, commit_sha, commit_message, branch, attempt, error_code, error_message, metadata, created_at, updated_at)
+		   values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now(),now())
+		   on conflict (pipeline_id, idempotency_key) where idempotency_key is not null do nothing
+		   returning id
+		 )
+		 select id, true as created
+		   from inserted
+		 union all
+		 select id, false as created
+		   from pipeline_runs
+		  where $8 is not null
+		    and pipeline_id = $1
+		    and idempotency_key = $8
+		    and not exists (select 1 from inserted)
+		  limit 1`,
+		run.PipelineID,
+		run.VersionID,
+		run.OrgID,
+		nullIfEmptyPtr(run.ProjectID),
+		run.Status,
+		run.TriggerType,
+		nullIfEmptyPtr(run.TriggeredBy),
+		nullIfEmptyPtr(run.IdempotencyKey),
+		nullIfEmptyPtr(run.RollbackOf),
+		nullIfEmptyPtr(run.CommitSHA),
+		nullIfEmptyPtr(run.CommitMessage),
+		nullIfEmptyPtr(run.Branch),
+		run.Attempt,
+		nullIfEmptyPtr(run.ErrorCode),
+		nullIfEmptyPtr(run.ErrorMessage),
+		meta,
+	)
+	if err := row.Scan(&newRunID, &created); err != nil {
+		return nil, nil, false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, false, err
+	}
+
+	createdRun, err := s.GetPipelineRun(ctx, newRunID)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return createdRun, canceledRunIDs, created, nil
+}
+
 func (s *Store) GetPipelineRunWithVersion(ctx context.Context, runID string) (*PipelineRun, *PipelineVersion, error) {
 	row := s.pool.QueryRow(
 		ctx,
@@ -1669,84 +1863,6 @@ func (s *Store) GetPipelineRun(ctx context.Context, runID string) (*PipelineRun,
 		run.Metadata = metadata
 	}
 	return &run, nil
-}
-
-func (s *Store) GetPipelineRunByIdempotency(ctx context.Context, pipelineID string, idempotencyKey string) (*PipelineRun, error) {
-	pipelineID = strings.TrimSpace(pipelineID)
-	idempotencyKey = strings.TrimSpace(idempotencyKey)
-	if pipelineID == "" || idempotencyKey == "" {
-		return nil, nil
-	}
-
-	var runID string
-	err := s.pool.QueryRow(
-		ctx,
-		`select id
-		   from pipeline_runs
-		  where pipeline_id = $1
-		    and idempotency_key = $2
-		  order by created_at desc
-		  limit 1`,
-		pipelineID,
-		idempotencyKey,
-	).Scan(&runID)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return s.GetPipelineRun(ctx, runID)
-}
-
-func (s *Store) ListPipelineRunIDsByStatuses(ctx context.Context, pipelineID string, statuses []string) ([]string, error) {
-	pipelineID = strings.TrimSpace(pipelineID)
-	if pipelineID == "" {
-		return nil, fmt.Errorf("pipelineId is required")
-	}
-	if len(statuses) == 0 {
-		return []string{}, nil
-	}
-
-	normalizedStatuses := make([]string, 0, len(statuses))
-	for _, status := range statuses {
-		value := strings.TrimSpace(status)
-		if value == "" {
-			continue
-		}
-		normalizedStatuses = append(normalizedStatuses, value)
-	}
-	if len(normalizedStatuses) == 0 {
-		return []string{}, nil
-	}
-
-	rows, err := s.pool.Query(
-		ctx,
-		`select id
-		   from pipeline_runs
-		  where pipeline_id = $1
-		    and status = any($2::text[])
-		  order by created_at asc`,
-		pipelineID,
-		normalizedStatuses,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	items := make([]string, 0)
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 func (s *Store) ListPipelineRuns(ctx context.Context, pipelineID string, limit int) ([]PipelineRun, error) {

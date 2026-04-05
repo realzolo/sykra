@@ -172,6 +172,13 @@ function formatDurationMs(ms: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+function formatDurationSeconds(seconds: number | null | undefined): string {
+  if (!Number.isFinite(seconds) || seconds === null || seconds === undefined || seconds <= 0) {
+    return "—";
+  }
+  return formatDurationMs(seconds * 1000);
+}
+
 function normalizeArtifactRepositorySlug(value: string) {
   return value
     .trim()
@@ -1597,17 +1604,70 @@ export default function PipelineDetailClient({
         currentEnvironment === "development" ? p.detail.runStatsBacklogCancel : p.detail.runStatsBacklogQueue
       );
     }
+    if ((stats.oldest_active_run_age_seconds ?? 0) >= 1800) {
+      guidance.push(
+        p.detail.runStatsBacklogStale.replace(
+          "{{duration}}",
+          formatDurationSeconds(stats.oldest_active_run_age_seconds ?? null)
+        )
+      );
+    }
     if (stats.total_runs >= 3 && stats.success_rate < 80) {
       guidance.push(p.detail.runStatsLowSuccess);
     }
     if (stats.failed_runs >= 2) {
       guidance.push(p.detail.runStatsRepeatedFailures);
     }
+    if (stats.failed_runs > 0 && (stats.median_first_failure_ms ?? 0) >= 10 * 60 * 1000) {
+      guidance.push(
+        p.detail.runStatsLateFailure.replace(
+          "{{duration}}",
+          formatDurationMs(stats.median_first_failure_ms ?? 0)
+        )
+      );
+    }
+    if ((stats.waiting_manual_dwell_p50_ms ?? 0) >= 15 * 60 * 1000) {
+      guidance.push(
+        p.detail.runStatsManualSlow.replace(
+          "{{duration}}",
+          formatDurationMs(stats.waiting_manual_dwell_p50_ms ?? 0)
+        )
+      );
+    }
     if (guidance.length === 0) {
       guidance.push(p.detail.runStatsHealthy);
     }
     return guidance;
   }, [currentEnvironment, p.detail, pipeline?.run_stats_7d]);
+  const runHealthMetrics = useMemo(() => {
+    const stats = pipeline?.run_stats_7d;
+    return [
+      {
+        key: "oldest-active",
+        label: p.detail.runStatsOldestActive,
+        value:
+          (stats?.oldest_active_run_age_seconds ?? 0) > 0
+            ? formatDurationSeconds(stats?.oldest_active_run_age_seconds ?? null)
+            : p.detail.runStatsNoSignal,
+      },
+      {
+        key: "first-failure",
+        label: p.detail.runStatsMedianFirstFailure,
+        value:
+          (stats?.median_first_failure_ms ?? 0) > 0
+            ? formatDurationMs(stats?.median_first_failure_ms ?? 0)
+            : p.detail.runStatsNoSignal,
+      },
+      {
+        key: "manual-dwell",
+        label: p.detail.runStatsManualDwell,
+        value:
+          (stats?.waiting_manual_dwell_p50_ms ?? 0) > 0
+            ? formatDurationMs(stats?.waiting_manual_dwell_p50_ms ?? 0)
+            : p.detail.runStatsNoSignal,
+      },
+    ];
+  }, [p.detail.runStatsManualDwell, p.detail.runStatsMedianFirstFailure, p.detail.runStatsNoSignal, p.detail.runStatsOldestActive, pipeline?.run_stats_7d]);
   const recommendedAction = useMemo(() => {
     if (currentRunStatus === "waiting_manual") {
       return p.detail.recommendedActionManual;
@@ -2296,6 +2356,17 @@ export default function PipelineDetailClient({
                         <div className="mt-1 space-y-1 text-[12px] text-[hsl(var(--ds-text-2))]">
                           {operationalGuidance.map((item) => (
                             <div key={item}>• {item}</div>
+                          ))}
+                        </div>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                          {runHealthMetrics.map((metric) => (
+                            <div
+                              key={metric.key}
+                              className="rounded-[10px] border border-[hsl(var(--ds-border-1))] bg-background px-3 py-2"
+                            >
+                              <div className="text-[11px] text-[hsl(var(--ds-text-2))]">{metric.label}</div>
+                              <div className="mt-1 text-[13px] font-medium text-foreground">{metric.value}</div>
+                            </div>
                           ))}
                         </div>
                       </div>

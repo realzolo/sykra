@@ -48,6 +48,7 @@
 - `GET /api/pipelines/[id]` returns the current pipeline snapshot plus a `versions` array so Studio can render version history and config diffs without ad-hoc DB fan-out.
 - `DELETE /api/pipelines/[id]` deletes a pipeline across Conductor + Studio-backed state, but returns conflict when the pipeline still has `queued` / `running` / `waiting_manual` runs
 - `POST /api/pipelines/[id]/runs` forwards trigger requests to Conductor; run concurrency semantics are enforced in Conductor for all trigger paths (`manual`, `webhook`, `schedule`) instead of Studio pre-check branches.
+- Conductor run admission is pipeline-transactional (`SELECT ... FOR UPDATE` on `pipelines`): idempotency lookup executes before concurrency side effects, then run creation occurs in the same transaction window. Idempotent replays must return the existing run without reapplying concurrency side effects or rebuilding the run graph.
 - Conductor dispatch claims queued runs with pipeline-aware queue semantics: for `concurrency_mode=queue`, only the oldest eligible queued run per pipeline is claimed while no sibling run is `running`/`waiting_manual`.
 - Conductor `cancel_previous` semantics cancel existing `queued` / `running` / `waiting_manual` runs for the same pipeline before creating the next run.
 - Studio server calls Conductor `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` for explicit user-initiated cancellation.

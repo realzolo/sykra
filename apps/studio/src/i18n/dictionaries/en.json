@@ -671,7 +671,14 @@
       "runStatsBacklogCancel": "Development-style pipelines benefit from cancel previous when new commits arrive quickly.",
       "runStatsLowSuccess": "Success rate is low. Strengthen review/build gates before adding more deployment automation.",
       "runStatsRepeatedFailures": "Recent failures are elevated. Review version diff and latest failure summary before rerunning.",
-      "runStatsHealthy": "Run health looks stable over the last 7 days."
+      "runStatsHealthy": "Run health looks stable over the last 7 days.",
+      "runStatsBacklogStale": "The oldest active run has been waiting {{duration}}. Review stuck approvals, queue pressure, or blocked workers.",
+      "runStatsLateFailure": "The median first failure arrives after {{duration}}. Move the earliest useful gate forward to fail faster.",
+      "runStatsManualSlow": "Manual approval dwell is about {{duration}}. Tighten approval routing or remove low-value manual gates.",
+      "runStatsOldestActive": "Oldest active run",
+      "runStatsMedianFirstFailure": "Median first failure",
+      "runStatsManualDwell": "Manual dwell p50",
+      "runStatsNoSignal": "No signal yet"
     },
     "versionsTab": {
       "title": "Versions",
@@ -785,8 +792,18 @@
       "failedRuns7d": "Failed runs (7d)",
       "activeRuns": "Active runs",
       "policyRejections7d": "Policy rejects (7d)",
+      "oldestActiveRun": "Oldest active",
+      "medianFirstFailure": "Median first failure",
+      "waitingManualDwell": "Manual dwell p50",
+      "operationalRisk": "Operational risk",
       "policyRejectionsBadge": "{{count}} policy rejects (7d)",
-      "statsRuns7d": "{{count}} runs · {{rate}}% success (7d)"
+      "statsRuns7d": "{{count}} runs · {{rate}}% success (7d)",
+      "healthOldest": "Oldest active {{duration}}",
+      "healthMedianFailure": "Median first failure {{duration}}",
+      "healthManualDwell": "Manual dwell p50 {{duration}}",
+      "riskHealthy": "Healthy",
+      "riskWatch": "Watch",
+      "riskHigh": "High risk"
     },
     "artifactsLabel": "Artifacts ({{count}})",
     "artifactAuditTitle": "Artifact Download Health",
@@ -823,8 +840,8 @@
       "cancelPrevious": "Cancel Previous",
       "help": "Controls what happens when a run is triggered while another is already active.",
       "allowHelp": "Multiple runs may execute concurrently.",
-      "queueHelp": "New runs are rejected (409) if another run is already active.",
-      "cancelPreviousHelp": "Active runs are canceled before starting a new one.",
+      "queueHelp": "New runs are queued, and only the oldest eligible run starts while another run is active.",
+      "cancelPreviousHelp": "Queued, running, or waiting-manual runs are canceled before a new run is admitted.",
       "productionPolicyHelp": "Production pipelines must not use Allow mode. Use Queue to keep deployment execution controlled and auditable."
     },
     "steps": {
