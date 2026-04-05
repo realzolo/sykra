@@ -1455,24 +1455,53 @@ func (s *Store) ClaimQueuedPipelineRuns(ctx context.Context, limit int) ([]Pipel
 
 	rows, err := tx.Query(
 		ctx,
-		`with claimed as (
-		   select id
-		     from pipeline_runs
-		    where status = 'queued'
-		    order by created_at asc
-		    for update skip locked
+		`with candidates as (
+		   select r.id
+		     from pipeline_runs r
+		     join pipelines p on p.id = r.pipeline_id
+		    where r.status = 'queued'
+		      and (
+		        p.concurrency_mode <> 'queue'
+		        or (
+		          not exists (
+		            select 1
+		              from pipeline_runs active
+		             where active.pipeline_id = r.pipeline_id
+		               and active.id <> r.id
+		               and active.status in ('running', 'waiting_manual')
+		          )
+		          and not exists (
+		            select 1
+		              from pipeline_runs older
+		             where older.pipeline_id = r.pipeline_id
+		               and older.status = 'queued'
+		               and (
+		                 older.created_at < r.created_at
+		                 or (older.created_at = r.created_at and older.id < r.id)
+		               )
+		          )
+		        )
+		      )
+		    order by r.created_at asc
+		    for update of r skip locked
 		    limit $1
+		 ),
+		 claimed as (
+		   update pipeline_runs r
+		      set status = 'running',
+		          error_message = null,
+		          started_at = coalesce(started_at, now()),
+		          updated_at = now()
+		     from candidates c
+		    where r.id = c.id
+		    returning r.id, r.pipeline_id, r.version_id, r.org_id, r.project_id, r.status, r.trigger_type,
+		              r.triggered_by, r.idempotency_key, r.rollback_of, r.attempt, r.error_code, r.error_message,
+		              r.metadata, r.created_at, r.started_at, r.finished_at, r.updated_at
 		 )
-		 update pipeline_runs r
-		    set status = 'running',
-		        error_message = null,
-		        started_at = coalesce(started_at, now()),
-		        updated_at = now()
-		   from claimed
-		  where r.id = claimed.id
-		  returning r.id, r.pipeline_id, r.version_id, r.org_id, r.project_id, r.status, r.trigger_type,
-		            r.triggered_by, r.idempotency_key, r.rollback_of, r.attempt, r.error_code, r.error_message,
-		            r.metadata, r.created_at, r.started_at, r.finished_at, r.updated_at`,
+		 select id, pipeline_id, version_id, org_id, project_id, status, trigger_type,
+		        triggered_by, idempotency_key, rollback_of, attempt, error_code, error_message,
+		        metadata, created_at, started_at, finished_at, updated_at
+		   from claimed`,
 		limit,
 	)
 	if err != nil {
@@ -1640,6 +1669,84 @@ func (s *Store) GetPipelineRun(ctx context.Context, runID string) (*PipelineRun,
 		run.Metadata = metadata
 	}
 	return &run, nil
+}
+
+func (s *Store) GetPipelineRunByIdempotency(ctx context.Context, pipelineID string, idempotencyKey string) (*PipelineRun, error) {
+	pipelineID = strings.TrimSpace(pipelineID)
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if pipelineID == "" || idempotencyKey == "" {
+		return nil, nil
+	}
+
+	var runID string
+	err := s.pool.QueryRow(
+		ctx,
+		`select id
+		   from pipeline_runs
+		  where pipeline_id = $1
+		    and idempotency_key = $2
+		  order by created_at desc
+		  limit 1`,
+		pipelineID,
+		idempotencyKey,
+	).Scan(&runID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return s.GetPipelineRun(ctx, runID)
+}
+
+func (s *Store) ListPipelineRunIDsByStatuses(ctx context.Context, pipelineID string, statuses []string) ([]string, error) {
+	pipelineID = strings.TrimSpace(pipelineID)
+	if pipelineID == "" {
+		return nil, fmt.Errorf("pipelineId is required")
+	}
+	if len(statuses) == 0 {
+		return []string{}, nil
+	}
+
+	normalizedStatuses := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		value := strings.TrimSpace(status)
+		if value == "" {
+			continue
+		}
+		normalizedStatuses = append(normalizedStatuses, value)
+	}
+	if len(normalizedStatuses) == 0 {
+		return []string{}, nil
+	}
+
+	rows, err := s.pool.Query(
+		ctx,
+		`select id
+		   from pipeline_runs
+		  where pipeline_id = $1
+		    and status = any($2::text[])
+		  order by created_at asc`,
+		pipelineID,
+		normalizedStatuses,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (s *Store) ListPipelineRuns(ctx context.Context, pipelineID string, limit int) ([]PipelineRun, error) {

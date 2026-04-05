@@ -47,8 +47,10 @@
 - `PATCH /api/pipelines/[id]` updates `concurrency_mode` in Studio DB (schema must include `pipelines.concurrency_mode`; present in `init.sql`)
 - `GET /api/pipelines/[id]` returns the current pipeline snapshot plus a `versions` array so Studio can render version history and config diffs without ad-hoc DB fan-out.
 - `DELETE /api/pipelines/[id]` deletes a pipeline across Conductor + Studio-backed state, but returns conflict when the pipeline still has `queued` / `running` / `waiting_manual` runs
-- `POST /api/pipelines/[id]/runs` enforces concurrency gate before calling Conductor (409 if `queue` mode and run active)
-- Studio server calls Conductor `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` (used by `cancel_previous` concurrency mode)
+- `POST /api/pipelines/[id]/runs` forwards trigger requests to Conductor; run concurrency semantics are enforced in Conductor for all trigger paths (`manual`, `webhook`, `schedule`) instead of Studio pre-check branches.
+- Conductor dispatch claims queued runs with pipeline-aware queue semantics: for `concurrency_mode=queue`, only the oldest eligible queued run per pipeline is claimed while no sibling run is `running`/`waiting_manual`.
+- Conductor `cancel_previous` semantics cancel existing `queued` / `running` / `waiting_manual` runs for the same pipeline before creating the next run.
+- Studio server calls Conductor `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` for explicit user-initiated cancellation.
 - DB status constraints for `pipeline_runs` / `pipeline_jobs` / `pipeline_steps` include `waiting_manual` as a first-class runtime state.
 - `GET /api/pipeline-runs/:runId/artifacts` returns release provenance fields (`source_run_id`, `source_pipeline_id`, `source_commit_sha`, `source_branch`, `published_by`, `published_at`, `channel_names`), and Studio hydrates publisher display names before rendering the run detail release cards.
 

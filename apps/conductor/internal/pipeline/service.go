@@ -220,14 +220,29 @@ func (s *Service) TriggerRun(ctx context.Context, input TriggerRunInput) (*store
 		return nil, err
 	}
 
+	trimmedIdempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	if trimmedIdempotencyKey != "" {
+		existing, err := s.Store.GetPipelineRunByIdempotency(ctx, pipeline.ID, trimmedIdempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
+		}
+	}
+
+	if err := s.applyRunConcurrencyMode(ctx, pipeline); err != nil {
+		return nil, err
+	}
+
 	metadataRaw, _ := json.Marshal(input.Metadata)
 	var triggeredBy *string
 	if input.TriggeredBy != "" {
 		triggeredBy = &input.TriggeredBy
 	}
 	var idempotency *string
-	if input.IdempotencyKey != "" {
-		idempotency = &input.IdempotencyKey
+	if trimmedIdempotencyKey != "" {
+		idempotency = &trimmedIdempotencyKey
 	}
 	projectID := ""
 	if pipeline.ProjectID != nil {
@@ -262,6 +277,45 @@ func (s *Service) TriggerRun(ctx context.Context, input TriggerRunInput) (*store
 	})
 
 	return run, nil
+}
+
+func (s *Service) applyRunConcurrencyMode(ctx context.Context, pipeline *store.Pipeline) error {
+	if pipeline == nil {
+		return errors.New("pipeline is required")
+	}
+
+	mode := strings.TrimSpace(strings.ToLower(pipeline.ConcurrencyMode))
+	switch mode {
+	case "", "allow", "queue":
+		return nil
+	case "cancel_previous":
+		activeRunIDs, err := s.Store.ListPipelineRunIDsByStatuses(ctx, pipeline.ID, []string{
+			string(StatusQueued),
+			string(StatusRunning),
+			string(StatusWaitingManual),
+		})
+		if err != nil {
+			return err
+		}
+		for _, runID := range activeRunIDs {
+			canceled, cancelErr := s.Store.CancelPipelineRun(ctx, runID, "canceled_by_concurrency_cancel_previous")
+			if cancelErr != nil {
+				return cancelErr
+			}
+			if !canceled {
+				continue
+			}
+			_ = s.Store.AppendRunEvent(ctx, runID, "run.canceled", map[string]any{
+				"runId":     runID,
+				"status":    StatusCanceled,
+				"reason":    "concurrency_cancel_previous",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported pipeline concurrency mode %q", pipeline.ConcurrencyMode)
+	}
 }
 
 func (s *Service) syncPipelineSchedule(ctx context.Context, pipelineID string, schedule string) error {
