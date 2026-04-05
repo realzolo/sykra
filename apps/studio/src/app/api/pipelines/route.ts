@@ -54,7 +54,16 @@ export async function GET(request: NextRequest) {
       )
     );
 
-    const [runStatsRows, runDailyRows, activeRunRows, userRows] = await Promise.all([
+    const [
+      runStatsRows,
+      runDailyRows,
+      activeRunRows,
+      policyRejectionRows,
+      oldestActiveRunAgeRows,
+      medianFirstFailureRows,
+      waitingManualDwellRows,
+      userRows,
+    ] = await Promise.all([
       query<{
         pipeline_id: string;
         total_runs_7d: string;
@@ -109,6 +118,118 @@ export async function GET(request: NextRequest) {
          group by pipeline_id`,
         [orgId, pipelineIds]
       ),
+      query<{
+        pipeline_id: string;
+        policy_rejections_7d: string;
+      }>(
+        `select
+           entity_id::text as pipeline_id,
+           count(*)::text as policy_rejections_7d
+         from audit_logs
+         where entity_type = 'pipeline'
+           and action = 'reject'
+           and changes->>'scope' = 'pipeline_policy_reject'
+           and entity_id = any($1::uuid[])
+           and created_at >= now() - interval '7 days'
+         group by entity_id`,
+        [pipelineIds]
+      ),
+      query<{
+        pipeline_id: string;
+        oldest_active_run_age_seconds: string;
+      }>(
+        `select
+           pipeline_id,
+           extract(epoch from (now() - min(created_at)))::bigint::text as oldest_active_run_age_seconds
+         from pipeline_runs
+         where org_id = $1
+           and pipeline_id = any($2::uuid[])
+           and status in (${PIPELINE_ACTIVE_STATUSES_SQL})
+         group by pipeline_id`,
+        [orgId, pipelineIds]
+      ),
+      query<{
+        pipeline_id: string;
+        median_first_failure_ms: string;
+      }>(
+        `with failure_runs as (
+           select
+             id,
+             pipeline_id,
+             coalesce(started_at, created_at) as started_at,
+             coalesce(finished_at, updated_at, created_at) as terminal_at
+           from pipeline_runs
+           where org_id = $1
+             and pipeline_id = any($2::uuid[])
+             and created_at >= now() - interval '7 days'
+             and status in ('failed', 'timed_out', 'canceled')
+         ),
+         first_failure_steps as (
+           select
+             j.run_id,
+             min(coalesce(s.finished_at, s.updated_at, s.created_at)) as first_failed_at
+           from pipeline_steps s
+           join pipeline_jobs j on j.id = s.job_id
+           where j.run_id in (select id from failure_runs)
+             and s.status in ('failed', 'timed_out', 'canceled')
+           group by j.run_id
+         ),
+         samples as (
+           select
+             fr.pipeline_id,
+             greatest(
+               0,
+               (extract(epoch from (coalesce(fs.first_failed_at, fr.terminal_at) - fr.started_at)) * 1000)::bigint
+             ) as duration_ms
+           from failure_runs fr
+           left join first_failure_steps fs on fs.run_id = fr.id
+         )
+         select
+           pipeline_id,
+           percentile_disc(0.5) within group (order by duration_ms)::bigint::text as median_first_failure_ms
+         from samples
+         group by pipeline_id`,
+        [orgId, pipelineIds]
+      ),
+      query<{
+        pipeline_id: string;
+        waiting_manual_dwell_p50_ms: string;
+      }>(
+        `with waiting_events as (
+           select
+             e.run_id,
+             r.pipeline_id,
+             e.type,
+             e.occurred_at,
+             lead(e.occurred_at) over (partition by e.run_id order by e.seq) as next_occurred_at,
+             lead(e.type) over (partition by e.run_id order by e.seq) as next_type
+           from pipeline_run_events e
+           join pipeline_runs r on r.id = e.run_id
+           where r.org_id = $1
+             and r.pipeline_id = any($2::uuid[])
+             and e.occurred_at >= now() - interval '7 days'
+         ),
+         samples as (
+           select
+             pipeline_id,
+             greatest(
+               0,
+               (extract(epoch from (coalesce(next_occurred_at, now()) - occurred_at)) * 1000)::bigint
+             ) as dwell_ms
+           from waiting_events
+           where type = 'run.waiting_manual'
+             and (
+               next_type is null
+               or next_type in ('run.started', 'run.completed', 'run.failed', 'run.canceled', 'run.waiting_manual')
+             )
+         )
+         select
+           pipeline_id,
+           percentile_disc(0.5) within group (order by dwell_ms)::bigint::text as waiting_manual_dwell_p50_ms
+         from samples
+         group by pipeline_id`,
+        [orgId, pipelineIds]
+      ),
       triggeredByIds.length > 0
         ? query<{ id: string; email: string | null; display_name: string | null }>(
             `select id, email, display_name
@@ -118,23 +239,6 @@ export async function GET(request: NextRequest) {
           )
         : Promise.resolve([]),
     ]);
-    const policyRejectionRows = await query<{
-      pipeline_id: string;
-      policy_rejections_7d: string;
-    }>(
-      `select
-         entity_id::text as pipeline_id,
-         count(*)::text as policy_rejections_7d
-       from audit_logs
-       where entity_type = 'pipeline'
-         and action = 'reject'
-         and changes->>'scope' = 'pipeline_policy_reject'
-         and entity_id = any($1::uuid[])
-         and created_at >= now() - interval '7 days'
-       group by entity_id`,
-      [pipelineIds]
-    );
-
     const dailyTotalRunsByPipelineId = new Map<string, number[]>();
     const dailySuccessRunsByPipelineId = new Map<string, number[]>();
     for (const row of runDailyRows) {
@@ -153,6 +257,15 @@ export async function GET(request: NextRequest) {
     const policyRejectionsByPipelineId = new Map(
       policyRejectionRows.map((row) => [row.pipeline_id, Number.parseInt(row.policy_rejections_7d, 10) || 0])
     );
+    const oldestActiveRunAgeByPipelineId = new Map(
+      oldestActiveRunAgeRows.map((row) => [row.pipeline_id, Number.parseInt(row.oldest_active_run_age_seconds, 10) || 0])
+    );
+    const medianFirstFailureByPipelineId = new Map(
+      medianFirstFailureRows.map((row) => [row.pipeline_id, Number.parseInt(row.median_first_failure_ms, 10) || 0])
+    );
+    const waitingManualDwellByPipelineId = new Map(
+      waitingManualDwellRows.map((row) => [row.pipeline_id, Number.parseInt(row.waiting_manual_dwell_p50_ms, 10) || 0])
+    );
     const runStatsByPipelineId = new Map(
       runStatsRows.map((row) => {
         const totalRuns = Number.parseInt(row.total_runs_7d, 10);
@@ -170,6 +283,9 @@ export async function GET(request: NextRequest) {
             policy_rejections: policyRejectionsByPipelineId.get(row.pipeline_id) ?? 0,
             daily_total_runs: dailyTotalRunsByPipelineId.get(row.pipeline_id) ?? [...defaultDailySeries],
             daily_success_runs: dailySuccessRunsByPipelineId.get(row.pipeline_id) ?? [...defaultDailySeries],
+            oldest_active_run_age_seconds: oldestActiveRunAgeByPipelineId.get(row.pipeline_id) ?? null,
+            median_first_failure_ms: medianFirstFailureByPipelineId.get(row.pipeline_id) ?? null,
+            waiting_manual_dwell_p50_ms: waitingManualDwellByPipelineId.get(row.pipeline_id) ?? null,
           },
         ];
       })
@@ -197,6 +313,9 @@ export async function GET(request: NextRequest) {
           policy_rejections: 0,
           daily_total_runs: [...defaultDailySeries],
           daily_success_runs: [...defaultDailySeries],
+          oldest_active_run_age_seconds: null,
+          median_first_failure_ms: null,
+          waiting_manual_dwell_p50_ms: null,
         },
       };
     });

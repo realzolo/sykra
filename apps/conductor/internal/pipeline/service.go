@@ -59,6 +59,12 @@ type RetryRunJobInput struct {
 	JobKey string
 }
 
+type runConcurrencyStore interface {
+	ListPipelineRunIDsByStatuses(ctx context.Context, pipelineID string, statuses []string) ([]string, error)
+	CancelPipelineRun(ctx context.Context, runID string, reason string) (bool, error)
+	AppendRunEvent(ctx context.Context, runID string, eventType string, payload map[string]any) error
+}
+
 func (s *Service) DeletePipeline(ctx context.Context, pipelineID string) error {
 	if strings.TrimSpace(pipelineID) == "" {
 		return errors.New("pipelineId is required")
@@ -280,8 +286,23 @@ func (s *Service) TriggerRun(ctx context.Context, input TriggerRunInput) (*store
 }
 
 func (s *Service) applyRunConcurrencyMode(ctx context.Context, pipeline *store.Pipeline) error {
+	return applyRunConcurrencyModeWithStore(ctx, s.Store, pipeline, time.Now().UTC)
+}
+
+func applyRunConcurrencyModeWithStore(
+	ctx context.Context,
+	concurrencyStore runConcurrencyStore,
+	pipeline *store.Pipeline,
+	now func() time.Time,
+) error {
 	if pipeline == nil {
 		return errors.New("pipeline is required")
+	}
+	if concurrencyStore == nil {
+		return errors.New("pipeline concurrency store is required")
+	}
+	if now == nil {
+		now = time.Now().UTC
 	}
 
 	mode := strings.TrimSpace(strings.ToLower(pipeline.ConcurrencyMode))
@@ -289,7 +310,7 @@ func (s *Service) applyRunConcurrencyMode(ctx context.Context, pipeline *store.P
 	case "", "allow", "queue":
 		return nil
 	case "cancel_previous":
-		activeRunIDs, err := s.Store.ListPipelineRunIDsByStatuses(ctx, pipeline.ID, []string{
+		activeRunIDs, err := concurrencyStore.ListPipelineRunIDsByStatuses(ctx, pipeline.ID, []string{
 			string(StatusQueued),
 			string(StatusRunning),
 			string(StatusWaitingManual),
@@ -298,18 +319,18 @@ func (s *Service) applyRunConcurrencyMode(ctx context.Context, pipeline *store.P
 			return err
 		}
 		for _, runID := range activeRunIDs {
-			canceled, cancelErr := s.Store.CancelPipelineRun(ctx, runID, "canceled_by_concurrency_cancel_previous")
+			canceled, cancelErr := concurrencyStore.CancelPipelineRun(ctx, runID, "canceled_by_concurrency_cancel_previous")
 			if cancelErr != nil {
 				return cancelErr
 			}
 			if !canceled {
 				continue
 			}
-			_ = s.Store.AppendRunEvent(ctx, runID, "run.canceled", map[string]any{
+			_ = concurrencyStore.AppendRunEvent(ctx, runID, "run.canceled", map[string]any{
 				"runId":     runID,
 				"status":    StatusCanceled,
 				"reason":    "concurrency_cancel_previous",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"timestamp": now().Format(time.RFC3339),
 			})
 		}
 		return nil

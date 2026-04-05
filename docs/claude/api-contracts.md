@@ -51,6 +51,7 @@
 - Conductor dispatch claims queued runs with pipeline-aware queue semantics: for `concurrency_mode=queue`, only the oldest eligible queued run per pipeline is claimed while no sibling run is `running`/`waiting_manual`.
 - Conductor `cancel_previous` semantics cancel existing `queued` / `running` / `waiting_manual` runs for the same pipeline before creating the next run.
 - Studio server calls Conductor `POST /v1/pipeline-runs/{runId}/cancel` and expects `{ ok: true }` for explicit user-initiated cancellation.
+- `GET /api/pipelines` `run_stats_7d` includes run-health/SLO fields required by the list and detail views: `oldest_active_run_age_seconds`, `median_first_failure_ms`, and `waiting_manual_dwell_p50_ms`, in addition to totals/success-rate/active/daily-trend metrics.
 - DB status constraints for `pipeline_runs` / `pipeline_jobs` / `pipeline_steps` include `waiting_manual` as a first-class runtime state.
 - `GET /api/pipeline-runs/:runId/artifacts` returns release provenance fields (`source_run_id`, `source_pipeline_id`, `source_commit_sha`, `source_branch`, `published_by`, `published_at`, `channel_names`), and Studio hydrates publisher display names before rendering the run detail release cards.
 

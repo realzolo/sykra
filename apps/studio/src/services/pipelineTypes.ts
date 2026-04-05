@@ -254,6 +254,9 @@ export type PipelineSummary = {
     policy_rejections: number;
     daily_total_runs: number[];
     daily_success_runs: number[];
+    oldest_active_run_age_seconds: number | null;
+    median_first_failure_ms: number | null;
+    waiting_manual_dwell_p50_ms: number | null;
   };
   concurrency_mode: 'allow' | 'queue' | 'cancel_previous';
   trigger_schedule?: string | null;
