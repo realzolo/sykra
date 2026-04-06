@@ -1,26 +1,22 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { auditLogger, extractClientInfo } from '@/services/audit';
+import { extractClientInfo } from '@/services/audit';
 import { requireUser, unauthorized } from '@/services/auth';
 import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
 import { formatErrorResponse } from '@/services/retry';
 import { updatePipelineSchema } from '@/services/validation';
-import { deletePipeline, getPipeline, updatePipeline } from '@/services/conductorGateway';
-import { query as dbQuery } from '@/lib/db';
 import {
-  findConcurrencyPatchPolicyViolation,
-  findUpdatePipelinePolicyViolation,
   formatZodValidationError,
   logPipelinePolicyRejection,
   mapPipelineValidationErrorToPolicyViolation,
 } from '@/services/pipelinePolicy';
-import type { ConductorGetPipelineResponse, ConductorUpdatePipelineRequest } from '@sykra/contracts/conductor';
-
-type HydratedPipelineVersion = NonNullable<ConductorGetPipelineResponse['version']> & {
-  created_by_name?: string | null;
-  created_by_email?: string | null;
-};
+import {
+  deletePipelineForOrg,
+  getPipelineForOrg,
+  patchPipelineConcurrencyForOrg,
+  updatePipelineForOrg,
+} from '@/features/pipelines/application/managePipelineForOrg';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,60 +33,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
     if (!orgId) return unauthorized();
-    const data = await getPipeline(id);
-    const pipeline = data.pipeline;
-    if (!pipeline) {
+    const result = await getPipelineForOrg({ pipelineId: id, orgId });
+    if (result.kind === 'not_found') {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    if (pipeline.org_id && pipeline.org_id !== orgId) {
+    if (result.kind === 'forbidden') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    const response = data as ConductorGetPipelineResponse & {
-      version: HydratedPipelineVersion | null;
-      versions: HydratedPipelineVersion[];
-    };
-    const versionAuthorIds = Array.from(
-      new Set(
-        [
-          response.version?.created_by,
-          ...(Array.isArray(response.versions) ? response.versions.map((version) => version.created_by) : []),
-        ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      )
-    );
-    if (versionAuthorIds.length > 0) {
-      const authors = await dbQuery<{ id: string; email: string | null; display_name: string | null }>(
-        `SELECT id, email, display_name
-           FROM auth_users
-          WHERE id = ANY($1::uuid[])`,
-        [versionAuthorIds]
-      );
-      const authorById = new Map(authors.map((item) => [item.id, item]));
-      response.version = response.version
-        ? {
-            ...response.version,
-            created_by_name: response.version.created_by ? authorById.get(response.version.created_by)?.display_name ?? null : null,
-            created_by_email: response.version.created_by ? authorById.get(response.version.created_by)?.email ?? null : null,
-          }
-        : response.version;
-      response.versions = response.versions.map((version) => {
-        const author = version.created_by ? authorById.get(version.created_by) : undefined;
-        return {
-          ...version,
-          created_by_name: author?.display_name ?? null,
-          created_by_email: author?.email ?? null,
-        };
-      });
-    }
-    // Augment with concurrency_mode from Studio DB (must exist; schema is treated as required).
-    const rows = await dbQuery<{ concurrency_mode: 'allow' | 'queue' | 'cancel_previous' }>(
-      `SELECT concurrency_mode FROM pipelines WHERE id = $1`,
-      [id]
-    );
-    const concurrencyRow = rows[0];
-    if (concurrencyRow) {
-      pipeline.concurrency_mode = concurrencyRow.concurrency_mode;
-    }
-    return NextResponse.json(response);
+    return NextResponse.json(result.data);
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     return NextResponse.json({ error }, { status: statusCode });
@@ -133,62 +83,29 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    const existing = await getPipeline(id);
-    const pipeline = existing.pipeline;
-    if (!pipeline) {
+    const result = await updatePipelineForOrg({
+      pipelineId: id,
+      orgId,
+      userId: user.id,
+      validated,
+      clientInfo,
+    });
+    if (result.kind === 'not_found') {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    if (pipeline.org_id && pipeline.org_id !== orgId) {
+    if (result.kind === 'forbidden') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    const modeRows = await dbQuery<{ concurrency_mode: 'allow' | 'queue' | 'cancel_previous' }>(
-      `SELECT concurrency_mode FROM pipelines WHERE id = $1 AND org_id = $2`,
-      [id, orgId]
-    );
-    if (modeRows.length === 0) {
+    if (result.kind === 'metadata_missing') {
       return NextResponse.json({ error: 'Pipeline concurrency metadata not found' }, { status: 500 });
     }
-    const currentConcurrencyMode = modeRows[0]?.concurrency_mode ?? 'allow';
-    const policyViolation = findUpdatePipelinePolicyViolation(validated.config, currentConcurrencyMode);
-    if (policyViolation) {
-      await logPipelinePolicyRejection({
-        userId: user.id,
-        entityId: id,
-        operation: 'update',
-        violation: policyViolation,
-        environment: validated.config.environment,
-        currentConcurrencyMode,
-        ...clientInfo,
-      });
+    if (result.kind === 'policy_reject') {
       return NextResponse.json(
-        { error: policyViolation.message, reason_code: policyViolation.reasonCode },
-        { status: policyViolation.statusCode }
+        { error: result.violation.message, reason_code: result.violation.reasonCode },
+        { status: result.violation.statusCode }
       );
     }
-
-    const payload: ConductorUpdatePipelineRequest = {
-      name: validated.name ?? pipeline.name,
-      description: validated.description ?? pipeline.description,
-      config: validated.config,
-      updatedBy: user.id,
-    };
-    const result = await updatePipeline(id, payload);
-
-    await auditLogger.log({
-      action: 'update',
-      entityType: 'pipeline',
-      entityId: id,
-      userId: user.id,
-      changes: {
-        scope: 'pipeline',
-        name: payload.name,
-        description: payload.description,
-        environment: validated.config?.environment ?? pipeline.environment,
-      },
-      ...clientInfo,
-    });
-
-    return NextResponse.json(result);
+    return NextResponse.json(result.data);
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     return NextResponse.json({ error }, { status: statusCode });
@@ -211,45 +128,29 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-
-    const VALID_MODES = ['allow', 'queue', 'cancel_previous'] as const;
-    const concurrencyMode = body?.concurrency_mode as typeof VALID_MODES[number] | undefined;
-    if (!concurrencyMode || !VALID_MODES.includes(concurrencyMode)) {
+    const result = await patchPipelineConcurrencyForOrg({
+      pipelineId: id,
+      orgId,
+      userId: user.id,
+      requestedConcurrencyMode: body?.concurrency_mode,
+      clientInfo,
+    });
+    if (result.kind === 'invalid_mode') {
       return NextResponse.json({ error: 'Invalid concurrency_mode' }, { status: 400 });
     }
-    const existing = await getPipeline(id);
-    const pipeline = existing.pipeline;
-    if (!pipeline) {
+    if (result.kind === 'not_found') {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    if (pipeline.org_id && pipeline.org_id !== orgId) {
+    if (result.kind === 'forbidden') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    const policyViolation = findConcurrencyPatchPolicyViolation(
-      pipeline.environment ?? 'production',
-      concurrencyMode
-    );
-    if (policyViolation) {
-      await logPipelinePolicyRejection({
-        userId: user.id,
-        entityId: id,
-        operation: 'concurrency_patch',
-        violation: policyViolation,
-        environment: pipeline.environment ?? 'production',
-        requestedConcurrencyMode: concurrencyMode,
-        ...clientInfo,
-      });
+    if (result.kind === 'policy_reject') {
       return NextResponse.json(
-        { error: policyViolation.message, reason_code: policyViolation.reasonCode },
-        { status: policyViolation.statusCode }
+        { error: result.violation.message, reason_code: result.violation.reasonCode },
+        { status: result.violation.statusCode }
       );
     }
-
-    await dbQuery(
-      `UPDATE pipelines SET concurrency_mode = $1, updated_at = now() WHERE id = $2 AND org_id = $3`,
-      [concurrencyMode, id, orgId]
-    );
-    return NextResponse.json({ concurrency_mode: concurrencyMode });
+    return NextResponse.json({ concurrency_mode: result.concurrencyMode });
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);
     return NextResponse.json({ error }, { status: statusCode });
@@ -270,30 +171,19 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-
-    const existing = await getPipeline(id);
-    const pipeline = existing.pipeline;
-    if (!pipeline) {
+    const clientInfo = extractClientInfo(request);
+    const result = await deletePipelineForOrg({
+      pipelineId: id,
+      orgId,
+      userId: user.id,
+      clientInfo,
+    });
+    if (result.kind === 'not_found') {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    if (pipeline.org_id && pipeline.org_id !== orgId) {
+    if (result.kind === 'forbidden') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-
-    await deletePipeline(id);
-
-    const clientInfo = extractClientInfo(request);
-    await auditLogger.log({
-      action: 'delete',
-      entityType: 'pipeline',
-      entityId: id,
-      changes: {
-        scope: 'pipeline',
-        name: pipeline.name,
-      },
-      ...clientInfo,
-    });
-
     return NextResponse.json({ ok: true });
   } catch (err) {
     const { error, statusCode } = formatErrorResponse(err);

@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server';
 import { cookies, headers } from 'next/headers';
-import { createHash, randomBytes } from 'crypto';
 import { hash, verify } from '@node-rs/argon2';
 import { exec, execTx, query, queryOne, withTransaction } from '@/lib/db';
 import type { JsonObject } from '@/lib/json';
 import { sendEmail } from './email';
 import { logger } from './logger';
+import { createOpaqueToken, hashToken } from '@/services/authTokenHash';
+import {
+  checkLoginRateLimit,
+  handleFailedLogin,
+  handleSuccessfulLogin,
+  recordLoginAttempt,
+} from '@/services/authLoginAttempts';
+export {
+  cleanupAuthData,
+  createEmailVerification,
+  createPasswordReset,
+  resetPasswordWithToken,
+  verifyEmailToken,
+} from '@/services/authRecovery';
 
 export type AuthUser = {
   id: string;
@@ -39,12 +52,6 @@ const SESSION_COOKIE = 'session';
 const SESSION_TTL_DAYS = 14;
 const SESSION_ROTATE_DAYS = 7;
 const SESSION_MAX_PER_USER = 5;
-const EMAIL_VERIFY_TTL_HOURS = 24;
-const PASSWORD_RESET_TTL_HOURS = 2;
-const LOGIN_FAILURE_LIMIT = 5;
-const LOGIN_FAILURE_WINDOW_MINUTES = 15;
-const LOGIN_RATE_LIMIT = 10;
-const ACCOUNT_LOCK_MINUTES = 15;
 
 type UserRow = {
   id: string;
@@ -54,10 +61,6 @@ type UserRow = {
   locked_until?: string | null;
   failed_login_count?: number | null;
 };
-
-function hashToken(token: string) {
-  return createHash('sha256').update(token).digest('hex');
-}
 
 export async function getSession(): Promise<{ user: AuthUser; session: AuthSession; token: string } | null> {
   const cookieStore = await cookies();
@@ -460,7 +463,7 @@ export async function authenticateUser(
 }
 
 export async function createSession(userId: string, ip?: string | null, userAgent?: string | null) {
-  const token = randomBytes(32).toString('hex');
+  const token = createOpaqueToken();
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
 
@@ -578,134 +581,6 @@ export function clearSessionCookie(response: NextResponse) {
   });
 }
 
-export async function createEmailVerification(userId: string) {
-  const token = randomBytes(32).toString('hex');
-  const tokenHash = hashToken(token);
-  const expiresAt = new Date(Date.now() + EMAIL_VERIFY_TTL_HOURS * 60 * 60 * 1000);
-
-  await exec(`delete from auth_email_verifications where user_id = $1`, [userId]);
-  await exec(
-    `insert into auth_email_verifications (user_id, token_hash, expires_at, created_at)
-     values ($1,$2,$3,now())`,
-    [userId, tokenHash, expiresAt]
-  );
-
-  return { token, expiresAt };
-}
-
-export async function verifyEmailToken(token: string): Promise<boolean> {
-  const tokenHash = hashToken(token);
-  const row = await queryOne<{ id: string; user_id: string }>(
-    `select id, user_id
-     from auth_email_verifications
-     where token_hash = $1 and expires_at > now() and used_at is null`,
-    [tokenHash]
-  );
-  if (!row) return false;
-
-  await withTransaction(async (client) => {
-    await execTx(client, `update auth_email_verifications set used_at = now() where id = $1`, [row.id]);
-    await execTx(client,
-      `update auth_users
-       set email_verified_at = now(),
-           status = case when status = 'pending' then 'active' else status end,
-           updated_at = now()
-       where id = $1`,
-      [row.user_id]
-    );
-  });
-
-  return true;
-}
-
-export async function createPasswordReset(email: string) {
-  const user = await queryOne<UserRow>(
-    `select id, email_verified_at, status from auth_users where email = $1`,
-    [email]
-  );
-  if (!user || user.status === 'disabled') {
-    return null;
-  }
-  if (!user.email_verified_at || user.status !== 'active') {
-    return null;
-  }
-
-  const token = randomBytes(32).toString('hex');
-  const tokenHash = hashToken(token);
-  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_HOURS * 60 * 60 * 1000);
-
-  await exec(`delete from auth_password_resets where user_id = $1 and used_at is null`, [user.id]);
-  await exec(
-    `insert into auth_password_resets (user_id, token_hash, expires_at, created_at)
-     values ($1,$2,$3,now())`,
-    [user.id, tokenHash, expiresAt]
-  );
-
-  return { token, expiresAt };
-}
-
-export async function resetPasswordWithToken(token: string, newPassword: string): Promise<boolean> {
-  const tokenHash = hashToken(token);
-  const row = await queryOne<{ id: string; user_id: string }>(
-    `select id, user_id
-     from auth_password_resets
-     where token_hash = $1 and expires_at > now() and used_at is null`,
-    [tokenHash]
-  );
-  if (!row) return false;
-
-  const passwordHash = await hash(newPassword);
-
-  await withTransaction(async (client) => {
-    await execTx(client,
-      `insert into auth_credentials (user_id, password_hash, password_updated_at)
-       values ($1, $2, now())
-       on conflict (user_id) do update
-         set password_hash = excluded.password_hash,
-             password_updated_at = now()`,
-      [row.user_id, passwordHash]
-    );
-    await execTx(client, `update auth_password_resets set used_at = now() where id = $1`, [row.id]);
-    await execTx(client, `update auth_users set updated_at = now() where id = $1`, [row.user_id]);
-    await execTx(client,
-      `update auth_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`,
-      [row.user_id]
-    );
-  });
-
-  return true;
-}
-
-export async function cleanupAuthData() {
-  const expiredSessions = await query<{ count: number }>(
-    `delete from auth_sessions
-     where expires_at < now() or (revoked_at is not null and revoked_at < now() - interval '30 days')
-     returning 1 as count`
-  );
-  const emailTokens = await query<{ count: number }>(
-    `delete from auth_email_verifications
-     where expires_at < now() or used_at is not null
-     returning 1 as count`
-  );
-  const resetTokens = await query<{ count: number }>(
-    `delete from auth_password_resets
-     where expires_at < now() or used_at is not null
-     returning 1 as count`
-  );
-  const attempts = await query<{ count: number }>(
-    `delete from auth_login_attempts
-     where created_at < now() - interval '30 days'
-     returning 1 as count`
-  );
-
-  return {
-    sessions: expiredSessions.length,
-    emailVerifications: emailTokens.length,
-    passwordResets: resetTokens.length,
-    loginAttempts: attempts.length,
-  };
-}
-
 async function enforceSessionLimit(userId: string, newSessionId: string) {
   const sessions = await query<{ id: string }>(
     `select id from auth_sessions
@@ -727,84 +602,4 @@ async function enforceSessionLimit(userId: string, newSessionId: string) {
      where id = any($1::uuid[])`,
     [toRevoke.map((s) => s.id)]
   );
-}
-
-async function handleFailedLogin(
-  userId: string,
-  email: string,
-  ip?: string | null,
-  userAgent?: string | null
-) {
-  await recordLoginAttempt(userId, email, ip ?? null, userAgent ?? null, false, 'invalid_password');
-
-  const row = await queryOne<{ failed_login_count: number }>(
-    `update auth_users
-     set failed_login_count = failed_login_count + 1, updated_at = now()
-     where id = $1
-     returning failed_login_count`,
-    [userId]
-  );
-
-  if (row && row.failed_login_count >= LOGIN_FAILURE_LIMIT) {
-    const lockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MINUTES * 60 * 1000);
-    await exec(
-      `update auth_users
-       set locked_until = $2, updated_at = now()
-       where id = $1`,
-      [userId, lockedUntil]
-    );
-  }
-}
-
-async function handleSuccessfulLogin(
-  userId: string,
-  email: string,
-  ip?: string | null,
-  userAgent?: string | null
-) {
-  await recordLoginAttempt(userId, email, ip ?? null, userAgent ?? null, true, null);
-  await exec(
-    `update auth_users
-     set failed_login_count = 0, locked_until = null, last_login_at = now(), updated_at = now()
-     where id = $1`,
-    [userId]
-  );
-}
-
-async function recordLoginAttempt(
-  userId: string | null,
-  email: string,
-  ip: string | null,
-  userAgent: string | null,
-  success: boolean,
-  failureReason: string | null
-) {
-  await exec(
-    `insert into auth_login_attempts
-      (user_id, email, ip_address, user_agent, success, failure_reason, created_at)
-     values ($1,$2,$3,$4,$5,$6,now())`,
-    [userId, email, ip, userAgent, success, failureReason]
-  );
-}
-
-async function checkLoginRateLimit(email: string, ip: string | null) {
-  const windowStart = new Date(Date.now() - LOGIN_FAILURE_WINDOW_MINUTES * 60 * 1000);
-  const params: unknown[] = [windowStart.toISOString(), email];
-  let sql =
-    `select count(*)::int as count
-     from auth_login_attempts
-     where (success = false and created_at > $1 and email = $2)`;
-
-  if (ip) {
-    params.push(ip);
-    sql += ` or (success = false and created_at > $1 and ip_address = $3)`;
-  }
-
-  const row = await queryOne<{ count: number }>(sql, params);
-  const count = row?.count ?? 0;
-  if (count >= LOGIN_RATE_LIMIT) {
-    const retryAfter = LOGIN_FAILURE_WINDOW_MINUTES * 60;
-    return { allowed: false, retryAfter };
-  }
-  return { allowed: true };
 }

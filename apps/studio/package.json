@@ -6,7 +6,7 @@
     "dev": "next dev -p 8109",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint && node ./src/scripts/check-sql-projections.mjs && node ./src/scripts/check-db-query-typing.mjs && node --test ./src/scripts/pipeline-policy.test.mjs",
+    "lint": "eslint && node ./src/scripts/check-sql-projections.mjs && node ./src/scripts/check-db-query-typing.mjs && node ./src/scripts/check-route-layering.mjs && node --test ./src/scripts/pipeline-policy.test.mjs",
     "pipeline:lint": "node ./src/scripts/check-pipeline-config.mjs",
     "pipeline:policy:test": "node --test ./src/scripts/pipeline-policy.test.mjs"
   },

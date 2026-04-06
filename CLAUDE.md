@@ -92,6 +92,8 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 - **DTO typing discipline**: API routes and services must use explicit row/response interfaces for DB query results; avoid `Record<string, unknown>` in production read/write paths when the payload shape is known.
 - **Weak-type elimination baseline**: In `apps/studio/src/app/api/**` and `apps/studio/src/services/**`, `Record<string, unknown>` should not be used. Use explicit DTO interfaces for stable contracts and `JsonObject`/`asJsonObject` (`apps/studio/src/lib/json.ts`) for genuinely dynamic JSON payloads.
 - **DB query typing discipline**: Calls to `query` / `queryOne` in Studio API/services must specify generic row types explicitly (no implicit default row typing). Enforced by `apps/studio/src/scripts/check-db-query-typing.mjs` in Studio lint.
+- **Pipeline route layering contract**: `apps/studio/src/app/api/pipelines/route.ts`, `apps/studio/src/app/api/pipelines/[id]/route.ts`, `apps/studio/src/app/api/pipelines/[id]/runs/route.ts`, and `apps/studio/src/app/api/pipelines/[id]/policy-rejections/route.ts` are HTTP boundaries only. They must delegate business flow to `apps/studio/src/features/pipelines/application/**` and must not import DB helpers (`@/lib/db`) or infra gateway/telemetry modules (`@/services/conductorGateway`, `@/services/pipelineListTelemetry`) directly.
+- **Route-layering lint guard**: Studio lint enforces the pipeline route layering contract (for list/detail/runs/policy-rejections routes) via `apps/studio/src/scripts/check-route-layering.mjs`.
 - **DB helper strictness**: `apps/studio/src/lib/db.ts` `query` / `queryOne` are generic-only (no default `any` type parameter). Do not reintroduce implicit row typing defaults.
 - **Write-path execution semantics**: Use `exec` (pool scope) and `execTx` (`apps/studio/src/lib/db.ts`, transaction scope) for write-only SQL that does not read row payloads, instead of ad-hoc `query` calls.
 - **Status constant centralization**: Reused analysis/pipeline status groups (active/terminal/failure/result-ready) must be defined in `apps/studio/src/services/statuses.ts` and reused across routes/services; avoid scattering duplicated hardcoded status sets.
@@ -124,7 +126,7 @@ If a client-only page cannot receive `dict` from a server parent, use `useClient
 ## Quality Gates
 
 - Studio CI baseline must be green on every change set:
-  - `pnpm -C apps/studio lint` returns 0 errors and 0 warnings (ESLint + SQL projection guard + pipeline policy contract tests).
+  - `pnpm -C apps/studio lint` returns 0 errors and 0 warnings (ESLint + SQL projection guard + DB query typing guard + route-layering guard + pipeline policy contract tests).
   - `pnpm -C apps/studio build` succeeds.
 - Conductor backend baseline must compile:
   - `cd apps/conductor && GOMODCACHE=../../.cache/go/mod GOCACHE=../../.cache/go/build go build ./...`
