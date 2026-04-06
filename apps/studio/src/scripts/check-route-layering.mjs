@@ -67,44 +67,65 @@ const rules = [
   },
   {
     file: 'app/api/pipeline-runs/[runId]/cancel/route.ts',
-    forbiddenImports: [],
-    requiredImportPrefixes: [],
+    forbiddenImports: [
+      '@/services/conductorGateway',
+      '@/services/orgs',
+    ],
+    requiredImportPrefixes: ['@/features/pipeline-runs/application/'],
     mustUseAuthedRoute: true,
   },
   {
     file: 'app/api/pipeline-runs/[runId]/jobs/[jobId]/retry/route.ts',
-    forbiddenImports: [],
-    requiredImportPrefixes: [],
+    forbiddenImports: [
+      '@/services/conductorGateway',
+      '@/services/orgs',
+    ],
+    requiredImportPrefixes: ['@/features/pipeline-runs/application/'],
     mustUseAuthedRoute: true,
   },
   {
     file: 'app/api/pipeline-runs/[runId]/jobs/[jobId]/trigger/route.ts',
-    forbiddenImports: [],
-    requiredImportPrefixes: [],
+    forbiddenImports: [
+      '@/services/conductorGateway',
+      '@/services/orgs',
+    ],
+    requiredImportPrefixes: ['@/features/pipeline-runs/application/'],
     mustUseAuthedRoute: true,
   },
   {
     file: 'app/api/pipeline-runs/[runId]/logs/[stepId]/route.ts',
-    forbiddenImports: [],
-    requiredImportPrefixes: [],
+    forbiddenImports: [
+      '@/services/conductorGateway',
+      '@/lib/db',
+    ],
+    requiredImportPrefixes: ['@/features/pipeline-runs/application/'],
     mustUseAuthedRoute: true,
   },
   {
     file: 'app/api/pipeline-runs/[runId]/logs/[stepId]/stream/route.ts',
-    forbiddenImports: [],
-    requiredImportPrefixes: [],
+    forbiddenImports: [
+      '@/services/conductorGateway',
+      '@/lib/db',
+    ],
+    requiredImportPrefixes: ['@/features/pipeline-runs/application/'],
     mustUseAuthedRoute: true,
   },
   {
     file: 'app/api/pipeline-runs/[runId]/artifacts/route.ts',
-    forbiddenImports: [],
-    requiredImportPrefixes: [],
+    forbiddenImports: [
+      '@/lib/db',
+      '@/services/artifactRegistry',
+    ],
+    requiredImportPrefixes: ['@/features/pipeline-runs/application/'],
     mustUseAuthedRoute: true,
   },
   {
     file: 'app/api/pipeline-runs/[runId]/artifacts/[artifactId]/download-token/route.ts',
-    forbiddenImports: [],
-    requiredImportPrefixes: [],
+    forbiddenImports: [
+      '@/lib/db',
+      '@/lib/artifactDownloadToken',
+    ],
+    requiredImportPrefixes: ['@/features/pipeline-runs/application/'],
     mustUseAuthedRoute: true,
   },
 ];
