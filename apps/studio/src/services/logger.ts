@@ -3,6 +3,8 @@
  * Supports log levels and contextual metadata
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export interface LogContext {
@@ -27,14 +29,25 @@ interface LogEntry {
 }
 
 class Logger {
-  private context: LogContext = {};
+  private readonly contextStorage = new AsyncLocalStorage<LogContext>();
+  private fallbackContext: LogContext = {};
+
+  private currentContext(): LogContext {
+    return this.contextStorage.getStore() ?? this.fallbackContext;
+  }
 
   setContext(ctx: LogContext) {
-    this.context = { ...this.context, ...ctx };
+    const merged = { ...this.currentContext(), ...ctx };
+    // Bind context to the current async execution chain to avoid cross-request context leakage.
+    this.contextStorage.enterWith(merged);
   }
 
   clearContext() {
-    this.context = {};
+    if (this.contextStorage.getStore()) {
+      this.contextStorage.enterWith({});
+      return;
+    }
+    this.fallbackContext = {};
   }
 
   private formatEntry(level: LogLevel, message: string, error?: Error, duration?: number): LogEntry {
@@ -44,8 +57,9 @@ class Logger {
       message,
     };
 
-    if (Object.keys(this.context).length > 0) {
-      entry.context = this.context;
+    const context = this.currentContext();
+    if (Object.keys(context).length > 0) {
+      entry.context = context;
     }
 
     if (error) {

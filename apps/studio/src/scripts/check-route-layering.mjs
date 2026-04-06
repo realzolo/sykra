@@ -12,6 +12,7 @@ const rules = [
       '@/services/pipelineListTelemetry',
     ],
     requiredImportPrefixes: ['@/features/pipelines/application/'],
+    mustUseAuthedRoute: true,
   },
   {
     file: 'app/api/pipelines/[id]/route.ts',
@@ -21,6 +22,7 @@ const rules = [
       '@/services/pipelineListTelemetry',
     ],
     requiredImportPrefixes: ['@/features/pipelines/application/'],
+    mustUseAuthedRoute: true,
   },
   {
     file: 'app/api/pipelines/[id]/runs/route.ts',
@@ -30,6 +32,7 @@ const rules = [
       '@/services/pipelineListTelemetry',
     ],
     requiredImportPrefixes: ['@/features/pipelines/application/'],
+    mustUseAuthedRoute: true,
   },
   {
     file: 'app/api/pipelines/[id]/policy-rejections/route.ts',
@@ -39,6 +42,70 @@ const rules = [
       '@/services/pipelineListTelemetry',
     ],
     requiredImportPrefixes: ['@/features/pipelines/application/'],
+    mustUseAuthedRoute: true,
+  },
+  {
+    file: 'app/api/pipeline-runs/[runId]/route.ts',
+    forbiddenImports: [
+      '@/lib/db',
+      '@/services/conductorGateway',
+      '@/services/pipelineRunHydration',
+    ],
+    requiredImportPrefixes: ['@/features/pipeline-runs/application/'],
+    mustUseAuthedRoute: true,
+  },
+  {
+    file: 'app/api/pipeline-runs/[runId]/stream/route.ts',
+    forbiddenImports: [
+      '@/lib/db',
+      '@/services/conductorGateway',
+      '@/services/pipelineRunHydration',
+      '@/services/pipelineRunStream',
+    ],
+    requiredImportPrefixes: ['@/features/pipeline-runs/application/'],
+    mustUseAuthedRoute: true,
+  },
+  {
+    file: 'app/api/pipeline-runs/[runId]/cancel/route.ts',
+    forbiddenImports: [],
+    requiredImportPrefixes: [],
+    mustUseAuthedRoute: true,
+  },
+  {
+    file: 'app/api/pipeline-runs/[runId]/jobs/[jobId]/retry/route.ts',
+    forbiddenImports: [],
+    requiredImportPrefixes: [],
+    mustUseAuthedRoute: true,
+  },
+  {
+    file: 'app/api/pipeline-runs/[runId]/jobs/[jobId]/trigger/route.ts',
+    forbiddenImports: [],
+    requiredImportPrefixes: [],
+    mustUseAuthedRoute: true,
+  },
+  {
+    file: 'app/api/pipeline-runs/[runId]/logs/[stepId]/route.ts',
+    forbiddenImports: [],
+    requiredImportPrefixes: [],
+    mustUseAuthedRoute: true,
+  },
+  {
+    file: 'app/api/pipeline-runs/[runId]/logs/[stepId]/stream/route.ts',
+    forbiddenImports: [],
+    requiredImportPrefixes: [],
+    mustUseAuthedRoute: true,
+  },
+  {
+    file: 'app/api/pipeline-runs/[runId]/artifacts/route.ts',
+    forbiddenImports: [],
+    requiredImportPrefixes: [],
+    mustUseAuthedRoute: true,
+  },
+  {
+    file: 'app/api/pipeline-runs/[runId]/artifacts/[artifactId]/download-token/route.ts',
+    forbiddenImports: [],
+    requiredImportPrefixes: [],
+    mustUseAuthedRoute: true,
   },
 ];
 
@@ -61,6 +128,17 @@ for (const rule of rules) {
       console.error(
         `[route-layering] ${rule.file} must import at least one module from ${requiredPrefix}`
       );
+      hasError = true;
+    }
+  }
+
+  if (rule.mustUseAuthedRoute) {
+    if (!imports.includes('@/services/apiRoute')) {
+      console.error(`[route-layering] ${rule.file} must import @/services/apiRoute`);
+      hasError = true;
+    }
+    if (!content.includes('withAuthedRoute')) {
+      console.error(`[route-layering] ${rule.file} must use withAuthedRoute at route boundaries`);
       hasError = true;
     }
   }

@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 import { extractClientInfo } from '@/services/audit';
-import { requireUser, unauthorized } from '@/services/auth';
-import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
+import { getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
-import { formatErrorResponse } from '@/services/retry';
+import { withAuthedRoute } from '@/services/apiRoute';
 import { updatePipelineSchema } from '@/services/validation';
 import {
   formatZodValidationError,
@@ -22,18 +20,14 @@ export const dynamic = 'force-dynamic';
 
 const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const rateLimitResponse = rateLimiter(request);
-  if (rateLimitResponse) return rateLimitResponse;
-
-  const user = await requireUser();
-  if (!user) return unauthorized();
-
-  try {
+export const GET = withAuthedRoute<{ id: string }>(
+  {
+    rateLimiter,
+    requireOrg: true,
+  },
+  async ({ params, orgId }) => {
     const { id } = await params;
-    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
-    if (!orgId) return unauthorized();
-    const result = await getPipelineForOrg({ pipelineId: id, orgId });
+    const result = await getPipelineForOrg({ pipelineId: id, orgId: orgId! });
     if (result.kind === 'not_found') {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
@@ -41,20 +35,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     return NextResponse.json(result.data);
-  } catch (err) {
-    const { error, statusCode } = formatErrorResponse(err);
-    return NextResponse.json({ error }, { status: statusCode });
   }
-}
+);
 
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const rateLimitResponse = rateLimiter(request);
-  if (rateLimitResponse) return rateLimitResponse;
-
-  const user = await requireUser();
-  if (!user) return unauthorized();
-
-  try {
+export const PUT = withAuthedRoute<{ id: string }>(
+  {
+    rateLimiter,
+    requireOrg: true,
+  },
+  async ({ request, params, user, orgId }) => {
     const { id } = await params;
     const clientInfo = extractClientInfo(request);
     const body = await request.json();
@@ -78,14 +67,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: validationError.message }, { status: 400 });
     }
     const validated = parsed.data;
-    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
-    const role = await getOrgMemberRole(orgId, user.id);
+    const role = await getOrgMemberRole(orgId!, user.id);
     if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const result = await updatePipelineForOrg({
       pipelineId: id,
-      orgId,
+      orgId: orgId!,
       userId: user.id,
       validated,
       clientInfo,
@@ -106,31 +94,25 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       );
     }
     return NextResponse.json(result.data);
-  } catch (err) {
-    const { error, statusCode } = formatErrorResponse(err);
-    return NextResponse.json({ error }, { status: statusCode });
   }
-}
+);
 
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const rateLimitResponse = rateLimiter(request);
-  if (rateLimitResponse) return rateLimitResponse;
-
-  const user = await requireUser();
-  if (!user) return unauthorized();
-
-  try {
+export const PATCH = withAuthedRoute<{ id: string }>(
+  {
+    rateLimiter,
+    requireOrg: true,
+  },
+  async ({ request, params, user, orgId }) => {
     const { id } = await params;
     const clientInfo = extractClientInfo(request);
     const body = await request.json();
-    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
-    const role = await getOrgMemberRole(orgId, user.id);
+    const role = await getOrgMemberRole(orgId!, user.id);
     if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const result = await patchPipelineConcurrencyForOrg({
       pipelineId: id,
-      orgId,
+      orgId: orgId!,
       userId: user.id,
       requestedConcurrencyMode: body?.concurrency_mode,
       clientInfo,
@@ -151,30 +133,24 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       );
     }
     return NextResponse.json({ concurrency_mode: result.concurrencyMode });
-  } catch (err) {
-    const { error, statusCode } = formatErrorResponse(err);
-    return NextResponse.json({ error }, { status: statusCode });
   }
-}
+);
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const rateLimitResponse = rateLimiter(request);
-  if (rateLimitResponse) return rateLimitResponse;
-
-  const user = await requireUser();
-  if (!user) return unauthorized();
-
-  try {
+export const DELETE = withAuthedRoute<{ id: string }>(
+  {
+    rateLimiter,
+    requireOrg: true,
+  },
+  async ({ request, params, user, orgId }) => {
     const { id } = await params;
-    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
-    const role = await getOrgMemberRole(orgId, user.id);
+    const role = await getOrgMemberRole(orgId!, user.id);
     if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const clientInfo = extractClientInfo(request);
     const result = await deletePipelineForOrg({
       pipelineId: id,
-      orgId,
+      orgId: orgId!,
       userId: user.id,
       clientInfo,
     });
@@ -185,8 +161,5 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     return NextResponse.json({ ok: true });
-  } catch (err) {
-    const { error, statusCode } = formatErrorResponse(err);
-    return NextResponse.json({ error }, { status: statusCode });
   }
-}
+);

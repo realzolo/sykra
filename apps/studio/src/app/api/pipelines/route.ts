@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 import { extractClientInfo } from '@/services/audit';
-import { requireUser, unauthorized } from '@/services/auth';
-import { getActiveOrgId, getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
+import { getOrgMemberRole, isRoleAllowed, ORG_ADMIN_ROLES } from '@/services/orgs';
 import { createInMemoryRateLimiter, RATE_LIMITS } from '@/middleware/rateLimit';
-import { formatErrorResponse } from '@/services/retry';
+import { withAuthedRoute } from '@/services/apiRoute';
 import { createPipelineSchema, projectIdSchema } from '@/services/validation';
 import {
   formatZodValidationError,
@@ -18,40 +16,32 @@ export const dynamic = 'force-dynamic';
 
 const rateLimiter = createInMemoryRateLimiter(RATE_LIMITS.general);
 
-export async function GET(request: NextRequest) {
-  const rateLimitResponse = rateLimiter(request);
-  if (rateLimitResponse) return rateLimitResponse;
-
-  const user = await requireUser();
-  if (!user) return unauthorized();
-
-  try {
-    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
+export const GET = withAuthedRoute<Record<string, never>>(
+  {
+    rateLimiter,
+    requireOrg: true,
+  },
+  async ({ request, user, orgId }) => {
     const projectIdRaw = request.nextUrl.searchParams.get('projectId');
     let projectId: string | undefined;
     if (projectIdRaw) {
       projectId = projectIdSchema.parse(projectIdRaw);
     }
     const hydrated = await listPipelinesForOrg({
-      orgId,
+      orgId: orgId!,
       userId: user.id,
       ...(projectId ? { projectId } : {}),
     });
     return NextResponse.json(hydrated);
-  } catch (err) {
-    const { error, statusCode } = formatErrorResponse(err);
-    return NextResponse.json({ error }, { status: statusCode });
   }
-}
+);
 
-export async function POST(request: NextRequest) {
-  const rateLimitResponse = rateLimiter(request);
-  if (rateLimitResponse) return rateLimitResponse;
-
-  const user = await requireUser();
-  if (!user) return unauthorized();
-
-  try {
+export const POST = withAuthedRoute<Record<string, never>>(
+  {
+    rateLimiter,
+    requireOrg: true,
+  },
+  async ({ request, user, orgId }) => {
     const clientInfo = extractClientInfo(request);
     const body = await request.json();
     const parsed = createPipelineSchema.safeParse(body);
@@ -73,13 +63,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: validationError.message }, { status: 400 });
     }
     const validated = parsed.data;
-    const orgId = await getActiveOrgId(user.id, user.email ?? undefined, request);
-    const role = await getOrgMemberRole(orgId, user.id);
+    const role = await getOrgMemberRole(orgId!, user.id);
     if (!isRoleAllowed(role, ORG_ADMIN_ROLES)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const createResult = await createPipelineForOrg({
-      orgId,
+      orgId: orgId!,
       userId: user.id,
       validated,
       clientInfo,
@@ -92,8 +81,5 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(createResult.result, { status: 201 });
-  } catch (err) {
-    const { error, statusCode } = formatErrorResponse(err);
-    return NextResponse.json({ error }, { status: statusCode });
   }
-}
+);
