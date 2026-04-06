@@ -1753,29 +1753,38 @@ export default function PipelineDetailClient({
     : "";
   const runHistoryTitle = `${p.detail.runHistory} (${runs.length})`;
   const hasFailureSummary = Boolean(runExecutionSummary?.failure_summary || currentRunIsTerminalFailure);
+  const failureSignatures = useMemo<PipelineFailureSignature[]>(() => {
+    const items = runDetail?.run.failure_signatures;
+    if (Array.isArray(items) && items.length > 0) {
+      return items;
+    }
+    const fallback = runDetail?.run.failure_signature;
+    return fallback ? [fallback] : [];
+  }, [runDetail?.run.failure_signatures, runDetail?.run.failure_signature]);
   const failureSignature = useMemo<PipelineFailureSignature | null>(() => {
-    const item = runDetail?.run.failure_signature;
-    return item ?? null;
-  }, [runDetail?.run.failure_signature]);
-  const selectedNodeFailureSignature = useMemo<PipelineFailureSignature | null>(() => {
-    if (!failureSignature || !selectedRuntimeJob) return null;
-    if (failureSignature.job_id && failureSignature.job_id !== selectedRuntimeJob.id) {
-      return null;
+    return failureSignatures[0] ?? null;
+  }, [failureSignatures]);
+  const selectedNodeFailureSignatures = useMemo<PipelineFailureSignature[]>(() => {
+    if (!selectedRuntimeJob) {
+      return [];
     }
-    if (failureSignature.job_key && failureSignature.job_key !== selectedRuntimeJob.job_key) {
-      return null;
-    }
-    if (failureSignature.step_id && !selectedRuntimeSteps.some((step) => step.id === failureSignature.step_id)) {
-      return null;
-    }
-    if (
-      failureSignature.step_key &&
-      !selectedRuntimeSteps.some((step) => step.step_key === failureSignature.step_key)
-    ) {
-      return null;
-    }
-    return failureSignature;
-  }, [failureSignature, selectedRuntimeJob, selectedRuntimeSteps]);
+    return failureSignatures.filter((item) => {
+      if (item.job_id && item.job_id !== selectedRuntimeJob.id) {
+        return false;
+      }
+      if (item.job_key && item.job_key !== selectedRuntimeJob.job_key) {
+        return false;
+      }
+      if (item.step_id && !selectedRuntimeSteps.some((step) => step.id === item.step_id)) {
+        return false;
+      }
+      if (item.step_key && !selectedRuntimeSteps.some((step) => step.step_key === item.step_key)) {
+        return false;
+      }
+      return true;
+    });
+  }, [failureSignatures, selectedRuntimeJob, selectedRuntimeSteps]);
+  const selectedNodeFailureSignature = selectedNodeFailureSignatures[0] ?? null;
   const selectedNodeFailureStepName = useMemo(() => {
     if (!selectedNodeFailureSignature) return null;
     if (selectedNodeFailureSignature.step_id) {
@@ -2702,6 +2711,20 @@ export default function PipelineDetailClient({
                                     <div className="mt-1 text-[12px] text-foreground break-words">
                                       {failureSignature.summary}
                                     </div>
+                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-[hsl(var(--ds-text-2))]">
+                                      <span>
+                                        {p.detail.failureSignatureCountInRun.replace(
+                                          "{{count}}",
+                                          String(Math.max(1, failureSignature.occurrences_in_run ?? 1))
+                                        )}
+                                      </span>
+                                      <span>
+                                        {p.detail.failureSignatureCount7d.replace(
+                                          "{{count}}",
+                                          String(Math.max(1, failureSignature.occurrences_7d ?? 1))
+                                        )}
+                                      </span>
+                                    </div>
                                     {failureSignature.runbook && (
                                       <div className="mt-2 space-y-1 text-[11px] text-[hsl(var(--ds-text-2))]">
                                         <div>
@@ -3369,6 +3392,20 @@ export default function PipelineDetailClient({
                                         <div className="mt-2 text-[12px] text-foreground break-words">
                                           {selectedNodeFailureSignature.summary}
                                         </div>
+                                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-[hsl(var(--ds-text-2))]">
+                                          <span>
+                                            {p.detail.failureSignatureCountInRun.replace(
+                                              "{{count}}",
+                                              String(Math.max(1, selectedNodeFailureSignature.occurrences_in_run ?? 1))
+                                            )}
+                                          </span>
+                                          <span>
+                                            {p.detail.failureSignatureCount7d.replace(
+                                              "{{count}}",
+                                              String(Math.max(1, selectedNodeFailureSignature.occurrences_7d ?? 1))
+                                            )}
+                                          </span>
+                                        </div>
                                         {selectedNodeFailureStepName && (
                                           <div className="mt-1 text-[11px] text-[hsl(var(--ds-text-2))]">
                                             {p.detail.nodeFailureStep.replace("{{name}}", selectedNodeFailureStepName)}
@@ -3400,6 +3437,68 @@ export default function PipelineDetailClient({
                                                 ))}
                                               </div>
                                             )}
+                                          </div>
+                                        )}
+                                        {selectedNodeFailureSignatures.length > 0 && (
+                                          <div className="mt-3 rounded-[10px] border border-danger/20 bg-background px-2.5 py-2">
+                                            <div className="text-[11px] text-foreground">
+                                              {p.detail.failureSignatureTimelineTitle}
+                                            </div>
+                                            <div className="mt-2 space-y-1.5">
+                                              {selectedNodeFailureSignatures.map((item, index) => {
+                                                const detectedAtLabel = item.detected_at
+                                                  ? formatLocalDateTime(item.detected_at)
+                                                  : p.detail.failureSignatureUnknownTime;
+                                                const relatedStepName =
+                                                  item.step_id
+                                                    ? selectedRuntimeSteps.find((step) => step.id === item.step_id)?.name ?? null
+                                                    : item.step_key
+                                                      ? selectedRuntimeSteps.find((step) => step.step_key === item.step_key)?.name ?? null
+                                                      : null;
+                                                return (
+                                                  <div
+                                                    key={`${item.code}-${item.detected_at ?? "unknown"}-${index}`}
+                                                    className="rounded-[8px] border border-[hsl(var(--ds-border-1))] bg-[hsl(var(--ds-surface-1))]/40 px-2 py-1.5"
+                                                  >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                      <Badge
+                                                        variant={failureSeverityBadgeVariant(item.severity)}
+                                                        size="sm"
+                                                      >
+                                                        {item.code}
+                                                      </Badge>
+                                                      <span className="text-[10px] text-[hsl(var(--ds-text-2))]">
+                                                        {detectedAtLabel}
+                                                      </span>
+                                                    </div>
+                                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-[hsl(var(--ds-text-2))]">
+                                                      <span>
+                                                        {p.detail.failureSignatureCountInRun.replace(
+                                                          "{{count}}",
+                                                          String(Math.max(1, item.occurrences_in_run ?? 1))
+                                                        )}
+                                                      </span>
+                                                      <span>
+                                                        {p.detail.failureSignatureCount7d.replace(
+                                                          "{{count}}",
+                                                          String(Math.max(1, item.occurrences_7d ?? 1))
+                                                        )}
+                                                      </span>
+                                                    </div>
+                                                    {relatedStepName && (
+                                                      <div className="mt-1 text-[10px] text-[hsl(var(--ds-text-2))]">
+                                                        {p.detail.nodeFailureStep.replace("{{name}}", relatedStepName)}
+                                                      </div>
+                                                    )}
+                                                    {item.message && (
+                                                      <div className="mt-1 text-[10px] text-foreground break-words">
+                                                        {item.message}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
                                           </div>
                                         )}
                                       </div>

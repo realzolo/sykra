@@ -332,6 +332,9 @@ export type PipelineRunDetail = {
       title: string;
       summary: string;
       severity: string;
+      fingerprint?: string | null;
+      occurrences_in_run?: number;
+      occurrences_7d?: number;
       scope: string;
       message: string;
       job_id?: string | null;
@@ -346,6 +349,28 @@ export type PipelineRunDetail = {
         actions: string[];
       } | null;
     } | null;
+    failure_signatures?: Array<{
+      code: string;
+      title: string;
+      summary: string;
+      severity: string;
+      fingerprint?: string | null;
+      occurrences_in_run?: number;
+      occurrences_7d?: number;
+      scope: string;
+      message: string;
+      job_id?: string | null;
+      job_key?: string | null;
+      step_id?: string | null;
+      step_key?: string | null;
+      detected_at?: string | null;
+      runbook?: {
+        id: string;
+        title: string;
+        doc_path: string;
+        actions: string[];
+      } | null;
+    }>;
   };
   jobs: Array<{
     id: string;
